@@ -1,12 +1,14 @@
 use chrono::{Duration, Local, NaiveDate, TimeZone};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const GEMINI_DIR: &str = ".gemini";
 const ANTIGRAVITY_PREFIX: &str = "antigravity";
+const TOKEN_ARCHIVE_DIR: &str = "antigravity";
+const TOKEN_ARCHIVE_FILE: &str = "token_usage_archive.db";
 const MAX_GENERATION_BLOB_BYTES: i64 = 64 * 1024 * 1024;
 const GENERATION_STEP_TYPE: i64 = 15;
 
@@ -93,14 +95,49 @@ pub fn get_local_token_usage() -> Result<LocalTokenUsageSummary, String> {
     let today = now.date_naive();
     let start_30_days = today - Duration::days(29);
     let database_paths = discover_database_files()?;
+    let live_source_keys = database_paths
+        .iter()
+        .map(|path| source_key_for_database(path))
+        .collect::<HashSet<_>>();
 
     let mut events = Vec::new();
+    let mut scanned_sources = HashSet::new();
     let mut generations_scanned = 0_u64;
     let mut skipped_large_records = 0_u64;
     let mut unreadable_databases = 0_u64;
 
+    let archive_path = token_archive_path()?;
+    let archived = if archive_path.is_file() {
+        match scan_archive(&archive_path, start_30_days, &live_source_keys) {
+            Ok(result) => result,
+            Err(error) => {
+                unreadable_databases += 1;
+                crate::modules::logger::log_warn(&format!(
+                    "无法读取本地 Token 归档 {}: {}",
+                    archive_path.display(),
+                    error
+                ));
+                ArchivedTokenData::default()
+            }
+        }
+    } else {
+        ArchivedTokenData::default()
+    };
+
+    scanned_sources.extend(archived.source_keys.iter().cloned());
+    generations_scanned += archived.generations_scanned;
+    skipped_large_records += archived.skipped_large_records;
+    events.extend(archived.events.iter().cloned());
+
     for path in &database_paths {
-        match scan_database(path, start_30_days) {
+        let source_key = source_key_for_database(path);
+        scanned_sources.insert(source_key.clone());
+        let archived_ids = archived
+            .generation_ids_by_source
+            .get(&source_key)
+            .cloned()
+            .unwrap_or_default();
+        match scan_database(path, start_30_days, &archived_ids) {
             Ok(result) => {
                 generations_scanned += result.generations_scanned;
                 skipped_large_records += result.skipped_large_records;
@@ -198,7 +235,7 @@ pub fn get_local_token_usage() -> Result<LocalTokenUsageSummary, String> {
         by_model_today: model_totals(by_model_today),
         by_model_7_days: model_totals(by_model_7_days),
         by_model: model_totals(by_model_30_days),
-        databases_scanned: database_paths.len() as u64,
+        databases_scanned: scanned_sources.len() as u64,
         generations_scanned,
         skipped_large_records,
         unreadable_databases,
@@ -242,7 +279,147 @@ struct DatabaseScanResult {
     skipped_large_records: u64,
 }
 
-fn scan_database(path: &Path, since: NaiveDate) -> Result<DatabaseScanResult, String> {
+#[derive(Default)]
+struct ArchivedTokenData {
+    events: Vec<GenerationEvent>,
+    source_keys: HashSet<String>,
+    generation_ids_by_source: HashMap<String, HashSet<i64>>,
+    generations_scanned: u64,
+    skipped_large_records: u64,
+}
+
+fn token_archive_path() -> Result<PathBuf, String> {
+    let Some(home) = dirs::home_dir() else {
+        return Err("无法定位用户目录".to_string());
+    };
+    Ok(home
+        .join(GEMINI_DIR)
+        .join(TOKEN_ARCHIVE_DIR)
+        .join(TOKEN_ARCHIVE_FILE))
+}
+
+fn source_key_for_database(path: &Path) -> String {
+    let Some(home) = dirs::home_dir() else {
+        return path.to_string_lossy().replace('\\', "/");
+    };
+    let gemini_home = home.join(GEMINI_DIR);
+    let gemini_home = fs::canonicalize(&gemini_home).unwrap_or(gemini_home);
+    let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    path.strip_prefix(&gemini_home)
+        .map(|relative| {
+            relative
+                .components()
+                .map(|component| component.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
+        .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"))
+}
+
+fn scan_archive(
+    path: &Path,
+    since: NaiveDate,
+    live_source_keys: &HashSet<String>,
+) -> Result<ArchivedTokenData, String> {
+    let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|error| error.to_string())?;
+    connection
+        .busy_timeout(std::time::Duration::from_secs(2))
+        .map_err(|error| error.to_string())?;
+
+    let mut result = ArchivedTokenData::default();
+    let mut source_statement = connection
+        .prepare("SELECT source_key FROM archived_sources")
+        .map_err(|error| error.to_string())?;
+    let source_rows = source_statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?;
+    for source in source_rows {
+        result
+            .source_keys
+            .insert(source.map_err(|error| error.to_string())?);
+    }
+
+    let mut statement = connection
+        .prepare(
+            "SELECT source_key, generation_idx, model, input_tokens, output_tokens,
+                    cached_tokens, total_tokens, timestamp_seconds, valid, oversized
+             FROM archived_generations
+             ORDER BY source_key, generation_idx",
+        )
+        .map_err(|error| error.to_string())?;
+    let mut rows = statement.query([]).map_err(|error| error.to_string())?;
+    while let Some(row) = rows.next().map_err(|error| error.to_string())? {
+        let source_key: String = row.get(0).map_err(|error| error.to_string())?;
+        let generation_idx: i64 = row.get(1).map_err(|error| error.to_string())?;
+        result.source_keys.insert(source_key.clone());
+        if live_source_keys.contains(&source_key) {
+            result
+                .generation_ids_by_source
+                .entry(source_key.clone())
+                .or_default()
+                .insert(generation_idx);
+        }
+        result.generations_scanned = result.generations_scanned.saturating_add(1);
+
+        let valid: i64 = row.get(8).map_err(|error| error.to_string())?;
+        if valid != 1 {
+            let oversized: i64 = row.get(9).map_err(|error| error.to_string())?;
+            if oversized == 1 {
+                result.skipped_large_records = result.skipped_large_records.saturating_add(1);
+            }
+            continue;
+        }
+
+        let model: Option<String> = row.get(2).map_err(|error| error.to_string())?;
+        let input_tokens: Option<String> = row.get(3).map_err(|error| error.to_string())?;
+        let output_tokens: Option<String> = row.get(4).map_err(|error| error.to_string())?;
+        let cached_tokens: Option<String> = row.get(5).map_err(|error| error.to_string())?;
+        let total_tokens: Option<String> = row.get(6).map_err(|error| error.to_string())?;
+        let timestamp_seconds: Option<i64> = row.get(7).map_err(|error| error.to_string())?;
+        let Some(model) = model else {
+            continue;
+        };
+        let Some(input_tokens) = input_tokens.and_then(|value| value.parse::<u64>().ok()) else {
+            continue;
+        };
+        let Some(output_tokens) = output_tokens.and_then(|value| value.parse::<u64>().ok()) else {
+            continue;
+        };
+        let Some(cached_tokens) = cached_tokens.and_then(|value| value.parse::<u64>().ok()) else {
+            continue;
+        };
+        let Some(total_tokens) = total_tokens.and_then(|value| value.parse::<u64>().ok()) else {
+            continue;
+        };
+        let Some(timestamp_seconds) = timestamp_seconds else {
+            continue;
+        };
+        let event = GenerationEvent {
+            model,
+            input_tokens,
+            output_tokens,
+            cached_tokens,
+            total_tokens,
+            timestamp_seconds,
+        };
+
+        let Some(date_time) = Local.timestamp_opt(event.timestamp_seconds, 0).single() else {
+            continue;
+        };
+        if date_time.date_naive() >= since {
+            result.events.push(event);
+        }
+    }
+
+    Ok(result)
+}
+
+fn scan_database(
+    path: &Path,
+    since: NaiveDate,
+    archived_generation_ids: &HashSet<i64>,
+) -> Result<DatabaseScanResult, String> {
     let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|error| error.to_string())?;
     connection
@@ -296,7 +473,7 @@ fn scan_database(path: &Path, since: NaiveDate) -> Result<DatabaseScanResult, St
         Vec::new()
     };
 
-    let query = "SELECT data, length(data)
+    let query = "SELECT idx, data, length(data)
                  FROM gen_metadata
                  WHERE data IS NOT NULL
                  ORDER BY idx";
@@ -308,21 +485,24 @@ fn scan_database(path: &Path, since: NaiveDate) -> Result<DatabaseScanResult, St
     let mut events = Vec::new();
     let mut generations_scanned = 0_u64;
     let mut skipped_large_records = 0_u64;
+    let mut generation_ordinal = 0_usize;
 
     while let Some(row) = rows.next().map_err(|error| error.to_string())? {
-        let generation_ordinal = generations_scanned as usize;
+        let generation_idx: i64 = row.get(0).map_err(|error| error.to_string())?;
+        let current_ordinal = generation_ordinal;
+        generation_ordinal = generation_ordinal.saturating_add(1);
+        if archived_generation_ids.contains(&generation_idx) {
+            continue;
+        }
         generations_scanned = generations_scanned.saturating_add(1);
-        let blob_size: i64 = row.get(1).map_err(|error| error.to_string())?;
+        let blob_size: i64 = row.get(2).map_err(|error| error.to_string())?;
         if blob_size > MAX_GENERATION_BLOB_BYTES {
             skipped_large_records = skipped_large_records.saturating_add(1);
             continue;
         }
 
-        let blob: Vec<u8> = row.get(0).map_err(|error| error.to_string())?;
-        let step_timestamp = step_timestamps
-            .get(generation_ordinal)
-            .copied()
-            .flatten();
+        let blob: Vec<u8> = row.get(1).map_err(|error| error.to_string())?;
+        let step_timestamp = step_timestamps.get(current_ordinal).copied().flatten();
         let Some(event) = generation_event(&blob, step_timestamp) else {
             continue;
         };
@@ -570,6 +750,100 @@ mod tests {
         assert_eq!(event.cached_tokens, 50);
         assert_eq!(event.total_tokens, 380);
         assert_eq!(event.timestamp_seconds, 1_800_000_000);
+    }
+
+    #[test]
+    fn reads_archived_usage_and_skips_the_same_live_generation() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let live_path = directory.path().join("conversation.db");
+        let archive_path = directory.path().join("token_usage_archive.db");
+        let source_key = "antigravity/conversations/test.db";
+        let blob = generation_blob();
+
+        let live = Connection::open(&live_path).expect("live database should open");
+        live.execute_batch(
+            "CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB NOT NULL);
+             CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, metadata BLOB);
+             INSERT INTO steps (idx, step_type, metadata) VALUES (1, 15, NULL);",
+        )
+        .expect("live database schema should be created");
+        live.execute(
+            "INSERT INTO gen_metadata (idx, data) VALUES (?1, ?2)",
+            rusqlite::params![7_i64, &blob],
+        )
+        .expect("live generation should be inserted");
+        drop(live);
+
+        let archive = Connection::open(&archive_path).expect("archive database should open");
+        archive
+            .execute_batch(
+                "CREATE TABLE archived_sources (
+                    source_key TEXT PRIMARY KEY,
+                    archived_at INTEGER NOT NULL,
+                    generation_count INTEGER NOT NULL
+                 );
+                 CREATE TABLE archived_generations (
+                    source_key TEXT NOT NULL,
+                    generation_idx INTEGER NOT NULL,
+                    ordinal INTEGER NOT NULL,
+                    model TEXT,
+                    input_tokens TEXT,
+                    output_tokens TEXT,
+                    cached_tokens TEXT,
+                    total_tokens TEXT,
+                    timestamp_seconds INTEGER,
+                    valid INTEGER NOT NULL,
+                    oversized INTEGER NOT NULL,
+                    PRIMARY KEY (source_key, generation_idx)
+                 );",
+            )
+            .expect("archive schema should be created");
+        archive
+            .execute(
+                "INSERT INTO archived_sources VALUES (?1, ?2, ?3)",
+                rusqlite::params![source_key, 1_i64, 1_i64],
+            )
+            .expect("archive source should be inserted");
+        archive
+            .execute(
+                "INSERT INTO archived_generations VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                rusqlite::params![
+                    source_key,
+                    7_i64,
+                    0_i64,
+                    "Gemini 3.8 Flash (High)",
+                    "300",
+                    "30",
+                    "50",
+                    "380",
+                    1_800_000_000_i64,
+                    1_i64,
+                    0_i64
+                ],
+            )
+            .expect("archived generation should be inserted");
+        drop(archive);
+
+        let since = NaiveDate::from_ymd_opt(2026, 1, 1).expect("date should be valid");
+        let live_source_keys = HashSet::from([source_key.to_string()]);
+        let archived = scan_archive(&archive_path, since, &live_source_keys)
+            .expect("archive should scan");
+        assert_eq!(archived.generations_scanned, 1);
+        assert_eq!(archived.events.len(), 1);
+        assert_eq!(archived.events[0].total_tokens, 380);
+        assert!(archived.source_keys.contains(source_key));
+
+        let live = scan_database(
+            &live_path,
+            since,
+            archived
+                .generation_ids_by_source
+                .get(source_key)
+                .expect("archive should retain the source row id"),
+        )
+        .expect("live database should scan");
+        assert_eq!(live.generations_scanned, 0);
+        assert!(live.events.is_empty());
     }
 
     #[test]
