@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, CalendarDays, Cpu, Database, DollarSign, MessageSquare, RefreshCw, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { request as invoke } from '../utils/request';
 import { showToast } from '../components/common/ToastContainer';
 
@@ -26,11 +27,15 @@ interface LocalTokenModel extends LocalTokenTotals {
 
 interface LocalTokenUsageSummary {
     today: LocalTokenTotals;
+    yesterday: LocalTokenTotals;
+    last_3_days: LocalTokenTotals;
     last_7_days: LocalTokenTotals;
     last_30_days: LocalTokenTotals;
     daily: LocalTokenDaily[];
     hourly: LocalTokenHourly[];
     by_model_today: LocalTokenModel[];
+    by_model_yesterday: LocalTokenModel[];
+    by_model_3_days: LocalTokenModel[];
     by_model_7_days: LocalTokenModel[];
     by_model: LocalTokenModel[];
     databases_scanned: number;
@@ -59,19 +64,19 @@ interface ApiPricingSnapshot {
     warning?: string;
 }
 
-type RangeKey = 'today' | '7d' | '30d';
+type RangeKey = 'today' | 'yesterday' | '3d' | '7d' | '30d';
 
-const formatTokens = (value: number) => value.toLocaleString('zh-CN');
+const formatTokens = (value: number, locale: string) => value.toLocaleString(locale);
 
 const formatUsd = (value: number) => {
     if (value === 0) return '$0.00';
     return value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`;
 };
 
-const compactTokens = (value: number) => {
-    if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-    if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-    return value.toLocaleString('zh-CN');
+const compactTokens = (value: number, locale: string) => {
+    if (value >= 1_000_000) return `${(value / 1_000_000).toLocaleString(locale, { maximumFractionDigits: 1 })}M`;
+    if (value >= 1_000) return `${(value / 1_000).toLocaleString(locale, { maximumFractionDigits: 1 })}K`;
+    return value.toLocaleString(locale);
 };
 
 const dateKey = (date: Date) => {
@@ -81,34 +86,32 @@ const dateKey = (date: Date) => {
     return `${year}-${month}-${day}`;
 };
 
-const shortDate = (key: string) => {
-    const [, month, day] = key.split('-');
-    return `${Number(month)}/${Number(day)}`;
-};
+const shortDate = (key: string, locale: string) => new Date(`${key}T00:00:00`).toLocaleDateString(locale, {
+    month: 'numeric',
+    day: 'numeric',
+});
 
-const formatTime = (timestamp?: number | null) => {
+const formatTime = (timestamp: number | null | undefined, locale: string) => {
     if (!timestamp) return '';
-    return new Date(timestamp).toLocaleTimeString('zh-CN', {
+    return new Date(timestamp).toLocaleTimeString(locale, {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
     });
 };
 
-const rangeLabels: Record<RangeKey, string> = {
-    today: '今天',
-    '7d': '近 7 天',
-    '30d': '近 30 天',
-};
-
 const rangeDays: Record<RangeKey, number> = {
     today: 1,
+    yesterday: 1,
+    '3d': 3,
     '7d': 7,
     '30d': 30,
 };
 
 const chartBarMaxWidth: Record<RangeKey, number> = {
     today: 12,
+    yesterday: 12,
+    '3d': 32,
     '7d': 32,
     '30d': 8,
 };
@@ -177,6 +180,7 @@ function TokenCard({
     icon: Icon,
     displayValue,
     detail,
+    locale,
 }: {
     label: string;
     value: number;
@@ -184,6 +188,7 @@ function TokenCard({
     icon: typeof Cpu;
     displayValue?: string;
     detail?: string;
+    locale: string;
 }) {
     return (
         <div className="rounded-2xl border border-gray-100 bg-white p-3 shadow-sm dark:border-base-200 dark:bg-base-100">
@@ -193,11 +198,11 @@ function TokenCard({
                 </span>
                 {label}
             </div>
-            <div className="text-xl font-bold tracking-tight text-gray-900 dark:text-base-content" title={displayValue || formatTokens(value)}>
-                {displayValue || compactTokens(value)}
+            <div className="text-xl font-bold tracking-tight text-gray-900 dark:text-base-content" title={displayValue || formatTokens(value, locale)}>
+                {displayValue || compactTokens(value, locale)}
             </div>
             <div className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
-                {detail || `${formatTokens(value)} Token`}
+                {detail || `${formatTokens(value, locale)} Token`}
             </div>
         </div>
     );
@@ -205,6 +210,15 @@ function TokenCard({
 
 function Dashboard() {
     const navigate = useNavigate();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.resolvedLanguage === 'zh' ? 'zh-CN' : 'en-US';
+    const rangeLabels: Record<RangeKey, string> = {
+        today: t('local_dashboard.today'),
+        yesterday: t('local_dashboard.yesterday'),
+        '3d': t('local_dashboard.last_3_days'),
+        '7d': t('local_dashboard.last_7_days'),
+        '30d': t('local_dashboard.last_30_days'),
+    };
     const [usage, setUsage] = useState<LocalTokenUsageSummary | null>(null);
     const [pricing, setPricing] = useState<ApiPricingSnapshot | null>(null);
     const [range, setRange] = useState<RangeKey>('today');
@@ -224,18 +238,20 @@ function Dashboard() {
             setUsage(result);
             setLastUpdatedAt(Date.now());
             if (notify) {
-                const dataTime = result.last_activity ? `，数据截至 ${formatTime(result.last_activity * 1000)}` : '';
-                showToast(`本地 Token 统计已更新${dataTime}`, 'success');
+                const dataTime = result.last_activity
+                    ? t('local_dashboard.toast_data_time', { time: formatTime(result.last_activity * 1000, locale) })
+                    : '';
+                showToast(t('local_dashboard.toast_updated', { dataTime }), 'success');
             }
         } catch (fetchError) {
             const message = String(fetchError);
             setError(message);
-            showToast(`读取本地 Token 统计失败：${message}`, 'error');
+            showToast(t('local_dashboard.toast_scan_failed', { message }), 'error');
         } finally {
             fetchInFlight.current = false;
             setLoading(false);
         }
-    }, []);
+    }, [locale, t]);
 
     const fetchPricing = useCallback(async () => {
         try {
@@ -262,6 +278,8 @@ function Dashboard() {
         if (!usage) {
             return { input_tokens: 0, output_tokens: 0, cached_tokens: 0, total_tokens: 0, request_count: 0 };
         }
+        if (range === 'yesterday') return usage.yesterday;
+        if (range === '3d') return usage.last_3_days;
         if (range === '7d') return usage.last_7_days;
         if (range === '30d') return usage.last_30_days;
         return usage.today;
@@ -273,12 +291,14 @@ function Dashboard() {
 
     const chartPoints = useMemo<TokenChartPoint[]>(() => {
         const now = new Date();
-        if (range === 'today') {
-            const today = dateKey(now);
+        if (range === 'today' || range === 'yesterday') {
+            const chartDate = new Date(now);
+            if (range === 'yesterday') chartDate.setDate(chartDate.getDate() - 1);
+            const dayKey = dateKey(chartDate);
             const byHour = new Map((usage?.hourly || []).map((item) => [item.hour, item]));
             return Array.from({ length: 24 }, (_, hour) => {
                 const label = `${String(hour).padStart(2, '0')}:00`;
-                const key = `${today} ${label}`;
+                const key = `${dayKey} ${label}`;
                 const item = byHour.get(key);
                 return {
                     ...(item || emptyTokenTotals()),
@@ -299,17 +319,19 @@ function Dashboard() {
             days.push({
                 ...(item || emptyTokenTotals()),
                 key,
-                label: shortDate(key),
+                label: shortDate(key, locale),
             });
         }
         return days;
-    }, [range, usage]);
+    }, [locale, range, usage]);
 
     const maxChartTokens = Math.max(...chartPoints.map((point) => point.total_tokens), 1);
 
     const modelsForRange = useMemo(() => {
         if (!usage) return [];
         if (range === 'today') return usage.by_model_today;
+        if (range === 'yesterday') return usage.by_model_yesterday;
+        if (range === '3d') return usage.by_model_3_days;
         if (range === '7d') return usage.by_model_7_days;
         return usage.by_model;
     }, [range, usage]);
@@ -322,9 +344,9 @@ function Dashboard() {
     const apiCost = useMemo(() => estimateApiCost(modelsForRange, pricing), [modelsForRange, pricing]);
     const pricingLabel = pricing
         ? pricing.stale
-            ? '使用本地价格缓存'
-            : '已同步 Google 官方价格'
-        : '内置价格兜底';
+            ? t('local_dashboard.pricing_local_cache')
+            : t('local_dashboard.pricing_google')
+        : t('local_dashboard.pricing_fallback');
 
     return (
         <div className="h-full w-full overflow-y-auto lg:overflow-hidden">
@@ -333,24 +355,24 @@ function Dashboard() {
                     <div className="min-w-0">
                         <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900 dark:text-base-content">
                             <BarChart3 className="h-5 w-5 text-blue-500" />
-                            首页
+                            {t('local_dashboard.title')}
                         </h1>
                         <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                            Antigravity 本地 Token 用量
+                            {t('local_dashboard.subtitle')}
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
                         <span className="text-[10px] text-gray-400 dark:text-gray-500" aria-live="polite">
                             {loading
-                                ? '正在扫描本地记录…'
+                                ? t('local_dashboard.scanning')
                                 : lastUpdatedAt
-                                    ? `已扫描 ${formatTime(lastUpdatedAt)}${usage?.last_activity ? ` · 数据截至 ${formatTime(usage.last_activity * 1000)}` : ''}`
-                                    : '等待扫描'}
+                                    ? `${t('local_dashboard.scanned_at', { time: formatTime(lastUpdatedAt, locale) })}${usage?.last_activity ? t('local_dashboard.data_through', { time: formatTime(usage.last_activity * 1000, locale) }) : ''}`
+                                    : t('local_dashboard.waiting_scan')}
                         </span>
                         <div className="flex items-center gap-1 rounded-xl border border-gray-100 bg-white p-1 shadow-sm dark:border-base-200 dark:bg-base-100">
                             <div className="flex items-center gap-1 px-1 text-[11px] text-gray-500 dark:text-gray-400">
                                 <CalendarDays className="h-3.5 w-3.5" />
-                                <span>统计范围</span>
+                                <span>{t('local_dashboard.range_label')}</span>
                             </div>
                             {(Object.keys(rangeLabels) as RangeKey[]).map((key) => (
                                 <button
@@ -370,7 +392,7 @@ function Dashboard() {
                             className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-blue-300 hover:text-blue-600 dark:border-base-200 dark:bg-base-100 dark:text-gray-300"
                         >
                             <Users className="h-3.5 w-3.5" />
-                            账号管理
+                            {t('local_dashboard.accounts')}
                         </button>
                         <button
                             onClick={() => fetchUsage(true)}
@@ -378,7 +400,7 @@ function Dashboard() {
                             className="flex items-center gap-1.5 rounded-xl bg-blue-500 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-                            {loading ? '刷新中…' : '刷新'}
+                            {loading ? t('local_dashboard.refreshing') : t('local_dashboard.refresh')}
                         </button>
                     </div>
                 </div>
@@ -391,29 +413,35 @@ function Dashboard() {
 
                 {!!usage?.unreadable_databases && (
                     <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900/30 dark:bg-amber-900/10 dark:text-amber-300">
-                        有 {usage.unreadable_databases} 个本地对话数据库暂时无法读取，本次统计可能不完整；稍后再刷新即可重试。
+                        {t('local_dashboard.unreadable_databases', { count: usage.unreadable_databases })}
                     </div>
                 )}
 
                 <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
-                    <TokenCard label={`${rangeLabels[range]}总 Token`} value={totals.total_tokens} color="bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-300" icon={BarChart3} />
-                    <TokenCard label="输入 Token" value={totals.input_tokens} color="bg-indigo-50 text-indigo-600 dark:bg-indigo-900/20 dark:text-indigo-300" icon={MessageSquare} />
-                    <TokenCard label="输出 Token" value={totals.output_tokens} color="bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-300" icon={Cpu} />
+                    <TokenCard label={t('local_dashboard.total_tokens', { range: rangeLabels[range] })} value={totals.total_tokens} color="bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-300" icon={BarChart3} locale={locale} />
+                    <TokenCard label={t('local_dashboard.input_tokens')} value={totals.input_tokens} color="bg-indigo-50 text-indigo-600 dark:bg-indigo-900/20 dark:text-indigo-300" icon={MessageSquare} locale={locale} />
+                    <TokenCard label={t('local_dashboard.output_tokens')} value={totals.output_tokens} color="bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-300" icon={Cpu} locale={locale} />
                     <TokenCard
-                        label="缓存命中率"
+                        label={t('local_dashboard.cache_hit_rate')}
                         value={cacheHitRate}
                         displayValue={`${cacheHitRate.toFixed(1)}%`}
-                        detail="缓存 Token /（输入 + 缓存）"
+                        detail={t('local_dashboard.cache_hit_rate_detail')}
                         color="bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300"
                         icon={Database}
+                        locale={locale}
                     />
                     <TokenCard
-                        label="API 费用估算"
+                        label={t('local_dashboard.api_cost')}
                         value={apiCost.usd}
                         displayValue={formatUsd(apiCost.usd)}
-                        detail={`${formatTokens(totals.request_count)} 次 API 请求 · ${pricingLabel}${apiCost.unpricedModels ? ' · 部分模型未计价' : ''}`}
+                        detail={t('local_dashboard.api_requests', {
+                            requestCount: formatTokens(totals.request_count, locale),
+                            pricing: pricingLabel,
+                            unpriced: apiCost.unpricedModels ? t('local_dashboard.pricing_unavailable') : '',
+                        })}
                         color="bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-300"
                         icon={DollarSign}
+                        locale={locale}
                     />
                 </div>
 
@@ -425,23 +453,23 @@ function Dashboard() {
                                     <BarChart3 className="h-4 w-4 text-blue-500" />
                                     {rangeLabels[range]}
                                 </h2>
-                                <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">按本地生成记录统计</p>
+                                <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">{t('local_dashboard.chart_subtitle')}</p>
                             </div>
                             <div className="pointer-events-none h-14 w-full shrink-0 overflow-hidden text-right sm:w-[230px]" aria-live="polite">
                                 {hoveredPoint ? (
                                     <div className="flex h-full flex-col justify-center">
                                         <div className="text-[10px] font-medium leading-3 text-blue-600 dark:text-blue-400">{hoveredPoint.label}</div>
-                                        <div className="whitespace-nowrap text-sm font-bold leading-4 text-gray-900 dark:text-base-content">{formatTokens(hoveredPoint.total_tokens)} Token</div>
+                                        <div className="whitespace-nowrap text-sm font-bold leading-4 text-gray-900 dark:text-base-content">{formatTokens(hoveredPoint.total_tokens, locale)} {t('local_dashboard.token')}</div>
                                         <div className="whitespace-nowrap text-[10px] leading-3 text-gray-400 dark:text-gray-500">
-                                            输入 {compactTokens(hoveredPoint.input_tokens)} · 输出 {compactTokens(hoveredPoint.output_tokens)}
+                                            {t('local_dashboard.input_short')} {compactTokens(hoveredPoint.input_tokens, locale)} · {t('local_dashboard.output_short')} {compactTokens(hoveredPoint.output_tokens, locale)}
                                         </div>
                                         <div className="whitespace-nowrap text-[10px] leading-3 text-gray-400 dark:text-gray-500">
-                                            缓存 {compactTokens(hoveredPoint.cached_tokens)} · {formatTokens(hoveredPoint.request_count)} 次请求
+                                            {t('local_dashboard.cached_tokens')} {compactTokens(hoveredPoint.cached_tokens, locale)} · {formatTokens(hoveredPoint.request_count, locale)} {t('local_dashboard.requests')}
                                         </div>
                                     </div>
                                 ) : (
                                     <div className="flex h-full items-center justify-end text-[11px] text-gray-400 dark:text-gray-500">
-                                        悬浮查看用量
+                                        {t('local_dashboard.hover_for_usage')}
                                     </div>
                                 )}
                             </div>
@@ -453,7 +481,8 @@ function Dashboard() {
                             {chartPoints.map((point, index) => {
                                 const isEmpty = point.total_tokens === 0;
                                 const height = Math.max((point.total_tokens / maxChartTokens) * 100, 6);
-                                const showPointLabel = range === 'today'
+                                const isHourlyRange = range === 'today' || range === 'yesterday';
+                                const showPointLabel = isHourlyRange
                                     ? index % 3 === 0 || index === chartPoints.length - 1
                                     : range !== '30d' || index % 5 === 0 || index === chartPoints.length - 1;
                                 return (
@@ -470,7 +499,7 @@ function Dashboard() {
                                                     maxWidth: `${chartBarMaxWidth[range]}px`,
                                                     height: isEmpty ? '2px' : `${height}%`,
                                                 }}
-                                                title={`${point.label}: ${formatTokens(point.total_tokens)} Token · 输入 ${formatTokens(point.input_tokens)} · 输出 ${formatTokens(point.output_tokens)} · 缓存 ${formatTokens(point.cached_tokens)} · ${formatTokens(point.request_count)} 次请求`}
+                                                title={`${point.label}: ${formatTokens(point.total_tokens, locale)} ${t('local_dashboard.token')} · ${t('local_dashboard.input_short')} ${formatTokens(point.input_tokens, locale)} · ${t('local_dashboard.output_short')} ${formatTokens(point.output_tokens, locale)} · ${t('local_dashboard.cached_tokens')} ${formatTokens(point.cached_tokens, locale)} · ${formatTokens(point.request_count, locale)} ${t('local_dashboard.requests')}`}
                                             />
                                         </div>
                                         <span className="w-full whitespace-nowrap text-center text-[10px] text-gray-400 dark:text-gray-500">{showPointLabel ? point.label : '\u00a0'}</span>
@@ -485,9 +514,9 @@ function Dashboard() {
                             <div>
                                 <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-base-content">
                                     <Cpu className="h-4 w-4 text-purple-500" />
-                                    模型用量
+                                    {t('local_dashboard.model_usage')}
                                 </h2>
-                                <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">{rangeLabels[range]}本地记录</p>
+                                <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">{t('local_dashboard.local_records', { range: rangeLabels[range] })}</p>
                             </div>
                         </div>
                         <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1 lg:min-h-0 lg:flex-1 lg:max-h-none">
@@ -499,7 +528,7 @@ function Dashboard() {
                                     <div key={model.model}>
                                         <div className="mb-0.5 flex items-center justify-between gap-3 text-[11px]">
                                             <span className="truncate text-gray-600 dark:text-gray-300" title={model.model}>{model.model}</span>
-                                            <span className="shrink-0 font-mono text-gray-500 dark:text-gray-400">{compactTokens(model.total_tokens)}</span>
+                                            <span className="shrink-0 font-mono text-gray-500 dark:text-gray-400">{compactTokens(model.total_tokens, locale)}</span>
                                         </div>
                                         <div className="h-1 overflow-hidden rounded-full bg-gray-100 dark:bg-base-200">
                                             <div className="h-full rounded-full bg-purple-400" style={{ width: `${width}%` }} />
@@ -508,7 +537,7 @@ function Dashboard() {
                                 );
                             })}
                             {!loading && !modelsForRange.length && (
-                                <div className="py-6 text-center text-xs text-gray-400 dark:text-gray-500">暂时没有可识别的模型用量</div>
+                                <div className="py-6 text-center text-xs text-gray-400 dark:text-gray-500">{t('local_dashboard.no_model_usage')}</div>
                             )}
                         </div>
                     </section>
@@ -519,39 +548,39 @@ function Dashboard() {
                         <div>
                             <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-base-content">
                                 <Cpu className="h-4 w-4 text-blue-500" />
-                                模型明细
+                                {t('local_dashboard.model_details')}
                             </h2>
-                            <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">{rangeLabels[range]}输入、输出、缓存和请求次数</p>
+                            <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">{t('local_dashboard.model_details_desc', { range: rangeLabels[range] })}</p>
                         </div>
-                        <span className="text-[11px] text-gray-400 dark:text-gray-500">{modelsForRange.length} 个模型</span>
+                        <span className="text-[11px] text-gray-400 dark:text-gray-500">{t('local_dashboard.model_count', { count: modelsForRange.length })}</span>
                     </div>
                     <div className="max-h-[142px] overflow-y-auto lg:min-h-0 lg:flex-1 lg:max-h-none">
                         <div className="overflow-x-auto">
                             <table className="w-full min-w-[560px] text-left text-xs">
-                                <thead className="bg-gray-50 text-[10px] uppercase text-gray-500 dark:bg-base-200/60 dark:text-gray-400">
+                                <thead className="bg-gray-50 text-[10px] uppercase text-gray-500 dark:bg-slate-800 dark:text-gray-300">
                                     <tr>
-                                        <th className="px-4 py-1.5 font-medium">模型</th>
-                                        <th className="px-4 py-1.5 text-right font-medium">总 Token</th>
-                                        <th className="px-4 py-1.5 text-right font-medium">输入</th>
-                                        <th className="px-4 py-1.5 text-right font-medium">输出</th>
-                                        <th className="px-4 py-1.5 text-right font-medium">请求</th>
+                                        <th className="px-4 py-1.5 font-medium">{t('local_dashboard.model')}</th>
+                                        <th className="px-4 py-1.5 text-right font-medium">{t('local_dashboard.total_tokens_column')}</th>
+                                        <th className="px-4 py-1.5 text-right font-medium">{t('local_dashboard.input_short')}</th>
+                                        <th className="px-4 py-1.5 text-right font-medium">{t('local_dashboard.output_short')}</th>
+                                        <th className="px-4 py-1.5 text-right font-medium">{t('local_dashboard.request_count')}</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100 dark:divide-base-200">
                                     {modelsForRange.map((model) => (
                                         <tr key={model.model} className="text-gray-700 dark:text-gray-300">
                                             <td className="max-w-[320px] truncate px-4 py-1.5 font-medium" title={model.model}>{model.model}</td>
-                                            <td className="px-4 py-1.5 text-right font-mono">{formatTokens(model.total_tokens)}</td>
-                                            <td className="px-4 py-1.5 text-right font-mono text-indigo-500">{formatTokens(model.input_tokens)}</td>
-                                            <td className="px-4 py-1.5 text-right font-mono text-purple-500">{formatTokens(model.output_tokens)}</td>
-                                            <td className="px-4 py-1.5 text-right font-mono">{formatTokens(model.request_count)}</td>
+                                            <td className="px-4 py-1.5 text-right font-mono">{formatTokens(model.total_tokens, locale)}</td>
+                                            <td className="px-4 py-1.5 text-right font-mono text-indigo-500">{formatTokens(model.input_tokens, locale)}</td>
+                                            <td className="px-4 py-1.5 text-right font-mono text-purple-500">{formatTokens(model.output_tokens, locale)}</td>
+                                            <td className="px-4 py-1.5 text-right font-mono">{formatTokens(model.request_count, locale)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                             {!loading && !modelsForRange.length && (
                                 <div className="px-4 py-8 text-center text-xs text-gray-400 dark:text-gray-500">
-                                    使用 Antigravity 生成内容后，点击右上角刷新即可看到本地 Token 记录。
+                                    {t('local_dashboard.no_token_records')}
                                 </div>
                             )}
                         </div>

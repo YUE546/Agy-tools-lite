@@ -55,12 +55,18 @@ pub struct LocalTokenModel {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalTokenUsageSummary {
     pub today: LocalTokenTotals,
+    pub yesterday: LocalTokenTotals,
+    pub last_3_days: LocalTokenTotals,
     pub last_7_days: LocalTokenTotals,
     pub last_30_days: LocalTokenTotals,
     pub daily: Vec<LocalTokenDaily>,
     pub hourly: Vec<LocalTokenHourly>,
     /// Model totals for today. `by_model` remains the 30-day view for compatibility.
     pub by_model_today: Vec<LocalTokenModel>,
+    /// Model totals for yesterday.
+    pub by_model_yesterday: Vec<LocalTokenModel>,
+    /// Model totals for the last 3 days.
+    pub by_model_3_days: Vec<LocalTokenModel>,
     /// Model totals for the last 7 days.
     pub by_model_7_days: Vec<LocalTokenModel>,
     /// Model totals for the last 30 days.
@@ -156,12 +162,17 @@ pub fn get_local_token_usage() -> Result<LocalTokenUsageSummary, String> {
 
     events.sort_by_key(|event| event.timestamp_seconds);
 
+    let yesterday = today - Duration::days(1);
     let mut today_totals = LocalTokenTotals::default();
+    let mut yesterday_totals = LocalTokenTotals::default();
+    let mut last_3_days_totals = LocalTokenTotals::default();
     let mut last_7_days_totals = LocalTokenTotals::default();
     let mut last_30_days_totals = LocalTokenTotals::default();
     let mut daily: BTreeMap<NaiveDate, LocalTokenTotals> = BTreeMap::new();
     let mut hourly: BTreeMap<String, LocalTokenTotals> = BTreeMap::new();
     let mut by_model_today: BTreeMap<String, LocalTokenTotals> = BTreeMap::new();
+    let mut by_model_yesterday: BTreeMap<String, LocalTokenTotals> = BTreeMap::new();
+    let mut by_model_3_days: BTreeMap<String, LocalTokenTotals> = BTreeMap::new();
     let mut by_model_7_days: BTreeMap<String, LocalTokenTotals> = BTreeMap::new();
     let mut by_model_30_days: BTreeMap<String, LocalTokenTotals> = BTreeMap::new();
     let mut last_activity = None;
@@ -188,7 +199,21 @@ pub fn get_local_token_usage() -> Result<LocalTokenUsageSummary, String> {
                 &event,
             );
         }
-        if date >= today - Duration::days(6) {
+        if date == yesterday {
+            add_event(&mut yesterday_totals, &event);
+            add_event(
+                by_model_yesterday.entry(event.model.clone()).or_default(),
+                &event,
+            );
+        }
+        if is_within_last_days(date, today, 3) {
+            add_event(&mut last_3_days_totals, &event);
+            add_event(
+                by_model_3_days.entry(event.model.clone()).or_default(),
+                &event,
+            );
+        }
+        if is_within_last_days(date, today, 7) {
             add_event(&mut last_7_days_totals, &event);
             add_event(
                 by_model_7_days.entry(event.model.clone()).or_default(),
@@ -228,11 +253,15 @@ pub fn get_local_token_usage() -> Result<LocalTokenUsageSummary, String> {
 
     Ok(LocalTokenUsageSummary {
         today: today_totals,
+        yesterday: yesterday_totals,
+        last_3_days: last_3_days_totals,
         last_7_days: last_7_days_totals,
         last_30_days: last_30_days_totals,
         daily,
         hourly,
         by_model_today: model_totals(by_model_today),
+        by_model_yesterday: model_totals(by_model_yesterday),
+        by_model_3_days: model_totals(by_model_3_days),
         by_model_7_days: model_totals(by_model_7_days),
         by_model: model_totals(by_model_30_days),
         databases_scanned: scanned_sources.len() as u64,
@@ -271,6 +300,10 @@ fn add_event(totals: &mut LocalTokenTotals, event: &GenerationEvent) {
     totals.cached_tokens = totals.cached_tokens.saturating_add(event.cached_tokens);
     totals.total_tokens = totals.total_tokens.saturating_add(event.total_tokens);
     totals.request_count = totals.request_count.saturating_add(1);
+}
+
+fn is_within_last_days(date: NaiveDate, today: NaiveDate, days: i64) -> bool {
+    days > 0 && date >= today - Duration::days(days - 1) && date <= today
 }
 
 struct DatabaseScanResult {
@@ -739,6 +772,15 @@ mod tests {
         ]
         .concat();
         bytes_field(1, &wrapped)
+    }
+
+    #[test]
+    fn recent_day_ranges_include_today_and_exclude_the_day_before_the_range() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 26).expect("date should be valid");
+        assert!(is_within_last_days(today, today, 3));
+        assert!(is_within_last_days(today - Duration::days(2), today, 3));
+        assert!(!is_within_last_days(today - Duration::days(3), today, 3));
+        assert!(!is_within_last_days(today + Duration::days(1), today, 3));
     }
 
     #[test]

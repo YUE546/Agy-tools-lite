@@ -50,13 +50,9 @@ function App() {
   // Sync language from config
   useEffect(() => {
     if (config?.language) {
-      i18n.changeLanguage(config.language);
-      // Support RTL
-      if (config.language === 'ar') {
-        document.documentElement.dir = 'rtl';
-      } else {
-        document.documentElement.dir = 'ltr';
-      }
+      const language = config.language.toLowerCase().startsWith('en') ? 'en' : 'zh';
+      i18n.changeLanguage(language);
+      document.documentElement.dir = 'ltr';
     }
   }, [config?.language, i18n]);
 

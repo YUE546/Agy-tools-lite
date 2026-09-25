@@ -118,7 +118,7 @@ function Navbar() {
                     <div className="ml-auto shrink-0">
                         <NavSettings
                             theme={(config?.theme as 'light' | 'dark') || 'light'}
-                            currentLanguage={config?.language || 'en'}
+                            currentLanguage={config?.language?.toLowerCase().startsWith('en') ? 'en' : 'zh'}
                             onThemeToggle={toggleTheme}
                             onLanguageChange={handleLanguageChange}
                         />
