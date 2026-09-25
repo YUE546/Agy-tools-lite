@@ -469,9 +469,8 @@ pub fn run() {
                 info!("Tray disabled for this session");
             }
 
-            // Lite 版本不自动启动反代、管理后台或代理调度器。
-            // 账号管理仍保留 ProxyServiceState 作为兼容状态，但桌面版不创建代理服务。
-            info!("Lite mode: proxy service, admin server, and proxy scheduler are disabled");
+            // Account management retains ProxyServiceState for compatibility, but the desktop app does not start proxy services.
+            info!("Desktop mode: proxy service, admin server, and proxy scheduler are disabled");
 
             Ok(())
         })
@@ -668,7 +667,6 @@ pub fn run() {
             commands::user_token::renew_user_token,
             commands::user_token::get_token_ip_bindings,
             commands::user_token::get_user_token_summary,
-            commands::query_transit_info,
             // Patch commands
             commands::patch_agy_binary,
         ])
