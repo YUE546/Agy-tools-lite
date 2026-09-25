@@ -1,4 +1,8 @@
-import { Gemini, Claude, OpenAI } from '@lobehub/icons';
+import { Bot, BrainCircuit, Sparkles } from 'lucide-react';
+
+const Gemini = { Color: Sparkles };
+const Claude = { Color: BrainCircuit };
+const OpenAI = { Avatar: Bot };
 
 /**
  * 模型配置接口

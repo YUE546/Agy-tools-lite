@@ -1,53 +1,28 @@
-# Logs
-logs
-.logs
+node_modules/
+dist/
+dist-ssr/
+.vite/
+src-tauri/target/
+src-tauri/gen/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+src-tauri/.env
+environment/
+
+# Logs and operating-system files
+logs/
+.logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-
-node_modules
-dist-ssr
-*.local
-.vite
-dist
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
 
-# Build output
-src-tauri/target/
-src-tauri/gen/
-src-tauri/.env
-
-# Environment
-.env
-.env.*
-environment/
-
-# Python virtual environments and test files
-.venv*/
-venv/
-# *.py
-__pycache__/
-*.pyc
-
-# Reference projects (for development only)
-
-# Temporary quota probing scripts & dumps (one-off debugging artifacts)
-scripts/_*.json
-scripts/dump_quota_raw.py
-scripts/dump_full.py
-scripts/probe_weekly.py
-scripts/probe_quota_summary.pyDOCKER_DEPLOYMENT.md
-pnpm-lock.yaml
+# Editors
+.vscode/
+.idea/

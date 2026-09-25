@@ -61,6 +61,15 @@
     "language": "语言",
     "local_data": "本地数据",
     "local_data_desc": "查看应用数据在此设备上的存储位置。",
+    "background_tasks": "后台任务",
+    "background_tasks_desc": "设置账号配额刷新和当前账号同步频率。",
+    "auto_refresh": "自动刷新账号配额",
+    "auto_refresh_desc": "在后台定期更新所有账号的配额信息。",
+    "refresh_interval": "刷新间隔",
+    "auto_sync": "同步当前账号",
+    "auto_sync_desc": "定期从本机 Antigravity 数据更新当前账号信息。",
+    "sync_interval": "同步间隔",
+    "minutes": "{{count}} 分钟",
     "data_directory": "数据目录",
     "open_directory": "打开目录",
     "account_data_title": "账号数据",
@@ -130,7 +139,6 @@
     "theme_to_dark": "切换到深色模式",
     "theme_to_light": "切换到浅色模式",
     "user_token": "用户 Token",
-    "apikey_fun": "中转站",
     "logout": "登出"
   },
   "dashboard": {
@@ -600,45 +608,6 @@
       "desc": "选择要在菜单栏中显示的功能项。隐藏不常用的菜单可以节省空间。",
       "selected_items_note": "被选中的项目将显示在顶部菜单栏中。",
       "required": "必选"
-    },
-    "about": {
-      "title": "关于",
-      "version": "应用版本",
-      "tech_stack": "技术栈",
-      "author": "作者",
-      "wechat": "微信公众号",
-      "telegram": "Telegram 频道",
-      "github": "开源地址",
-      "view_code": "查看代码",
-      "copyright": "Copyright © 2025-2026 Antigravity. All rights reserved.",
-      "check_update": "检测更新",
-      "checking_update": "检测中...",
-      "latest_version": "已是最新版本",
-      "new_version_available": "发现新版本 {{version}}",
-      "download_update": "前往下载",
-      "brew_upgrade": "通过 Homebrew 更新",
-      "brew_upgrading": "更新中...",
-      "brew_confirm_title": "通过 Homebrew 更新",
-      "brew_confirm_desc": "即将执行以下命令更新应用，更新完成后需要重启应用。",
-      "brew_quarantine_hint": "如更新后遇到「应用已损坏」提示，请在终端运行：",
-      "brew_confirm_btn": "开始更新",
-      "brew_success_title": "升级完成",
-      "brew_upgrade_success": "Homebrew 升级成功，请重启应用以加载新版本。",
-      "brew_restart_btn": "立即重启",
-      "brew_restart_failed": "自动重启失败，请手动关闭并重新打开应用",
-      "brew_upgrade_failed": "Homebrew 升级失败，请尝试在终端手动执行：brew upgrade --cask antigravity-tools",
-      "brew_error_brew_not_found": "未找到 Homebrew，请确认已安装 brew",
-      "brew_error_brew_exec_failed": "执行 brew 命令失败，请尝试在终端手动执行",
-      "brew_error_brew_timeout": "Homebrew 升级超时（3分钟），请在终端手动执行：brew upgrade --cask antigravity-tools",
-      "brew_error_brew_already_latest": "已是最新版本，无需升级",
-      "brew_error_brew_not_supported": "当前系统不支持 Homebrew 更新",
-      "update_check_failed": "检测更新失败",
-      "support_btn": "支持作者",
-      "support_title": "赞助支持",
-      "support_desc": "如果您觉得本工具对您有帮助，欢迎扫码请作者喝杯咖啡！您的支持是我持续维护项目的最大动力。",
-      "support_alipay": "支付宝",
-      "support_wechat": "微信支付",
-      "support_buymeacoffee": "Buy Me a Coffee"
     },
     "advanced_thinking": {
       "title": "高级思维与全局配置",
@@ -1445,48 +1414,5 @@
     "placeholder_max_ips": "0 = 不限制",
     "hint_max_ips": "0 表示不限制",
     "hint_curfew": "留空则禁用。基于服务器时间。"
-  },
-  "apiKeyFun": {
-    "title": "APIKEY.FUN 中转站",
-    "eyebrow": "中转站",
-    "description": "Antigravity Tools 官方合作中转站，为用户提供稳定、开放、高性价比的大模型 API 接入服务。支持 Claude、OpenAI、Gemini 等主流模型，适合在 Codex、Gemini CLI、Claude Code 及其他开发工具中统一配置使用。通过 Antigravity Tools 专属链接注册，可享受最高充值永久 95 折优惠。",
-    "viewNow": "立即查看",
-    "usage": {
-      "remainingAmount": "剩余额度",
-      "usedAmount": "已用额度",
-      "todayRequests": "今日请求",
-      "todayTokens": "今日 Token",
-      "totalRequests": "总请求",
-      "totalTokens": "总 Token"
-    },
-    "keyManager": {
-      "title": "密钥管理",
-      "desc": "保存常用 API Key，点击即可切换并自动查询额度。",
-      "lastRemainingLabel": "上次余额",
-      "lastRemaining": "${{value}}",
-      "notQueried": "未查询",
-      "addedAt": "添加于",
-      "empty": "暂无保存的密钥。"
-    },
-    "queryTitle": "密钥额度查询",
-    "apiKeyLabel": "API Key",
-    "apiKeyPlaceholder": "粘贴你的 API Key...",
-    "queryButton": "刷新",
-    "cli": {
-      "quickConfig": "一键配置本地开发环境",
-      "syncDesc": "同步至官方标准配置",
-      "codexTooltip": "将 API Key 与 BaseURL 同步至 Codex / ChatGPT CLI",
-      "claudeTooltip": "将 API Key 与 BaseURL 同步至 Claude Code",
-      "opencodeTooltip": "将 API Key、BaseURL 和模型同步至 OpenCode"
-    },
-    "models": {
-      "title": "可用模型",
-      "empty": "当前 API Key 未返回模型列表。"
-    },
-    "errors": {
-      "parseFormat": "解析格式异常: {{err}}",
-      "fetchFailed": "获取失败: {{err}}",
-      "queryFailed": "无法获取有效的额度数据或模型列表，请确认 API Key 是否有效，以及接口地址是否正确。"
-    }
   }
 }

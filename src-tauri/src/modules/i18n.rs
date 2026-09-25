@@ -21,24 +21,9 @@ fn supported_language(locale: &str) -> Option<&'static str> {
         .next()?
         .replace('_', "-")
         .to_ascii_lowercase();
-    let mut subtags = locale.split('-');
-    match subtags.next()? {
-        "zh" => Some(match subtags.next() {
-            // An explicit script takes precedence over the region (zh-Hans-TW).
-            Some("hant" | "tw" | "hk" | "mo") => "zh-TW",
-            _ => "zh",
-        }),
+    match locale.split('-').next()? {
+        "zh" => Some("zh"),
         "en" => Some("en"),
-        "ja" => Some("ja"),
-        "tr" => Some("tr"),
-        "vi" => Some("vi"),
-        "pt" => Some("pt"),
-        "ru" => Some("ru"),
-        "ko" => Some("ko"),
-        "ar" => Some("ar"),
-        "es" => Some("es"),
-        // The existing Malay translation uses the application's legacy "my" key.
-        "ms" => Some("my"),
         _ => None,
     }
 }
@@ -59,23 +44,10 @@ pub struct TrayTexts {
 
 /// Load translations from JSON
 fn load_translations(lang: &str) -> HashMap<String, String> {
-    // Map every language the frontend supports (see src/i18n.ts / navbar/constants.ts)
-    // so the tray menu follows the in-app language switch. Unknown codes fall back to
-    // English, matching the frontend's fallbackLng.
-    let json_content = match lang {
-        "zh" | "zh-CN" | "zh-Hans" => include_str!("../../../src/locales/zh.json"),
-        "zh-TW" | "zh-Hant" => include_str!("../../../src/locales/zh-TW.json"),
-        "ja" | "ja-JP" => include_str!("../../../src/locales/ja.json"),
-        "tr" | "tr-TR" => include_str!("../../../src/locales/tr.json"),
-        "vi" | "vi-VN" => include_str!("../../../src/locales/vi.json"),
-        "pt" | "pt-BR" | "pt-PT" => include_str!("../../../src/locales/pt.json"),
-        "ru" | "ru-RU" => include_str!("../../../src/locales/ru.json"),
-        "ko" | "ko-KR" => include_str!("../../../src/locales/ko.json"),
-        "ar" | "ar-SA" => include_str!("../../../src/locales/ar.json"),
-        "es" | "es-ES" | "es-MX" => include_str!("../../../src/locales/es.json"),
-        "my" | "ms" | "ms-MY" => include_str!("../../../src/locales/my.json"),
-        "en" | "en-US" => include_str!("../../../src/locales/en.json"),
-        _ => include_str!("../../../src/locales/en.json"),
+    let json_content = match lang.split(['-', '_']).next().unwrap_or(lang) {
+        "zh" => include_str!("../../../src/locales/zh.json"),
+        "en" => include_str!("../../../src/locales/en.json"),
+        _ => include_str!("../../../src/locales/zh.json"),
     };
 
     let v: Value = serde_json::from_str(json_content).unwrap_or_else(|_| serde_json::json!({}));
@@ -142,54 +114,24 @@ mod tests {
     use super::{get_tray_texts, language_from_locales};
 
     #[test]
-    fn detects_supported_languages_from_os_locale_tags() {
+    fn detects_only_english_and_simplified_chinese() {
         for (locale, expected) in [
             ("en-US", "en"),
             ("en-GB", "en"),
-            ("ru-RU", "ru"),
-            ("ja-JP", "ja"),
-            ("tr-TR", "tr"),
-            ("vi-VN", "vi"),
-            ("pt-BR", "pt"),
-            ("pt-PT", "pt"),
-            ("ko-KR", "ko"),
-            ("ar-SA", "ar"),
-            ("es-MX", "es"),
-            ("ms-MY", "my"),
-            ("RU_ru.UTF-8", "ru"),
-            ("es_ES@euro", "es"),
-        ] {
-            assert_eq!(language_from_locales([locale]), expected, "{locale}");
-        }
-    }
-
-    #[test]
-    fn distinguishes_chinese_scripts_and_regions() {
-        for (locale, expected) in [
-            ("zh", "zh"),
             ("zh-CN", "zh"),
             ("zh-SG", "zh"),
-            ("zh-Hans", "zh"),
             ("zh-Hans-TW", "zh"),
-            ("zh-TW", "zh-TW"),
-            ("zh-HK", "zh-TW"),
-            ("zh-MO", "zh-TW"),
-            ("zh-Hant", "zh-TW"),
-            ("zh-Hant-CN", "zh-TW"),
+            ("zh-TW", "zh"),
         ] {
             assert_eq!(language_from_locales([locale]), expected, "{locale}");
         }
     }
 
     #[test]
-    fn honors_preference_order_and_skips_unsupported_languages() {
-        assert_eq!(language_from_locales(["de-DE", "ru-RU", "en-US"]), "ru");
+    fn skips_unsupported_languages_and_falls_back_to_english() {
+        assert_eq!(language_from_locales(["de-DE", "ru-RU", "en-US"]), "en");
         assert_eq!(language_from_locales(["en-GB", "zh-CN"]), "en");
-        assert_eq!(language_from_locales(["zh-TW", "en-US"]), "zh-TW");
-    }
-
-    #[test]
-    fn falls_back_to_english_without_a_supported_locale() {
+        assert_eq!(language_from_locales(["de-DE", "zh-TW"]), "zh");
         assert_eq!(language_from_locales(Vec::<String>::new()), "en");
         for locale in ["", "C", "POSIX", "C.UTF-8", "de-DE", "my-MM"] {
             assert_eq!(language_from_locales([locale]), "en", "{locale}");
@@ -197,11 +139,15 @@ mod tests {
     }
 
     #[test]
-    fn tray_uses_the_detected_language() {
-        let language = language_from_locales(["ru-RU"]);
-        let texts = get_tray_texts(language);
-        let russian: serde_json::Value =
-            serde_json::from_str(include_str!("../../../src/locales/ru.json")).unwrap();
-        assert_eq!(texts.quit, russian["tray"]["quit"].as_str().unwrap());
+    fn tray_uses_the_selected_language() {
+        let zh_texts = get_tray_texts("zh");
+        let zh: serde_json::Value =
+            serde_json::from_str(include_str!("../../../src/locales/zh.json")).unwrap();
+        assert_eq!(zh_texts.quit, zh["tray"]["quit"].as_str().unwrap());
+
+        let en_texts = get_tray_texts("en");
+        let en: serde_json::Value =
+            serde_json::from_str(include_str!("../../../src/locales/en.json")).unwrap();
+        assert_eq!(en_texts.quit, en["tray"]["quit"].as_str().unwrap());
     }
 }

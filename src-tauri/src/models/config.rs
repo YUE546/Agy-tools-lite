@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn saved_language_is_preserved_when_loading_config() {
         let mut config = AppConfig::new();
-        for language in ["en", "zh", "zh-TW", "ru"] {
+        for language in ["en", "zh"] {
             config.language = language.to_string();
             let saved = serde_json::to_string(&config).unwrap();
             let restored: AppConfig = serde_json::from_str(&saved).unwrap();

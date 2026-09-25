@@ -23,7 +23,7 @@ const BACKUP_SUFFIX: &str = ".antigravity-manager.bak";
 const OLD_BACKUP_SUFFIX: &str = ".antigravity.bak";
 
 const ANTIGRAVITY_PROVIDER_ID: &str = "antigravity-manager";
-const APIKEY_FUN_PROVIDER_ID: &str = "apikey-fun";
+const CUSTOM_PROVIDER_ID: &str = "custom-provider";
 const OPENAI_COMPATIBLE_NPM: &str = "@ai-sdk/openai-compatible";
 
 /// Variant type for model variants
@@ -1917,7 +1917,7 @@ fn apply_openai_compatible_provider_sync(
 
     let normalized_url = normalize_opencode_base_url(proxy_url);
     let display_name = if provider_name.trim().is_empty() {
-        "APIKEY.FUN"
+        "Custom Provider"
     } else {
         provider_name.trim()
     };
@@ -2614,7 +2614,7 @@ mod tests {
     }
 
     #[test]
-    fn test_openai_compatible_sync_creates_apikey_fun_provider() {
+    fn test_openai_compatible_sync_creates_custom_provider() {
         let config = serde_json::json!({
             "provider": {
                 ANTIGRAVITY_PROVIDER_ID: {
@@ -2631,10 +2631,10 @@ mod tests {
 
         let result = apply_openai_compatible_provider_sync(
             config,
-            APIKEY_FUN_PROVIDER_ID,
-            "APIKEY.FUN",
-            "https://api.apikey.fun",
-            "fun-key",
+            CUSTOM_PROVIDER_ID,
+            "Custom Provider",
+            "https://api.example.com",
+            "custom-key",
             Some(&models_to_sync),
         );
 
@@ -2643,16 +2643,16 @@ mod tests {
             provider.get(ANTIGRAVITY_PROVIDER_ID).is_some(),
             "antigravity-manager provider should be preserved"
         );
-        let fun = provider.get(APIKEY_FUN_PROVIDER_ID).unwrap();
+        let fun = provider.get(CUSTOM_PROVIDER_ID).unwrap();
         assert_eq!(fun.get("npm").unwrap(), OPENAI_COMPATIBLE_NPM);
-        assert_eq!(fun.get("name").unwrap(), "APIKEY.FUN");
+        assert_eq!(fun.get("name").unwrap(), "Custom Provider");
         assert_eq!(
             fun.get("options").unwrap().get("baseURL").unwrap(),
-            "https://api.apikey.fun/v1"
+            "https://api.example.com/v1"
         );
         assert_eq!(
             fun.get("options").unwrap().get("apiKey").unwrap(),
-            "fun-key"
+            "custom-key"
         );
 
         let models = fun.get("models").unwrap().as_object().unwrap();
@@ -2674,7 +2674,7 @@ mod tests {
     fn test_openai_compatible_sync_replaces_models() {
         let config = serde_json::json!({
             "provider": {
-                APIKEY_FUN_PROVIDER_ID: {
+                CUSTOM_PROVIDER_ID: {
                     "models": {
                         "old-model": { "name": "Old Model" }
                     }
@@ -2684,14 +2684,14 @@ mod tests {
 
         let result = apply_openai_compatible_provider_sync(
             config,
-            APIKEY_FUN_PROVIDER_ID,
-            "APIKEY.FUN",
-            "https://api.apikey.fun/v1",
-            "fun-key",
+            CUSTOM_PROVIDER_ID,
+            "Custom Provider",
+            "https://api.example.com/v1",
+            "custom-key",
             Some(&[minput("gpt-5.5")]),
         );
 
-        let models = result["provider"][APIKEY_FUN_PROVIDER_ID]["models"]
+        let models = result["provider"][CUSTOM_PROVIDER_ID]["models"]
             .as_object()
             .unwrap();
         assert!(models.contains_key("gpt-5.5"));
@@ -2702,7 +2702,7 @@ mod tests {
     fn test_openai_compatible_sync_empty_models_keeps_existing() {
         let config = serde_json::json!({
             "provider": {
-                APIKEY_FUN_PROVIDER_ID: {
+                CUSTOM_PROVIDER_ID: {
                     "models": {
                         "gpt-4o": { "name": "GPT-4o", "custom": true }
                     }
@@ -2712,14 +2712,14 @@ mod tests {
 
         let result = apply_openai_compatible_provider_sync(
             config,
-            APIKEY_FUN_PROVIDER_ID,
-            "APIKEY.FUN",
-            "https://api.apikey.fun/v1",
-            "fun-key",
+            CUSTOM_PROVIDER_ID,
+            "Custom Provider",
+            "https://api.example.com/v1",
+            "custom-key",
             Some(&[]),
         );
 
-        let models = result["provider"][APIKEY_FUN_PROVIDER_ID]["models"]
+        let models = result["provider"][CUSTOM_PROVIDER_ID]["models"]
             .as_object()
             .unwrap();
         assert_eq!(models.len(), 1);
@@ -2732,7 +2732,7 @@ mod tests {
 
     #[test]
     fn test_provider_id_validation() {
-        assert!(validate_provider_id("apikey-fun").is_ok());
+        assert!(validate_provider_id("custom-provider").is_ok());
         assert!(validate_provider_id("My_Provider2").is_ok());
         assert!(validate_provider_id("").is_err());
         assert!(validate_provider_id("  ").is_err());
@@ -2749,22 +2749,22 @@ mod tests {
             "tool_call": true
         });
         let result = apply_openai_compatible_provider_sync(
-            serde_json::json!({ "provider": { APIKEY_FUN_PROVIDER_ID: {
+            serde_json::json!({ "provider": { CUSTOM_PROVIDER_ID: {
                 "models": { "gpt-5.5": existing.clone() }
             }}}),
-            APIKEY_FUN_PROVIDER_ID,
-            "APIKEY.FUN",
-            "https://api.apikey.fun/v1/",
-            "fun-key",
+            CUSTOM_PROVIDER_ID,
+            "Custom Provider",
+            "https://api.example.com/v1/",
+            "custom-key",
             Some(&[minput("gpt-5.5")]),
         );
         assert_eq!(
-            result["provider"][APIKEY_FUN_PROVIDER_ID]["models"]["gpt-5.5"],
+            result["provider"][CUSTOM_PROVIDER_ID]["models"]["gpt-5.5"],
             existing
         );
         assert_eq!(
-            result["provider"][APIKEY_FUN_PROVIDER_ID]["options"]["baseURL"],
-            "https://api.apikey.fun/v1"
+            result["provider"][CUSTOM_PROVIDER_ID]["options"]["baseURL"],
+            "https://api.example.com/v1"
         );
     }
 
@@ -2776,16 +2776,16 @@ mod tests {
             serde_json::json!("invalid"),
         ] {
             let result = apply_openai_compatible_provider_sync(
-                serde_json::json!({ "provider": { APIKEY_FUN_PROVIDER_ID: { "options": options }}}),
-                APIKEY_FUN_PROVIDER_ID,
-                "APIKEY.FUN",
-                "https://api.apikey.fun",
-                "fun-key",
+                serde_json::json!({ "provider": { CUSTOM_PROVIDER_ID: { "options": options }}}),
+                CUSTOM_PROVIDER_ID,
+                "Custom Provider",
+                "https://api.example.com",
+                "custom-key",
                 None,
             );
             assert_eq!(
-                result["provider"][APIKEY_FUN_PROVIDER_ID]["options"]["apiKey"],
-                "fun-key"
+                result["provider"][CUSTOM_PROVIDER_ID]["options"]["apiKey"],
+                "custom-key"
             );
         }
     }
@@ -2798,10 +2798,10 @@ mod tests {
             fs::write(&path, content).unwrap();
             let result = sync_openai_provider_to_path(
                 &path,
-                APIKEY_FUN_PROVIDER_ID,
-                "APIKEY.FUN",
-                "https://api.apikey.fun",
-                "fun-key",
+                CUSTOM_PROVIDER_ID,
+                "Custom Provider",
+                "https://api.example.com",
+                "custom-key",
                 None,
             );
             assert!(result.is_err(), "must reject invalid config: {content}");
@@ -2817,10 +2817,10 @@ mod tests {
         fs::create_dir(&path).unwrap();
         assert!(sync_openai_provider_to_path(
             &path,
-            APIKEY_FUN_PROVIDER_ID,
-            "APIKEY.FUN",
-            "https://api.apikey.fun",
-            "fun-key",
+            CUSTOM_PROVIDER_ID,
+            "Custom Provider",
+            "https://api.example.com",
+            "custom-key",
             None,
         )
         .is_err());
@@ -2839,10 +2839,10 @@ mod tests {
         fs::write(&path, content).unwrap();
         sync_openai_provider_to_path(
             &path,
-            APIKEY_FUN_PROVIDER_ID,
-            "APIKEY.FUN",
-            "https://api.apikey.fun/v1/",
-            "fun-key",
+            CUSTOM_PROVIDER_ID,
+            "Custom Provider",
+            "https://api.example.com/v1/",
+            "custom-key",
             Some(&[minput("gpt-5.5")]),
         )
         .unwrap();
@@ -2853,8 +2853,8 @@ mod tests {
         );
         assert_eq!(config["provider"]["custom"]["name"], "Мой провайдер");
         assert_eq!(
-            config["provider"][APIKEY_FUN_PROVIDER_ID]["options"]["baseURL"],
-            "https://api.apikey.fun/v1"
+            config["provider"][CUSTOM_PROVIDER_ID]["options"]["baseURL"],
+            "https://api.example.com/v1"
         );
         let backup = tmp
             .path()
@@ -2862,9 +2862,9 @@ mod tests {
         assert_eq!(fs::read_to_string(&backup).unwrap(), content);
         sync_openai_provider_to_path(
             &path,
-            APIKEY_FUN_PROVIDER_ID,
-            "APIKEY.FUN",
-            "https://api.apikey.fun/v1",
+            CUSTOM_PROVIDER_ID,
+            "Custom Provider",
+            "https://api.example.com/v1",
             "next-key",
             None,
         )
@@ -2878,17 +2878,17 @@ mod tests {
         let path = tmp.path().join("new").join(OPENCODE_CONFIG_FILE);
         sync_openai_provider_to_path(
             &path,
-            APIKEY_FUN_PROVIDER_ID,
-            "APIKEY.FUN",
-            "https://api.apikey.fun",
-            "fun-key",
+            CUSTOM_PROVIDER_ID,
+            "Custom Provider",
+            "https://api.example.com",
+            "custom-key",
             None,
         )
         .unwrap();
         let config = parse_config_file(&path).unwrap();
         assert_eq!(
-            config["provider"][APIKEY_FUN_PROVIDER_ID]["options"]["apiKey"],
-            "fun-key"
+            config["provider"][CUSTOM_PROVIDER_ID]["options"]["apiKey"],
+            "custom-key"
         );
     }
 
@@ -2914,16 +2914,16 @@ mod tests {
     fn test_openai_compatible_sync_matches_dotted_and_prefixed_ids() {
         let result = apply_openai_compatible_provider_sync(
             serde_json::json!({}),
-            APIKEY_FUN_PROVIDER_ID,
-            "APIKEY.FUN",
-            "https://api.apikey.fun/v1",
-            "fun-key",
+            CUSTOM_PROVIDER_ID,
+            "Custom Provider",
+            "https://api.example.com/v1",
+            "custom-key",
             Some(&[
                 minput("claude-sonnet-4.6"),
                 minput("anthropic/claude-opus-4-6"),
             ]),
         );
-        let models = result["provider"][APIKEY_FUN_PROVIDER_ID]["models"]
+        let models = result["provider"][CUSTOM_PROVIDER_ID]["models"]
             .as_object()
             .unwrap();
         assert_eq!(
@@ -3611,11 +3611,11 @@ pub async fn execute_opencode_openai_sync(
             provider_id
                 .as_deref()
                 .filter(|id| !id.trim().is_empty())
-                .unwrap_or(APIKEY_FUN_PROVIDER_ID),
+                .unwrap_or(CUSTOM_PROVIDER_ID),
             provider_name
                 .as_deref()
                 .filter(|name| !name.trim().is_empty())
-                .unwrap_or("APIKEY.FUN"),
+                .unwrap_or("Custom Provider"),
             &proxy_url,
             &api_key,
             models,

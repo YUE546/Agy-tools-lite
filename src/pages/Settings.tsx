@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, Database, FolderOpen, Globe2, HardDrive, Monitor, Moon, ShieldCheck, Sun } from 'lucide-react';
+import { Activity, Check, Clock3, Database, FolderOpen, Globe2, HardDrive, Monitor, Moon, RefreshCw, ShieldCheck, Sun } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../stores/useConfigStore';
 import { AppConfig } from '../types/config';
@@ -10,6 +10,9 @@ const LANGUAGES = [
     { code: 'zh', label: '简体中文' },
     { code: 'en', label: 'English' },
 ];
+
+const REFRESH_INTERVALS = [5, 15, 30, 60];
+const SYNC_INTERVALS = [1, 5, 15, 30];
 
 function Settings() {
     const { t } = useTranslation();
@@ -47,6 +50,26 @@ function Settings() {
         { value: 'dark', label: t('local_settings.dark'), icon: Moon },
     ];
     const selectedLanguage = config?.language?.toLowerCase().startsWith('en') ? 'en' : 'zh';
+    const refreshInterval = config?.refresh_interval ?? 15;
+    const syncInterval = config?.sync_interval ?? 5;
+    const refreshOptions = [...new Set([...REFRESH_INTERVALS, refreshInterval])].sort((a, b) => a - b);
+    const syncOptions = [...new Set([...SYNC_INTERVALS, syncInterval])].sort((a, b) => a - b);
+
+    const renderSwitch = (enabled: boolean, label: string, onClick: () => void) => (
+        <button
+            type="button"
+            role="switch"
+            aria-label={label}
+            aria-checked={enabled}
+            disabled={!config}
+            onClick={onClick}
+            className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+            <span className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${enabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-slate-600'}`}>
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${enabled ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
+            </span>
+        </button>
+    );
 
     return (
         <div className="h-full w-full overflow-y-auto">
@@ -123,6 +146,76 @@ function Settings() {
                     </section>
 
                     <section className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                        <div className="flex items-center gap-3">
+                            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600 dark:bg-violet-400/10 dark:text-violet-300">
+                                <Activity className="h-5 w-5" />
+                            </span>
+                            <div>
+                                <h2 className="font-semibold text-gray-900 dark:text-gray-100">{t('local_settings.background_tasks')}</h2>
+                                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{t('local_settings.background_tasks_desc')}</p>
+                            </div>
+                        </div>
+
+                        <div className="mt-5 space-y-3">
+                            <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <div className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-100">
+                                            <RefreshCw className="h-4 w-4 text-blue-500" />
+                                            {t('local_settings.auto_refresh')}
+                                        </div>
+                                        <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{t('local_settings.auto_refresh_desc')}</p>
+                                    </div>
+                                    {renderSwitch(Boolean(config?.auto_refresh), t('local_settings.auto_refresh'), () => updateConfig({ auto_refresh: !config?.auto_refresh }))}
+                                </div>
+                                <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-200 pt-3 dark:border-slate-700">
+                                    <label htmlFor="refresh-interval" className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                                        <Clock3 className="h-3.5 w-3.5 text-gray-400" />
+                                        {t('local_settings.refresh_interval')}
+                                    </label>
+                                    <select
+                                        id="refresh-interval"
+                                        value={refreshInterval}
+                                        disabled={!config || !config.auto_refresh}
+                                        onChange={(event) => updateConfig({ refresh_interval: Number(event.target.value) })}
+                                        className="select select-sm select-bordered w-28 border-gray-200 bg-white text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-gray-200"
+                                    >
+                                        {refreshOptions.map((minutes) => <option key={minutes} value={minutes}>{t('local_settings.minutes', { count: minutes })}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <div className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-100">
+                                            <Database className="h-4 w-4 text-emerald-500" />
+                                            {t('local_settings.auto_sync')}
+                                        </div>
+                                        <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{t('local_settings.auto_sync_desc')}</p>
+                                    </div>
+                                    {renderSwitch(Boolean(config?.auto_sync), t('local_settings.auto_sync'), () => updateConfig({ auto_sync: !config?.auto_sync }))}
+                                </div>
+                                <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-200 pt-3 dark:border-slate-700">
+                                    <label htmlFor="sync-interval" className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                                        <Clock3 className="h-3.5 w-3.5 text-gray-400" />
+                                        {t('local_settings.sync_interval')}
+                                    </label>
+                                    <select
+                                        id="sync-interval"
+                                        value={syncInterval}
+                                        disabled={!config || !config.auto_sync}
+                                        onChange={(event) => updateConfig({ sync_interval: Number(event.target.value) })}
+                                        className="select select-sm select-bordered w-28 border-gray-200 bg-white text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-gray-200"
+                                    >
+                                        {syncOptions.map((minutes) => <option key={minutes} value={minutes}>{t('local_settings.minutes', { count: minutes })}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 lg:col-span-2">
                         <div className="flex items-center gap-3">
                             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300">
                                 <Database className="h-5 w-5" />
