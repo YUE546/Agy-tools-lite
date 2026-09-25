@@ -27,9 +27,6 @@ interface AccountState {
     importFromDb: () => Promise<void>;
     importFromCustomDb: (path: string) => Promise<void>;
     syncAccountFromDb: () => Promise<void>;
-    toggleProxyStatus: (accountId: string, enable: boolean, reason?: string) => Promise<void>;
-    warmUpAccounts: () => Promise<string>;
-    warmUpAccount: (accountId: string) => Promise<string>;
     updateAccountLabel: (accountId: string, label: string) => Promise<void>;
 }
 
@@ -257,44 +254,6 @@ export const useAccountStore = create<AccountState>((set, get) => ({
             }
         } catch (error) {
             console.error('[AccountStore] Sync from DB failed:', error);
-        }
-    },
-
-    toggleProxyStatus: async (accountId: string, enable: boolean, reason?: string) => {
-        try {
-            await accountService.toggleProxyStatus(accountId, enable, reason);
-            await get().fetchAccounts();
-        } catch (error) {
-            console.error('[AccountStore] Toggle proxy status failed:', error);
-            throw error;
-        }
-    },
-
-    warmUpAccounts: async () => {
-        set({ loading: true, error: null });
-        try {
-            const result = await accountService.warmUpAllAccounts();
-            set({ loading: false });
-            return result;
-        } catch (error) {
-            set({ error: String(error), loading: false });
-            throw error;
-        } finally {
-            await get().fetchAccounts();
-        }
-    },
-
-    warmUpAccount: async (accountId: string) => {
-        set({ loading: true, error: null });
-        try {
-            const result = await accountService.warmUpAccount(accountId);
-            set({ loading: false });
-            return result;
-        } catch (error) {
-            set({ error: String(error), loading: false });
-            throw error;
-        } finally {
-            await get().fetchAccounts();
         }
     },
 

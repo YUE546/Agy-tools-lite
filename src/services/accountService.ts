@@ -1,5 +1,5 @@
 import i18n from '../i18n';
-import { Account, DeviceProfile, DeviceProfileVersion, QuotaData } from '../types/account';
+import { Account, QuotaData } from '../types/account';
 import { request as invoke } from '../utils/request';
 
 // 检查环境 (可选)
@@ -138,68 +138,12 @@ export async function syncAccountFromDb(): Promise<Account | null> {
     return await invoke('sync_account_from_db');
 }
 
-export async function toggleProxyStatus(accountId: string, enable: boolean, reason?: string): Promise<void> {
-    return await invoke('toggle_proxy_status', { accountId, enable, reason });
-}
-
 /**
  * 重新排序账号列表
  * @param accountIds 按新顺序排列的账号ID数组
  */
 export async function reorderAccounts(accountIds: string[]): Promise<void> {
     return await invoke('reorder_accounts', { accountIds });
-}
-
-// 设备指纹相关
-export interface DeviceProfilesResponse {
-    current_storage?: DeviceProfile;
-    history?: DeviceProfileVersion[];
-    baseline?: DeviceProfile;
-}
-
-export async function getDeviceProfiles(accountId: string): Promise<DeviceProfilesResponse> {
-    return await invoke('get_device_profiles', { accountId });
-}
-
-export async function bindDeviceProfile(accountId: string, mode: 'capture' | 'generate'): Promise<DeviceProfile> {
-    return await invoke('bind_device_profile', { accountId, mode });
-}
-
-export async function restoreOriginalDevice(): Promise<string> {
-    return await invoke('restore_original_device');
-}
-
-export async function listDeviceVersions(accountId: string): Promise<DeviceProfilesResponse> {
-    return await invoke('list_device_versions', { accountId });
-}
-
-export async function restoreDeviceVersion(accountId: string, versionId: string): Promise<DeviceProfile> {
-    return await invoke('restore_device_version', { accountId, versionId });
-}
-
-export async function deleteDeviceVersion(accountId: string, versionId: string): Promise<void> {
-    return await invoke('delete_device_version', { accountId, versionId });
-}
-
-export async function openDeviceFolder(): Promise<void> {
-    return await invoke('open_device_folder');
-}
-
-export async function previewGenerateProfile(): Promise<DeviceProfile> {
-    return await invoke('preview_generate_profile');
-}
-
-export async function bindDeviceProfileWithProfile(accountId: string, profile: DeviceProfile): Promise<DeviceProfile> {
-    return await invoke('bind_device_profile_with_profile', { accountId, profile });
-}
-
-// 预热相关
-export async function warmUpAllAccounts(): Promise<string> {
-    return await invoke('warm_up_all_accounts');
-}
-
-export async function warmUpAccount(accountId: string): Promise<string> {
-    return await invoke('warm_up_account', { accountId });
 }
 
 // 导出账号相关

@@ -108,7 +108,6 @@ pub fn inject_token(
     project_id: Option<&str>,
     id_token: Option<&str>,
     oauth_client_key: Option<&str>,
-    target_ide: Option<&str>,
 ) -> Result<String, String> {
     crate::modules::logger::log_info("Starting Token injection...");
 
@@ -253,27 +252,6 @@ fn clear_enterprise_project_preference(conn: &Connection) -> Result<(), String> 
         ["antigravityUnifiedStateSync.enterprisePreferences"],
     )
     .map_err(|e| format!("Failed to clear enterprise preferences: {}", e))?;
-
-    Ok(())
-}
-
-/// 注入 Service Machine ID 到数据库，解决 VS Code 缓存指纹不匹配导致 Token 失效的问题
-pub fn write_service_machine_id(
-    db_path: &std::path::Path,
-    service_machine_id: &str,
-) -> Result<(), String> {
-    let conn = Connection::open(db_path).map_err(|e| format!("Failed to open database: {}", e))?;
-
-    conn.execute(
-        "INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)",
-        ["telemetry.serviceMachineId", service_machine_id],
-    )
-    .map_err(|e| format!("Failed to write serviceMachineId: {}", e))?;
-
-    crate::modules::logger::log_info(&format!(
-        "Successfully injected serviceMachineId: {}",
-        service_machine_id
-    ));
 
     Ok(())
 }

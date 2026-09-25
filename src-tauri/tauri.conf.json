@@ -40,15 +40,5 @@
     "macOS": {
       "entitlements": "Entitlements.plist"
     }
-  },
-  "plugins": {
-    "updater": {
-      "active": false
-    },
-    "process": null,
-    "fs": null,
-    "dialog": null,
-    "opener": null,
-    "single-instance": null
   }
 }

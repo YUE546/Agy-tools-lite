@@ -359,25 +359,12 @@ pub fn get_auth_url_with_client(
     Ok((url.to_string(), client.key))
 }
 
-/// Generate OAuth authorization URL using current active client.
-pub fn get_auth_url(redirect_uri: &str, state: &str) -> String {
-    get_auth_url_with_client(redirect_uri, state, None)
-        .map(|(url, _)| url)
-        .expect("Failed to build OAuth URL")
-}
-
 async fn exchange_code_once(
     code: &str,
     redirect_uri: &str,
     client_cfg: &OAuthClientConfig,
 ) -> Result<TokenResponse, (Option<reqwest::StatusCode>, String)> {
-    // [PHASE 2] 对于登录行为，尚未有 account_id，使用全局池阶梯逻辑
-    let client = if let Some(pool) = crate::proxy::proxy_pool::get_global_proxy_pool() {
-        pool.get_effective_standard_client(None, 60).await
-    } else {
-        crate::utils::http::get_long_standard_client()
-    };
-
+    let client = crate::utils::http::get_long_standard_client();
     let params = [
         ("client_id", client_cfg.client_id.as_str()),
         ("client_secret", client_cfg.client_secret.as_str()),
@@ -505,23 +492,12 @@ pub async fn exchange_code_with_client(
     ))
 }
 
-/// Exchange authorization code for token
-pub async fn exchange_code(code: &str, redirect_uri: &str) -> Result<TokenResponse, String> {
-    exchange_code_with_client(code, redirect_uri, None).await
-}
-
 async fn refresh_access_token_once(
     refresh_token: &str,
     account_id: Option<&str>,
     client_cfg: &OAuthClientConfig,
 ) -> Result<TokenResponse, (Option<reqwest::StatusCode>, String)> {
-    // [PHASE 2] 根据 account_id 使用对应的代理
-    let client = if let Some(pool) = crate::proxy::proxy_pool::get_global_proxy_pool() {
-        pool.get_effective_standard_client(account_id, 60).await
-    } else {
-        crate::utils::http::get_long_standard_client()
-    };
-
+    let client = crate::utils::http::get_long_standard_client();
     let params = [
         ("client_id", client_cfg.client_id.as_str()),
         ("client_secret", client_cfg.client_secret.as_str()),
@@ -529,7 +505,7 @@ async fn refresh_access_token_once(
         ("grant_type", "refresh_token"),
     ];
 
-    // [FIX #1583] 提供更详细的日志，帮助诊断 Docker 环境下的代理问题
+    // Include account context in logs to make token refresh failures easier to diagnose.
     if let Some(id) = account_id {
         crate::modules::logger::log_info(&format!("Refreshing Token for account: {}...", id));
     } else {
@@ -555,7 +531,7 @@ async fn refresh_access_token_once(
                 (
                     None,
                     format!(
-                        "Refresh request failed: {}. 无法连接 Google 授权服务器，请检查代理设置。",
+                        "Refresh request failed: {}. 无法连接 Google 授权服务器，请检查网络连接。",
                         e
                     ),
                 )
@@ -674,15 +650,8 @@ pub async fn refresh_access_token(
 }
 
 /// Get user info
-pub async fn get_user_info(
-    access_token: &str,
-    account_id: Option<&str>,
-) -> Result<UserInfo, String> {
-    let client = if let Some(pool) = crate::proxy::proxy_pool::get_global_proxy_pool() {
-        pool.get_effective_client(account_id, 15).await
-    } else {
-        crate::utils::http::get_client()
-    };
+pub async fn get_user_info(access_token: &str) -> Result<UserInfo, String> {
+    let client = crate::utils::http::get_client();
 
     let response = client
         .get(USERINFO_URL)
@@ -752,7 +721,7 @@ mod tests {
     fn test_get_auth_url_contains_state() {
         let redirect_uri = "http://localhost:8080/callback";
         let state = "test-state-123456";
-        let url = get_auth_url(redirect_uri, state);
+        let (url, _) = get_auth_url_with_client(redirect_uri, state, None).unwrap();
 
         assert!(url.contains("state=test-state-123456"));
         assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Fcallback"));

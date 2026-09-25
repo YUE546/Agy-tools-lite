@@ -143,9 +143,8 @@ fn write_cache(snapshot: &ApiPricingSnapshot) {
 }
 
 fn parse_gemini_prices(html: &str, today: NaiveDate) -> Vec<ApiPricing> {
-    let heading_regex =
-        Regex::new(r#"(?is)<h2\b[^>]*\bid="(gemini-[^"]+)"[^>]*>.*?</h2>"#)
-            .expect("valid Gemini heading regex");
+    let heading_regex = Regex::new(r#"(?is)<h2\b[^>]*\bid="(gemini-[^"]+)"[^>]*>.*?</h2>"#)
+        .expect("valid Gemini heading regex");
     let mut headings = Vec::new();
     for capture in heading_regex.captures_iter(html) {
         let Some(full) = capture.get(0) else {
@@ -171,9 +170,8 @@ fn parse_gemini_prices(html: &str, today: NaiveDate) -> Vec<ApiPricing> {
 }
 
 fn parse_gemini_section(section: &str, model: &str, today: NaiveDate) -> Option<ApiPricing> {
-    let standard_heading_regex =
-        Regex::new(r#"(?is)<h3\b[^>]*\bid="standard"[^>]*>.*?</h3>"#)
-            .expect("valid Standard heading regex");
+    let standard_heading_regex = Regex::new(r#"(?is)<h3\b[^>]*\bid="standard"[^>]*>.*?</h3>"#)
+        .expect("valid Standard heading regex");
     let standard_heading = standard_heading_regex.find(section)?;
     let after_heading = &section[standard_heading.end()..];
     let table_start = after_heading.find("<table")?;
@@ -259,9 +257,7 @@ fn parse_table_rows(table: &str) -> Vec<Vec<String>> {
         .map(|row| {
             cell_regex
                 .captures_iter(row.get(1).map(|value| value.as_str()).unwrap_or_default())
-                .map(|cell| {
-                    clean_text(cell.get(1).map(|value| value.as_str()).unwrap_or_default())
-                })
+                .map(|cell| clean_text(cell.get(1).map(|value| value.as_str()).unwrap_or_default()))
                 .collect()
         })
         .collect()
@@ -296,9 +292,8 @@ fn parse_effective_price(value: &str, today: NaiveDate, prefer_image: bool) -> O
 
     let matches: Vec<_> = money_regex.find_iter(&value).collect();
     let mut fallback = None;
-    let date_regex =
-        Regex::new(r"(?i)(through|starting)\s+([A-Za-z]+\s+\d{1,2},\s+\d{4})")
-            .expect("valid price date regex");
+    let date_regex = Regex::new(r"(?i)(through|starting)\s+([A-Za-z]+\s+\d{1,2},\s+\d{4})")
+        .expect("valid price date regex");
 
     for (index, money) in matches.iter().enumerate() {
         let amount = money.as_str().trim_start_matches('$').parse::<f64>().ok()?;
@@ -374,10 +369,7 @@ mod tests {
               <tr><td>Context caching price</td><td>Free</td><td>$0.08</td></tr>
             </table>
         "#;
-        let prices = parse_gemini_prices(
-            html,
-            NaiveDate::from_ymd_opt(2026, 9, 15).unwrap(),
-        );
+        let prices = parse_gemini_prices(html, NaiveDate::from_ymd_opt(2026, 9, 15).unwrap());
         assert_eq!(prices.len(), 1);
         assert_eq!(prices[0].model, "gemini-3.9-flash");
         assert_eq!(prices[0].output, 4.0);

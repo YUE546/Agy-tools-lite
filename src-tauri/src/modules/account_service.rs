@@ -13,21 +13,17 @@ impl AccountService {
 
     /// 添加账号逻辑
     pub async fn add_account(&self, refresh_token: &str) -> Result<Account, String> {
-        // [FIX #1583] 生成临时 UUID 作为账号上下文，避免传递 None 导致代理选择异常
-        let temp_account_id = uuid::Uuid::new_v4().to_string();
-
-        // 1. 获取 Token (使用临时 ID 确保代理选择有明确上下文)
-        let token_res =
-            modules::oauth::refresh_access_token(refresh_token, Some(&temp_account_id)).await?;
+        // 1. 获取 Token
+        let token_res = modules::oauth::refresh_access_token(refresh_token, None).await?;
 
         // 2. 获取用户信息
-        let user_info =
-            modules::oauth::get_user_info(&token_res.access_token, Some(&temp_account_id)).await?;
+        let user_info = modules::oauth::get_user_info(&token_res.access_token).await?;
 
         // 3. 获取项目 ID (尝试)
-        let project_id = crate::proxy::project_resolver::fetch_project_id(&token_res.access_token)
-            .await
-            .ok();
+        let project_id =
+            crate::modules::project_resolver::fetch_project_id(&token_res.access_token)
+                .await
+                .ok();
 
         // 4. 构造 TokenData
         let token = TokenData::new(
@@ -49,7 +45,7 @@ impl AccountService {
         // 6. [NEW] 自动获取配额信息（用于刷新时间排序）
         let email_for_log = account.email.clone();
         let access_token = token_res.access_token.clone();
-        match modules::quota::fetch_quota(&access_token, &email_for_log, Some(&account.id)).await {
+        match modules::quota::fetch_quota(&access_token, &email_for_log).await {
             Ok((quota_data, new_project_id)) => {
                 account.quota = Some(quota_data);
                 if let Some(pid) = new_project_id {
@@ -99,26 +95,13 @@ impl AccountService {
         modules::account::switch_account(account_id, target_ide, &self.integration).await
     }
 
-    /// 列表获取
-    pub fn list_accounts(&self) -> Result<Vec<Account>, String> {
-        modules::list_accounts()
-    }
-
-    /// 获取当前 ID
-    pub fn get_current_id(&self) -> Result<Option<String>, String> {
-        modules::get_current_account_id()
-    }
-
     // --- OAuth 逻辑 ---
 
     pub async fn prepare_oauth_url(
         &self,
         oauth_client_key: Option<String>,
     ) -> Result<String, String> {
-        let handle = match &self.integration {
-            modules::integration::SystemManager::Desktop(h) => Some(h.clone()),
-            modules::integration::SystemManager::Headless => None,
-        };
+        let handle = Some(self.integration.app_handle.clone());
         modules::oauth_server::prepare_oauth_url(handle, oauth_client_key).await
     }
 
@@ -126,33 +109,15 @@ impl AccountService {
         &self,
         oauth_client_key: Option<String>,
     ) -> Result<Account, String> {
-        let handle = match &self.integration {
-            modules::integration::SystemManager::Desktop(h) => Some(h.clone()),
-            modules::integration::SystemManager::Headless => None,
-        };
+        let handle = Some(self.integration.app_handle.clone());
         let token_res = modules::oauth_server::start_oauth_flow(handle, oauth_client_key).await?;
         self.process_oauth_token(token_res).await
     }
 
     pub async fn complete_oauth_login(&self) -> Result<Account, String> {
-        let handle = match &self.integration {
-            modules::integration::SystemManager::Desktop(h) => Some(h.clone()),
-            modules::integration::SystemManager::Headless => None,
-        };
+        let handle = Some(self.integration.app_handle.clone());
         let token_res = modules::oauth_server::complete_oauth_flow(handle).await?;
         self.process_oauth_token(token_res).await
-    }
-
-    pub fn cancel_oauth_login(&self) {
-        modules::oauth_server::cancel_oauth_flow();
-    }
-
-    pub async fn submit_oauth_code(
-        &self,
-        code: String,
-        state: Option<String>,
-    ) -> Result<(), String> {
-        modules::oauth_server::submit_oauth_code(code, state).await
     }
 
     async fn process_oauth_token(
@@ -163,14 +128,11 @@ impl AccountService {
             .refresh_token
             .ok_or_else(|| "未获取到 Refresh Token。请撤销权限后重试。".to_string())?;
 
-        // [FIX #1583] 生成临时 UUID 作为账号上下文
-        let temp_account_id = uuid::Uuid::new_v4().to_string();
-
-        let user_info =
-            modules::oauth::get_user_info(&token_res.access_token, Some(&temp_account_id)).await?;
-        let project_id = crate::proxy::project_resolver::fetch_project_id(&token_res.access_token)
-            .await
-            .ok();
+        let user_info = modules::oauth::get_user_info(&token_res.access_token).await?;
+        let project_id =
+            crate::modules::project_resolver::fetch_project_id(&token_res.access_token)
+                .await
+                .ok();
 
         let token_data = crate::models::TokenData::new(
             token_res.access_token,

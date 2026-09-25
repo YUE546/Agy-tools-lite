@@ -7,7 +7,7 @@ const VERSION_URL: &str = "https://antigravity-auto-updater-974169037036.us-cent
 /// Second fallback: Official Changelog page
 const CHANGELOG_URL: &str = "https://antigravity.google/changelog";
 
-/// Known stable configuration (for Docker/Headless fallback)
+/// Known stable configuration used when local version detection is unavailable.
 /// Antigravity 4.3.0 uses Electron 39.2.3 which corresponds to Chrome 132.0.6834.160
 const KNOWN_STABLE_VERSION: &str = "4.3.0";
 const KNOWN_STABLE_ELECTRON: &str = "39.2.3";
@@ -46,10 +46,6 @@ enum VersionSource {
     LocalInstallation,
     KnownStableFallback,
     RemoteAPI,
-    #[allow(dead_code)]
-    ChangelogWeb,
-    #[allow(dead_code)]
-    CargoToml,
 }
 
 /// Helper struct for version info
@@ -112,7 +108,7 @@ fn try_fetch_remote_version() -> Option<String> {
 ///
 /// This guarantees that even when:
 ///   - The local Antigravity install is outdated, OR
-///   - Local detection fails (Docker / headless / non-standard path),
+///   - Local detection fails (non-standard installation path),
 /// ...we always report a version >= the current minimum required by Google's API.
 fn resolve_version_config() -> (VersionConfig, VersionSource) {
     // Floor: static known-stable value (updated with each release of this project)

@@ -1,4 +1,3 @@
-use crate::models::Account;
 use crate::modules::{db, device, process, version};
 use std::fs;
 use std::process::Command;
@@ -154,13 +153,7 @@ impl SystemIntegration for DesktopIntegration {
                 account.token.project_id.as_deref(),
                 account.token.id_token.as_deref(),
                 account.token.oauth_client_key.as_deref(),
-                target_ide,
             )?;
-
-            // 2.4 同步 Service Machine ID 到数据库
-            if let Some(ref profile) = account.device_profile {
-                let _ = db::write_service_machine_id(&db_path, &profile.mac_machine_id);
-            }
         }
 
         // 3. 重启外部进程
@@ -347,7 +340,9 @@ fn write_to_system_keyring(account: &crate::models::Account) -> Result<(), Strin
         use std::io::Write;
         use std::sync::mpsc;
 
-        let store_to_collection = |collection_opt: Option<&str>, payload: &[u8]| -> Result<(), String> {
+        let store_to_collection = |collection_opt: Option<&str>,
+                                   payload: &[u8]|
+         -> Result<(), String> {
             let mut cmd = Command::new("secret-tool");
             cmd.arg("store");
             if let Some(col) = collection_opt {
@@ -378,9 +373,13 @@ fn write_to_system_keyring(account: &crate::models::Account) -> Result<(), Strin
             });
 
             let output = match rx.recv_timeout(std::time::Duration::from_secs(10)) {
-                Ok(result) => result.map_err(|e| format!("Failed to wait for secret-tool: {}", e))?,
+                Ok(result) => {
+                    result.map_err(|e| format!("Failed to wait for secret-tool: {}", e))?
+                }
                 Err(_) => {
-                    let _ = Command::new("kill").args(["-9", &child_pid.to_string()]).output();
+                    let _ = Command::new("kill")
+                        .args(["-9", &child_pid.to_string()])
+                        .output();
                     crate::modules::logger::log_error(
                         "[Desktop] secret-tool store blocked for >10s — D-Bus session bus unreachable.",
                     );
@@ -426,10 +425,7 @@ fn write_to_system_keyring(account: &crate::models::Account) -> Result<(), Strin
 
     // 同步写入 ~/.gemini/ 目录下的文件凭据，兼容 SSH 会话、容器环境和无 Keyring/D-Bus 场景
     if let Err(e) = write_to_file_credentials(account) {
-        crate::modules::logger::log_warn(&format!(
-            "[Desktop] File credential sync warning: {}",
-            e
-        ));
+        crate::modules::logger::log_warn(&format!("[Desktop] File credential sync warning: {}", e));
     }
 
     Ok(())
@@ -515,7 +511,8 @@ fn write_to_file_credentials(account: &crate::models::Account) -> Result<(), Str
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&accounts_path, std::fs::Permissions::from_mode(0o600));
+            let _ =
+                std::fs::set_permissions(&accounts_path, std::fs::Permissions::from_mode(0o600));
         }
     }
 
@@ -551,7 +548,9 @@ pub fn read_from_system_keyring() -> Result<crate::modules::migration::ImportedO
         let secret_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let payload_str = if secret_str.starts_with("go-keyring-base64:") {
             let b64_part = &secret_str["go-keyring-base64:".len()..];
-            let decoded = STANDARD.decode(b64_part).map_err(|e| format!("Base64 decode failed: {}", e))?;
+            let decoded = STANDARD
+                .decode(b64_part)
+                .map_err(|e| format!("Base64 decode failed: {}", e))?;
             String::from_utf8(decoded).map_err(|e| format!("UTF-8 decode failed: {}", e))?
         } else {
             secret_str
@@ -626,13 +625,7 @@ pub fn read_from_system_keyring() -> Result<crate::modules::migration::ImportedO
     #[cfg(target_os = "linux")]
     {
         let output = Command::new("secret-tool")
-            .args([
-                "lookup",
-                "service",
-                "gemini",
-                "username",
-                "antigravity",
-            ])
+            .args(["lookup", "service", "gemini", "username", "antigravity"])
             .output()
             .map_err(|e| format!("Failed to execute secret-tool: {}", e))?;
 
@@ -650,7 +643,9 @@ pub fn read_from_system_keyring() -> Result<crate::modules::migration::ImportedO
     }
 }
 
-fn parse_keyring_payload(payload_str: &str) -> Result<crate::modules::migration::ImportedOAuthState, String> {
+fn parse_keyring_payload(
+    payload_str: &str,
+) -> Result<crate::modules::migration::ImportedOAuthState, String> {
     let json: serde_json::Value = serde_json::from_str(payload_str)
         .map_err(|e| format!("Failed to parse keyring payload JSON: {}", e))?;
 
@@ -669,89 +664,22 @@ fn parse_keyring_payload(payload_str: &str) -> Result<crate::modules::migration:
     })
 }
 
-/// Headless/Docker 实现：仅执行数据层操作，忽略 UI 和进程控制
-pub struct HeadlessIntegration;
-
-impl SystemIntegration for HeadlessIntegration {
-    async fn on_account_switch(
-        &self,
-        account: &crate::models::Account,
-        _target_ide: Option<&str>,
-    ) -> Result<(), String> {
-        if _target_ide == Some("agy") {
-            return Err(
-                "Switching to the agy CLI is not supported in headless mode (no host keyring access)."
-                    .to_string(),
-            );
-        }
-
-        crate::modules::logger::log_info(&format!(
-            "[Headless] Account switched in memory: {}",
-            account.email
-        ));
-        // Docker 模式下通常不直接控制宿主机的 VS Code 进程
-        // 如果需要同步配置 to 某个 volume，可以在此处添加逻辑
-        Ok(())
-    }
-
-    fn update_tray(&self) {
-        // No-op
-    }
-
-    fn show_notification(&self, title: &str, body: &str) {
-        crate::modules::logger::log_info(&format!("[Log Notification] {}: {}", title, body));
-    }
-}
-
-/// 系统集成管理器：替代 Arc<dyn SystemIntegration> 以解决 async trait 的 dyn 兼容性问题
+/// Desktop integration manager used by account and OAuth services.
 #[derive(Clone)]
-pub enum SystemManager {
-    Desktop(tauri::AppHandle),
-    Headless,
+pub struct SystemManager {
+    pub app_handle: tauri::AppHandle,
 }
 
 impl SystemManager {
-    pub async fn on_account_switch(
-        &self,
-        account: &Account,
-        target_ide: Option<&str>,
-    ) -> Result<(), String> {
-        match self {
-            SystemManager::Desktop(handle) => {
-                let integration = DesktopIntegration {
-                    app_handle: handle.clone(),
-                };
-                integration.on_account_switch(account, target_ide).await
-            }
-            SystemManager::Headless => {
-                let integration = HeadlessIntegration;
-                integration.on_account_switch(account, target_ide).await
-            }
-        }
+    pub fn new(app_handle: tauri::AppHandle) -> Self {
+        Self { app_handle }
     }
 
     pub fn update_tray(&self) {
-        if let SystemManager::Desktop(handle) = self {
-            let integration = DesktopIntegration {
-                app_handle: handle.clone(),
-            };
-            integration.update_tray();
+        DesktopIntegration {
+            app_handle: self.app_handle.clone(),
         }
-    }
-
-    pub fn show_notification(&self, title: &str, body: &str) {
-        match self {
-            SystemManager::Desktop(handle) => {
-                let integration = DesktopIntegration {
-                    app_handle: handle.clone(),
-                };
-                integration.show_notification(title, body);
-            }
-            SystemManager::Headless => {
-                let integration = HeadlessIntegration;
-                integration.show_notification(title, body);
-            }
-        }
+        .update_tray();
     }
 }
 
@@ -761,25 +689,21 @@ impl SystemIntegration for SystemManager {
         account: &crate::models::Account,
         target_ide: Option<&str>,
     ) -> Result<(), String> {
-        match self {
-            SystemManager::Desktop(handle) => {
-                let integration = DesktopIntegration {
-                    app_handle: handle.clone(),
-                };
-                integration.on_account_switch(account, target_ide).await
-            }
-            SystemManager::Headless => {
-                let integration = HeadlessIntegration;
-                integration.on_account_switch(account, target_ide).await
-            }
+        DesktopIntegration {
+            app_handle: self.app_handle.clone(),
         }
+        .on_account_switch(account, target_ide)
+        .await
     }
 
     fn update_tray(&self) {
-        self.update_tray();
+        SystemManager::update_tray(self);
     }
 
     fn show_notification(&self, title: &str, body: &str) {
-        self.show_notification(title, body);
+        DesktopIntegration {
+            app_handle: self.app_handle.clone(),
+        }
+        .show_notification(title, body);
     }
 }

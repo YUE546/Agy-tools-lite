@@ -8,7 +8,6 @@ use tokio::sync::watch;
 
 struct OAuthFlowState {
     auth_url: String,
-    #[allow(dead_code)]
     redirect_uri: String,
     state: String,
     client_key: String,
@@ -470,7 +469,7 @@ pub async fn complete_oauth_flow(
 
 /// Manually submit an OAuth code to complete the flow.
 /// This is used when the user manually copies the code/URL from the browser
-/// because the localhost callback couldn't be reached (e.g. in Docker/remote).
+/// because the localhost callback could not be reached in a remote environment.
 pub async fn submit_oauth_code(
     code_input: String,
     state_input: Option<String>,
@@ -512,42 +511,4 @@ pub async fn submit_oauth_code(
         .map_err(|_| "Failed to send code to OAuth flow (receiver dropped)".to_string())?;
 
     Ok(())
-}
-/// Manually prepare an OAuth flow without starting listeners.
-/// Useful for Web/Docker environments where we only need manual code submission.
-pub fn prepare_oauth_flow_manually(
-    redirect_uri: String,
-    state_str: String,
-    oauth_client_key: Option<String>,
-) -> Result<(String, mpsc::Receiver<Result<String, String>>), String> {
-    let (auth_url, resolved_client_key) =
-        oauth::get_auth_url_with_client(&redirect_uri, &state_str, oauth_client_key.as_deref())?;
-
-    // Check if we can reuse existing state
-    if let Ok(mut lock) = get_oauth_flow_state().lock() {
-        if let Some(s) = lock.as_mut() {
-            // If we already have a code_rx, we can't easily "steal" it again because it's already returned.
-            // But if this is a NEW request (different state), we should overwrite.
-            // For now, let's just clear and restart to be safe.
-            let _ = s.cancel_tx.send(true);
-            *lock = None;
-        }
-    }
-
-    let (cancel_tx, _cancel_rx) = watch::channel(false);
-    let (code_tx, code_rx) = mpsc::channel(1);
-
-    if let Ok(mut state) = get_oauth_flow_state().lock() {
-        *state = Some(OAuthFlowState {
-            auth_url: auth_url.clone(),
-            redirect_uri: redirect_uri.clone(),
-            state: state_str,
-            client_key: resolved_client_key,
-            cancel_tx,
-            code_tx,
-            code_rx: None, // We return it directly
-        });
-    }
-
-    Ok((auth_url, code_rx))
 }

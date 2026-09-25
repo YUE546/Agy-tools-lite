@@ -7,11 +7,11 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub struct AntigravityVersion {
     pub short_version: String,
-    #[allow(dead_code)] // 预留给构建/诊断输出
     pub bundle_version: String,
 }
 
 /// 从任意字符串中提取第一个语义化版本号 (X.Y.Z)
+#[cfg(any(target_os = "linux", test))]
 fn extract_semver(raw: &str) -> Option<String> {
     for token in raw.split(|c: char| c.is_whitespace() || c == ',' || c == ';') {
         let t = token.trim_matches(|c: char| c == '"' || c == '\'' || c == '(' || c == ')');
@@ -187,11 +187,6 @@ fn get_version_linux(exe_path: &PathBuf) -> Result<AntigravityVersion, String> {
     Err("Unable to determine Antigravity version on Linux".to_string())
 }
 
-/// 判断是否为新版本 (>= 1.16.5)
-pub fn is_new_version(version: &AntigravityVersion) -> bool {
-    compare_version(&version.short_version, "1.16.5") >= std::cmp::Ordering::Equal
-}
-
 /// 比较版本号
 pub fn compare_version(v1: &str, v2: &str) -> std::cmp::Ordering {
     let parts1: Vec<u32> = v1.split('.').filter_map(|s| s.parse().ok()).collect();
@@ -234,27 +229,6 @@ mod tests {
             compare_version("2.0.0", "1.16.5"),
             std::cmp::Ordering::Greater
         );
-    }
-
-    #[test]
-    fn test_is_new_version() {
-        let old = AntigravityVersion {
-            short_version: "1.16.4".to_string(),
-            bundle_version: "1.16.4".to_string(),
-        };
-        assert!(!is_new_version(&old));
-
-        let new = AntigravityVersion {
-            short_version: "1.16.5".to_string(),
-            bundle_version: "1.16.5".to_string(),
-        };
-        assert!(is_new_version(&new));
-
-        let newer = AntigravityVersion {
-            short_version: "1.17.0".to_string(),
-            bundle_version: "1.17.0".to_string(),
-        };
-        assert!(is_new_version(&newer));
     }
 
     #[test]

@@ -19,15 +19,8 @@
     "core:window:allow-show",
     "opener:default",
     "dialog:default",
-    "fs:default",
     "core:tray:default",
     "core:event:default",
-    "autostart:allow-enable",
-    "autostart:allow-disable",
-    "autostart:allow-is-enabled",
-    "window-state:default",
-    "updater:default",
-    "process:allow-restart",
-    "process:allow-exit"
+    "window-state:default"
   ]
 }

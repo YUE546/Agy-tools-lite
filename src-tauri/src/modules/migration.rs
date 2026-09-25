@@ -170,8 +170,7 @@ pub async fn import_from_v1() -> Result<Vec<Account>, String> {
                             match oauth::refresh_access_token(&refresh_token, None).await {
                                 Ok(token_resp) => {
                                     let oauth_client_key = token_resp.oauth_client_key.clone();
-                                    match oauth::get_user_info(&token_resp.access_token, None).await
-                                    {
+                                    match oauth::get_user_info(&token_resp.access_token).await {
                                         Ok(user_info) => (
                                             user_info.email,
                                             token_resp.access_token,
@@ -257,7 +256,7 @@ pub async fn import_from_custom_db_path(path_str: String) -> Result<Account, Str
     // 3. Use Refresh Token to get latest Access Token and user info
     crate::modules::logger::log_info("Getting user info using Refresh Token...");
     let token_resp = oauth::refresh_access_token(&refresh_token, None).await?;
-    let user_info = oauth::get_user_info(&token_resp.access_token, None).await?;
+    let user_info = oauth::get_user_info(&token_resp.access_token).await?;
 
     let email = user_info.email;
 
@@ -289,11 +288,9 @@ pub async fn import_all_local_accounts(target_ide: Option<&str>) -> Result<Vec<A
     if let Ok(oauth_state) = integration::read_from_system_keyring() {
         let refresh_token = oauth_state.refresh_token.clone();
         if !refresh_token.is_empty() && seen_refresh_tokens.insert(refresh_token.clone()) {
-            crate::modules::logger::log_info(
-                "Discovered OAuth state in System Keyring/Keychain",
-            );
+            crate::modules::logger::log_info("Discovered OAuth state in System Keyring/Keychain");
             if let Ok(token_resp) = oauth::refresh_access_token(&refresh_token, None).await {
-                let email = match oauth::get_user_info(&token_resp.access_token, None).await {
+                let email = match oauth::get_user_info(&token_resp.access_token).await {
                     Ok(info) => info.email,
                     Err(_) => "Unknown".to_string(),
                 };
@@ -327,8 +324,9 @@ pub async fn import_all_local_accounts(target_ide: Option<&str>) -> Result<Vec<A
                         "Discovered OAuth state in DB path: {:?}",
                         db_path
                     ));
-                    if let Ok(token_resp) = oauth::refresh_access_token(&refresh_token, None).await {
-                        let email = match oauth::get_user_info(&token_resp.access_token, None).await {
+                    if let Ok(token_resp) = oauth::refresh_access_token(&refresh_token, None).await
+                    {
+                        let email = match oauth::get_user_info(&token_resp.access_token).await {
                             Ok(info) => info.email,
                             Err(_) => "Unknown".to_string(),
                         };
@@ -363,7 +361,10 @@ pub async fn import_all_local_accounts(target_ide: Option<&str>) -> Result<Vec<A
     }
 
     if imported_accounts.is_empty() {
-        return Err("No login state data found across Keyring, IDE databases, or CLI directories".to_string());
+        return Err(
+            "No login state data found across Keyring, IDE databases, or CLI directories"
+                .to_string(),
+        );
     }
 
     Ok(imported_accounts)

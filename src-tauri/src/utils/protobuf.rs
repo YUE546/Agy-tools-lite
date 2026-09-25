@@ -56,31 +56,6 @@ pub fn skip_field(data: &[u8], offset: usize, wire_type: u8) -> Result<usize, St
     }
 }
 
-/// Remove specified Protobuf field
-pub fn remove_field(data: &[u8], field_num: u32) -> Result<Vec<u8>, String> {
-    let mut result = Vec::new();
-    let mut offset = 0;
-
-    while offset < data.len() {
-        let start_offset = offset;
-        let (tag, new_offset) = read_varint(data, offset)?;
-        let wire_type = (tag & 7) as u8;
-        let current_field = (tag >> 3) as u32;
-
-        if current_field == field_num {
-            // Skip this field
-            offset = skip_field(data, new_offset, wire_type)?;
-        } else {
-            // Keep other fields
-            let next_offset = skip_field(data, new_offset, wire_type)?;
-            result.extend_from_slice(&data[start_offset..next_offset]);
-            offset = next_offset;
-        }
-    }
-
-    Ok(result)
-}
-
 /// Find specified Protobuf field content (Length-Delimited only)
 pub fn find_field(data: &[u8], target_field: u32) -> Result<Option<Vec<u8>>, String> {
     let mut offset = 0;
@@ -106,82 +81,6 @@ pub fn find_field(data: &[u8], target_field: u32) -> Result<Option<Vec<u8>>, Str
     }
 
     Ok(None)
-}
-
-/// Create OAuthTokenInfo (Field 6)
-///
-/// Structure:
-/// message OAuthTokenInfo {
-///     optional string access_token = 1;
-///     optional string token_type = 2;
-///     optional string refresh_token = 3;
-///     optional Timestamp expiry = 4;
-/// }
-pub fn create_oauth_field(access_token: &str, refresh_token: &str, expiry: i64) -> Vec<u8> {
-    // Field 1: access_token (string, wire_type = 2)
-    let tag1 = (1 << 3) | 2;
-    let field1 = {
-        let mut f = encode_varint(tag1);
-        f.extend(encode_varint(access_token.len() as u64));
-        f.extend(access_token.as_bytes());
-        f
-    };
-
-    // Field 2: token_type (string, fixed value "Bearer", wire_type = 2)
-    let tag2 = (2 << 3) | 2;
-    let token_type = "Bearer";
-    let field2 = {
-        let mut f = encode_varint(tag2);
-        f.extend(encode_varint(token_type.len() as u64));
-        f.extend(token_type.as_bytes());
-        f
-    };
-
-    // Field 3: refresh_token (string, wire_type = 2)
-    let tag3 = (3 << 3) | 2;
-    let field3 = {
-        let mut f = encode_varint(tag3);
-        f.extend(encode_varint(refresh_token.len() as u64));
-        f.extend(refresh_token.as_bytes());
-        f
-    };
-
-    // Field 4: expiry (Nested Timestamp message, wire_type = 2)
-    // Timestamp message contains: Field 1: seconds (int64, wire_type = 0)
-    let timestamp_tag = (1 << 3) | 0; // Field 1, varint
-    let timestamp_msg = {
-        let mut m = encode_varint(timestamp_tag);
-        m.extend(encode_varint(expiry as u64));
-        m
-    };
-
-    let tag4 = (4 << 3) | 2; // Field 4, length-delimited
-    let field4 = {
-        let mut f = encode_varint(tag4);
-        f.extend(encode_varint(timestamp_msg.len() as u64));
-        f.extend(timestamp_msg);
-        f
-    };
-
-    // Merge all fields into OAuthTokenInfo message
-    let oauth_info = [field1, field2, field3, field4].concat();
-
-    // Wrap as Field 6 (length-delimited)
-    let tag6 = (6 << 3) | 2;
-    let mut field6 = encode_varint(tag6);
-    field6.extend(encode_varint(oauth_info.len() as u64));
-    field6.extend(oauth_info);
-
-    field6
-}
-
-/// Create Email (Field 2)
-pub fn create_email_field(email: &str) -> Vec<u8> {
-    let tag = (2 << 3) | 2;
-    let mut f = encode_varint(tag);
-    f.extend(encode_varint(email.len() as u64));
-    f.extend(email.as_bytes());
-    f
 }
 
 /// 编码长度分隔字段 (wire_type = 2)

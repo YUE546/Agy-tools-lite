@@ -62,15 +62,11 @@ pub fn init_logger() {
     // 4. Set filtering layer (default to INFO level to reduce log size)
     let filter_layer = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
-    // 6. Log bridge layer
-    let bridge_layer = crate::modules::log_bridge::TauriLogBridgeLayer::new();
-
     // 5. Initialize global subscriber (use try_init to avoid crash on repeated initialization)
     let _ = tracing_subscriber::registry()
         .with(filter_layer)
         .with(console_layer)
         .with(file_layer)
-        .with(bridge_layer)
         .try_init();
 
     // Leak _guard to ensure its lifetime lasts until program exit
@@ -189,26 +185,6 @@ pub fn cleanup_old_logs(days_to_keep: u64) -> Result<(), String> {
         );
     }
 
-    Ok(())
-}
-
-/// Clear log cache (using truncation mode to keep file handles valid)
-pub fn clear_logs() -> Result<(), String> {
-    let log_dir = get_log_dir()?;
-    if log_dir.exists() {
-        // Iterate through all files in directory and truncate instead of deleting directory
-        let entries =
-            fs::read_dir(&log_dir).map_err(|e| format!("Failed to read log directory: {}", e))?;
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.is_file() {
-                    // Open file in truncation mode, set size to 0
-                    let _ = fs::OpenOptions::new().write(true).truncate(true).open(path);
-                }
-            }
-        }
-    }
     Ok(())
 }
 

@@ -17,7 +17,6 @@ import ModalDialog from "../components/common/ModalDialog";
 import Pagination from "../components/common/Pagination";
 import { showToast } from "../components/common/ToastContainer";
 import { useAccountStore } from "../stores/useAccountStore";
-import { useConfigStore } from "../stores/useConfigStore";
 import { cn } from "../utils/cn";
 import { useTranslation } from "react-i18next";
 import type { Account } from "../types/account";
@@ -41,8 +40,6 @@ function Accounts() {
     reorderAccounts,
     updateAccountLabel,
   } = useAccountStore();
-  const { config } = useConfigStore();
-
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
@@ -111,11 +108,6 @@ function Accounts() {
       return localPageSize;
     }
 
-    // 其次使用用户配置的固定值
-    if (config?.accounts_page_size && config.accounts_page_size > 0) {
-      return config.accounts_page_size;
-    }
-
     // 回退到原有的动态计算逻辑
     if (!containerSize.height) return viewMode === "grid" ? 6 : 8;
 
@@ -145,7 +137,7 @@ function Accounts() {
       );
       return cols * rows;
     }
-  }, [localPageSize, config?.accounts_page_size, containerSize, viewMode]);
+  }, [localPageSize, containerSize, viewMode]);
 
   useEffect(() => {
     fetchAccounts();

@@ -868,8 +868,8 @@ mod tests {
 
         let since = NaiveDate::from_ymd_opt(2026, 1, 1).expect("date should be valid");
         let live_source_keys = HashSet::from([source_key.to_string()]);
-        let archived = scan_archive(&archive_path, since, &live_source_keys)
-            .expect("archive should scan");
+        let archived =
+            scan_archive(&archive_path, since, &live_source_keys).expect("archive should scan");
         assert_eq!(archived.generations_scanned, 1);
         assert_eq!(archived.events.len(), 1);
         assert_eq!(archived.events[0].total_tokens, 380);
@@ -893,8 +893,7 @@ mod tests {
         let usage = [varint_field(2, 10), varint_field(3, 5)].concat();
         let wrapped = [bytes_field(4, &usage), bytes_field(19, b"gemini-test")].concat();
         let blob = bytes_field(1, &wrapped);
-        let event = generation_event(&blob, Some(1_800_000_123))
-            .expect("fallback should decode");
+        let event = generation_event(&blob, Some(1_800_000_123)).expect("fallback should decode");
         assert_eq!(event.timestamp_seconds, 1_800_000_123);
     }
 
@@ -903,10 +902,6 @@ mod tests {
         let usage = varint_field(1, 100);
         let wrapped = bytes_field(4, &usage);
         let blob = bytes_field(1, &wrapped);
-        assert!(generation_event(
-            &blob,
-            Some(1_800_000_000)
-        )
-        .is_none());
+        assert!(generation_event(&blob, Some(1_800_000_000)).is_none());
     }
 }
