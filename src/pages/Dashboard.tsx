@@ -201,7 +201,10 @@ function TokenCard({
             <div className="text-xl font-bold tracking-tight text-gray-900 dark:text-base-content" title={displayValue || formatTokens(value, locale)}>
                 {displayValue || compactTokens(value, locale)}
             </div>
-            <div className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
+            <div
+                className="mt-0.5 truncate text-[10px] text-gray-400 dark:text-gray-500"
+                title={detail || `${formatTokens(value, locale)} Token`}
+            >
                 {detail || `${formatTokens(value, locale)} Token`}
             </div>
         </div>
