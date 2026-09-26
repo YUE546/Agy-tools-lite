@@ -1,72 +1,113 @@
 # Antigravity Tools Lite
 
-[English](./README_EN.md)
+[简体中文](./README.zh-CN.md)
 
-面向 Antigravity 用户的 macOS 桌面应用：管理本机 Google 账号，并在本地查看 Token 用量与费用估算。所有数据都留在你这台机器上。
+A small, local-first desktop companion for [Antigravity](https://antigravity.google): keep several Google accounts handy, switch the one your editor **and** your `agy` CLI use with a click, and see exactly where your tokens went — with an estimated API cost. Nothing is uploaded anywhere: it reads Antigravity's own local files and writes credentials into your OS keychain, nothing else.
 
-## 下载安装
+![Dashboard](docs/screenshots/dashboard.png)
 
-**[⬇︎ 下载最新版本](https://github.com/anglee0323/Antigravity-Tools-Lite/releases/latest)**（macOS · Apple Silicon）
+## Why it exists
 
-1. 下载 `Antigravity-Tools-<版本>-macos-arm64.zip`
-2. 解压后把 `Antigravity Tools Lite.app` 拖进「应用程序」
-3. 首次打开若提示「Apple 无法验证」：在「应用程序」里 **右键点图标 → 打开 → 再点「打开」**；
-   或执行一次 `xattr -dr com.apple.quarantine "/Applications/Antigravity Tools Lite.app"`
+Antigravity works fine with one Google account. Once you have more — a personal one, a work one, a spare for when the quota runs out — the routine gets annoying: sign out, sign in, restart, lose your session. And the built-in usage view won't tell you how many tokens you burned yesterday, or which model ate them.
 
-> 应用为本地自签名（ad-hoc），未做 Apple 公证，所以首次打开需要手动确认，属正常现象。
+This app is that missing piece, built as a focused desktop tool:
 
-**系统要求**：macOS（Apple Silicon），本机已安装 Antigravity。
+- **Multi-account switching** — one click puts an account into the Antigravity app *or* the `agy` CLI.
+- **Per-model quota** with reset countdowns and PRO / ULTRA / FREE grouping, so you can see who still has headroom.
+- **A real token dashboard** — local usage for today / yesterday / last 3 / 7 / 30 days, per model, with an estimated API cost.
+- **Local-only by design** — no proxy, no server, no telemetry, no account sync. Your credentials stay in your keychain.
+- **Bilingual UI** (Simplified Chinese / English), light and dark themes, tray menu.
 
-## 界面
+## Download
 
-| 仪表盘（浅色） | 仪表盘（深色 / 英文） |
-| :---: | :---: |
-| <img src="docs/screenshots/dashboard.png" width="430" alt="仪表盘"> | <img src="docs/screenshots/dashboard-dark.png" width="430" alt="深色模式"> |
+**[⬇︎ Latest release](https://github.com/anglee0323/antigravity-tools-lite/releases/latest)**
 
-| 账号管理 | 设置 |
-| :---: | :---: |
-| <img src="docs/screenshots/accounts.png" width="430" alt="账号管理"> | <img src="docs/screenshots/settings.png" width="430" alt="设置"> |
+| Platform | Asset | Notes |
+| --- | --- | --- |
+| macOS (Apple Silicon) | `Antigravity-Tools-Lite-<version>-macos-arm64.zip` | Unzip, drag `Antigravity Tools Lite.app` into Applications |
+| Windows (x64) | `Antigravity-Tools-Lite-<version>-windows-x64-setup.exe` | NSIS installer, per-user install |
 
-> 截图使用示例数据，用于展示界面。
+Unsigned builds — the usual first-run warnings apply and are expected:
 
-## 功能
+```bash
+# macOS: right-click the app in Applications → Open → Open, or
+xattr -dr com.apple.quarantine "/Applications/Antigravity Tools Lite.app"
+```
 
-- **账号管理**：添加和管理 Google 账号、查看各模型配额与重置时间，并在本机 Antigravity 环境中切换当前账号。
-- **Token 仪表盘**：扫描本地 Antigravity 对话记录，按今天、昨天、近 3 天、近 7 天或近 30 天查看用量；按模型查看明细，鼠标悬浮任意柱状条可看到该时段的输入 / 输出 / 缓存 / 请求数与**预估费用**。
-- **个性化设置**：浅色、深色或跟随系统主题；简体中文和英文界面；配置后台配额刷新与当前账号同步频率。
-- **本地数据**：账号配置保存在本机 `~/.antigravity_tools/`。Token 统计直接读取本地记录，费用估算所需的公开模型价格会同步并缓存。
+On Windows, SmartScreen may show "Windows protected your PC" → **More info → Run anyway**.
 
-## 与上游项目的差异
+## Managing accounts
 
-本项目基于 [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager) 定制，只保留桌面端需要的部分：
+Add an account with the **+** button. Three ways are built in:
 
-- 移除了上游的代理服务后端（反向代理、HTTP API、Cloudflared 隧道、IP 管理、Token 统计等模块）与对应的界面入口。
-- 移除了 Web/Docker 模式的登录拦截层与相关文案。
-- 界面改为聚焦「账号管理 + 本地 Token 仪表盘 + 设置」，并补充了浅色/深色适配、中英双语与费用估算。
+- **OAuth** — opens your browser, you approve with Google, done.
+- **Refresh token** — paste one token, or a JSON array of them, to import in bulk.
+- **Import from this Mac** — scans the system keychain, the Antigravity IDE databases, plugins and the CLI's own directory (`~/.antigravity-agent`) and imports everything it finds.
 
-## 构建
+![Accounts](docs/screenshots/accounts.png)
 
-需要 Node.js 20+、Rust stable，以及 Tauri 2 对应的 macOS 构建工具。
+Each row has five actions, each with a tooltip so you never have to guess:
+
+| Action | What it does |
+| --- | --- |
+| **Switch to this account** | Makes this account the one your local Antigravity uses. It safely closes a running Antigravity, writes the credentials where Antigravity keeps them (OS keychain — or `state.vscdb` on pre-2.0 builds), and updates the tray; open Antigravity again and you are signed in as this account. The **`agy` CLI reads the same credential entry**, so your next CLI command uses it too. |
+| **Refresh quota** | Re-reads this account's per-model quota and reset times. |
+| **Edit remark** | A short label (max 15 characters) so you can tell accounts apart at a glance. |
+| **Delete** | Removes the account from this app. |
+
+Rows are sortable by reset time or last use, draggable to reorder, and can be switched between table and card view. Select several and you can refresh or delete them in bulk; the filter pills (All / PRO / ULTRA / FREE) narrow the list.
+
+### One switch, both clients
+
+Antigravity and its `agy` CLI read the same credential entry from your OS keychain, so switching an account once is enough for both. The app is closed during the switch on purpose: if it stayed open it would keep refreshing (and re-writing) the old token, and your switch would silently revert. The CLI needs no restart — the next `agy` command uses the new account.
+
+On very old Antigravity builds (pre-2.0) there is no keychain entry to write; the app detects that and injects the token into the build's local `state.vscdb` instead.
+
+## Token dashboard
+
+The dashboard reads Antigravity's own conversation databases (`conversation.db`, `token_usage_archive.db`) plus its archive directory, entirely locally, and summarises them. Nothing is approximated per request beyond what the records contain.
+
+![Dashboard dark mode](docs/screenshots/dashboard-dark.png)
+
+- **Date range** — today, yesterday, last 3, 7 or 30 days, with an hourly chart for the single-day ranges.
+- **Hover any bar** for that hour's input / output / cached tokens, request count and the estimated cost of that hour.
+- **KPI cards** — total tokens, input, output, cache hit rate and estimated API cost.
+- **Model usage / model details** — which model is consuming your quota, sorted, with a per-model breakdown table.
+- Cost is estimated from Google's public Gemini pricing pages (fetched once a day and cached) with a built-in fallback table. When a model has no known price, the card tells you instead of silently guessing.
+
+## Settings
+
+![Settings](docs/screenshots/settings.png)
+
+- **Appearance & language** — system / light / dark, Simplified Chinese or English.
+- **Background tasks** — how often account quotas refresh, and how often the active account is re-read from local Antigravity data.
+- **Local data** — where the app keeps its files (`~/.antigravity_tools/`), with a button to open the folder.
+
+## Your data
+
+| | |
+| --- | --- |
+| Read | Antigravity's local conversation databases and archives (token counts, models, timestamps) |
+| Written | `~/.antigravity_tools/` (accounts, config, cached pricing) and your OS credential store when you switch accounts |
+| Never | Conversations, prompts or credentials are never uploaded; there is no proxy or server component |
+
+## Build from source
+
+Requires Node.js 20+, stable Rust and the platform build tools for Tauri 2.
 
 ```bash
 npm ci
-npm run tauri dev       # 开发模式
-npm run build           # 仅构建前端
-npm run tauri build     # 构建 macOS 应用
+npm run tauri dev       # development
+npm run build           # frontend only
+npm run tauri build     # macOS .app / Windows installer
 ```
 
-应用包位于 `src-tauri/target/release/bundle/macos/`。
+Bundles land in `src-tauri/target/release/bundle/`. Pushing a `v*` tag makes the release workflow build both platforms and attach them to the GitHub release.
 
-## 项目结构
+## Relation to the upstream project
 
-```text
-src/                  React + TypeScript 界面
-src/locales/          简体中文与英文
-src-tauri/src/        Rust / Tauri 桌面端
-src-tauri/icons/      应用图标
-docs/screenshots/     README 截图
-```
+This is a focused fork of [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager). Upstream is a full toolkit (reverse proxy, HTTP API, Cloudflared tunnel, IP management, Docker image). This fork keeps the account manager and the local usage dashboard, removes the proxy and web-mode half of the codebase, and adds its own dashboard, bilingual UI, theme support and release tooling. If you need the proxy, use upstream — the two are independent projects.
 
-## 许可与来源
+## License
 
-本项目基于 [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager) 定制，并沿用仓库中的 [CC BY-NC-SA 4.0](./LICENSE) 许可证。使用、修改和再分发时请遵守许可证及原项目的署名要求。
+Based on [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager) and distributed under the same [CC BY-NC-SA 4.0](./LICENSE) license. Follow the license and the original attribution requirements when using, modifying or redistributing this software.

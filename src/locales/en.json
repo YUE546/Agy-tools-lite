@@ -130,7 +130,7 @@
       "risk_controlled": "Rate limited",
       "oauth_reauth_required": "OAuth Re-auth Required"
     },
-    "switch_to_this": "Switch to this account",
+    "switch_account": "Switch to this account (app and CLI share it)",
     "refresh_quota": "Refresh this account's quota",
     "delete_account": "Delete this account",
     "quota_window_5h": "5-hour quota",
