@@ -12,7 +12,6 @@
     "last_3_days": "Last 3 days",
     "last_7_days": "Last 7 days",
     "last_30_days": "Last 30 days",
-    "accounts": "Accounts",
     "refresh": "Refresh",
     "refreshing": "Refreshing…",
     "toast_updated": "Local token stats updated{{dataTime}}",
@@ -33,7 +32,7 @@
     "chart_subtitle": "From local generation records",
     "hover_for_usage": "Hover to inspect usage",
     "token": "Token",
-    "requests": "requests",
+    "estimated_cost": "Estimated cost",
     "model_usage": "Model usage",
     "local_records": "{{range}} local records",
     "no_model_usage": "No recognized model usage yet",
@@ -80,6 +79,7 @@
     "open_failed": "Couldn't open data folder: {{error}}"
   },
   "common": {
+    "app_name": "Antigravity Tools Lite",
     "loading": "Loading...",
     "save": "Save",
     "cancel": "Cancel",
@@ -94,7 +94,7 @@
     "pagination_info": "Showing {{start}} to {{end}} of {{total}} entries",
     "per_page": "Per page",
     "items": "items",
-    "tauri_api_not_loaded": "Tauri API not loaded, please restart the app",
+    "tauri_api_not_loaded": "App components did not load. Please restart the app",
     "environment_error": "Environment error: {{error}}",
     "submit": "Submit"
   },
@@ -121,18 +121,20 @@
     "delete_selected": "Delete ({{count}})",
     "current": "Current",
     "disabled": "Disabled",
-    "disabled_tooltip": "Account is disabled (e.g. refresh_token revoked/expired). Reauthorize or update token to re-enable.",
+    "disabled_tooltip": "Account disabled: sign-in expired or revoked. Sign in again to restore it.",
     "forbidden": "403",
     "forbidden_msg": "Forbidden, skip auto-refresh",
     "status": {
       "disabled": "Account Disabled",
       "validation_required": "Verification Required",
-      "risk_controlled": "Risk / Rate Limited",
+      "risk_controlled": "Rate limited",
       "oauth_reauth_required": "OAuth Re-auth Required"
     },
-    "switch_to_classic": "Switch to Antigravity (Classic)",
-    "quota_window_5h": "5-Hour Rolling Quota",
-    "quota_window_weekly": "7-Day Weekly Quota",
+    "switch_to_this": "Switch to this account",
+    "refresh_quota": "Refresh this account's quota",
+    "delete_account": "Delete this account",
+    "quota_window_5h": "5-hour quota",
+    "quota_window_weekly": "7-day quota",
     "quota_window_weekly_short": "Weekly",
     "quota_protected": "Protected",
     "add": {
@@ -172,13 +174,13 @@
         "batch_fail": "Import failed"
       },
       "import": {
-        "scheme_a": "Plan A: From IDE DB",
-        "scheme_a_desc": "Auto-read current logged-in account from local Antigravity DB.",
-        "btn_db": "Import Current Account",
+        "scheme_a": "Option 1: scan this Mac for signed-in accounts",
+        "scheme_a_desc": "Scans the system keychain, Antigravity IDE, plugins and CLI data, then imports every signed-in account.",
+        "btn_db": "Import all signed-in accounts",
         "or": "OR",
-        "scheme_b": "Plan B: From V1 Backup",
-        "scheme_b_desc": "Scan ~/.antigravity-agent for V1 account data.",
-        "btn_v1": "Batch Import V1",
+        "scheme_b": "Option 2: import from a legacy backup",
+        "scheme_b_desc": "Scans ~/.antigravity-agent for legacy (V1) account data.",
+        "btn_v1": "Import legacy (V1) backup",
         "btn_custom_db": "Import Custom DB"
       },
       "btn_cancel": "Cancel",
@@ -229,24 +231,6 @@
     "quit": "Quit Application",
     "no_account": "No Account",
     "unknown_quota": "Unknown (Click to Refresh)",
-    "forbidden": "Account Forbidden"
-  },
-  "proxy": {
-    "model": {
-      "flash_preview": "Flash Preview (Flash 3.1)",
-      "flash_lite": "Lite & Fast (Lite)",
-      "flash_thinking": "Thinking Capability (Thinking)",
-      "pro_low": "3.1 Pro Low",
-      "pro_high": "3.1 Pro High",
-      "pro_image": "Image Generation (1:1)",
-      "pro_image_1_1": "Image Generation (1:1)",
-      "claude_sonnet": "Code Reasoning (Claude 4.6)",
-      "claude_sonnet_thinking": "Chain of Thought (4.6 Think)",
-      "claude_opus": "Strongest Model (Claude Opus)",
-      "claude_opus_thinking": "Strongest Thinking (Opus Think)",
-      "gemini_2_5_flash": "Flash Model (2.5 Flash)",
-      "gemini_2_5_pro": "High Performance (2.5 Pro)",
-      "gpt_oss": "Open Model (GPT-OSS)"
-    }
+    "forbidden": "Account rejected (403)"
   }
 }

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BarChart3, CalendarDays, Cpu, Database, DollarSign, MessageSquare, RefreshCw, Users } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { BarChart3, CalendarDays, Cpu, Database, DollarSign, MessageSquare, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { request as invoke } from '../utils/request';
 import { showToast } from '../components/common/ToastContainer';
@@ -212,7 +211,6 @@ function TokenCard({
 }
 
 function Dashboard() {
-    const navigate = useNavigate();
     const { t, i18n } = useTranslation();
     const locale = i18n.resolvedLanguage === 'zh' ? 'zh-CN' : 'en-US';
     const rangeLabels: Record<RangeKey, string> = {
@@ -345,6 +343,35 @@ function Dashboard() {
     }, [totals]);
 
     const apiCost = useMemo(() => estimateApiCost(modelsForRange, pricing), [modelsForRange, pricing]);
+
+    // Blended price per token type for the current range, so the chart can show the cost of a
+    // single bar. Models without a known price contribute nothing (same caveat as the KPI card).
+    const costPerPoint = useMemo(() => {
+        const rates = modelsForRange.reduce(
+            (acc, model) => {
+                const price = findModelPricing(model.model, pricing);
+                if (!price) return acc;
+                acc.input += model.input_tokens * price.input;
+                acc.output += model.output_tokens * price.output;
+                acc.cached += model.cached_tokens * price.cached;
+                return acc;
+            },
+            { input: 0, output: 0, cached: 0 },
+        );
+        return {
+            input: totals.input_tokens ? rates.input / totals.input_tokens / 1_000_000 : 0,
+            output: totals.output_tokens ? rates.output / totals.output_tokens / 1_000_000 : 0,
+            cached: totals.cached_tokens ? rates.cached / totals.cached_tokens / 1_000_000 : 0,
+        };
+    }, [modelsForRange, pricing, totals]);
+
+    const costForPoint = useCallback(
+        (point: TokenChartPoint) =>
+            point.input_tokens * costPerPoint.input
+            + point.output_tokens * costPerPoint.output
+            + point.cached_tokens * costPerPoint.cached,
+        [costPerPoint],
+    );
     const pricingLabel = pricing
         ? pricing.stale
             ? t('local_dashboard.pricing_local_cache')
@@ -391,13 +418,6 @@ function Dashboard() {
                                 </button>
                             ))}
                         </div>
-                        <button
-                            onClick={() => navigate('/accounts')}
-                            className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-blue-300 hover:text-blue-600 dark:border-base-200 dark:bg-base-100 dark:text-gray-300"
-                        >
-                            <Users className="h-3.5 w-3.5" />
-                            {t('local_dashboard.accounts')}
-                        </button>
                         <button
                             onClick={() => fetchUsage(true)}
                             disabled={loading}
@@ -460,16 +480,36 @@ function Dashboard() {
                                 </h2>
                                 <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">{t('local_dashboard.chart_subtitle')}</p>
                             </div>
-                            <div className="pointer-events-none h-14 w-full shrink-0 overflow-hidden text-right sm:w-[230px]" aria-live="polite">
+                            <div className="pointer-events-none h-[60px] w-full shrink-0 text-right sm:w-[236px]" aria-live="polite">
                                 {hoveredPoint ? (
-                                    <div className="flex h-full flex-col justify-center">
-                                        <div className="text-[10px] font-medium leading-3 text-blue-600 dark:text-blue-400">{hoveredPoint.label}</div>
-                                        <div className="whitespace-nowrap text-sm font-bold leading-4 text-gray-900 dark:text-base-content">{formatTokens(hoveredPoint.total_tokens, locale)} {t('local_dashboard.token')}</div>
-                                        <div className="whitespace-nowrap text-[10px] leading-3 text-gray-400 dark:text-gray-500">
-                                            {t('local_dashboard.input_short')} {compactTokens(hoveredPoint.input_tokens, locale)} · {t('local_dashboard.output_short')} {compactTokens(hoveredPoint.output_tokens, locale)}
+                                    <div className="flex h-full flex-col justify-center gap-1">
+                                        <div className="flex items-baseline justify-end gap-1.5">
+                                            <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400">{hoveredPoint.label}</span>
+                                            <span className="whitespace-nowrap text-sm font-bold leading-4 text-gray-900 dark:text-base-content">
+                                                {formatTokens(hoveredPoint.total_tokens, locale)} {t('local_dashboard.token')}
+                                            </span>
                                         </div>
-                                        <div className="whitespace-nowrap text-[10px] leading-3 text-gray-400 dark:text-gray-500">
-                                            {t('local_dashboard.cached_tokens')} {compactTokens(hoveredPoint.cached_tokens, locale)} · {formatTokens(hoveredPoint.request_count, locale)} {t('local_dashboard.requests')}
+                                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] leading-3">
+                                            <div className="flex items-baseline justify-end gap-1">
+                                                <span className="text-gray-400 dark:text-gray-500">{t('local_dashboard.input_short')}</span>
+                                                <span className="font-mono text-gray-600 dark:text-gray-300">{compactTokens(hoveredPoint.input_tokens, locale)}</span>
+                                            </div>
+                                            <div className="flex items-baseline justify-end gap-1">
+                                                <span className="text-gray-400 dark:text-gray-500">{t('local_dashboard.output_short')}</span>
+                                                <span className="font-mono text-gray-600 dark:text-gray-300">{compactTokens(hoveredPoint.output_tokens, locale)}</span>
+                                            </div>
+                                            <div className="flex items-baseline justify-end gap-1">
+                                                <span className="text-gray-400 dark:text-gray-500">{t('local_dashboard.cached_tokens')}</span>
+                                                <span className="font-mono text-gray-600 dark:text-gray-300">{compactTokens(hoveredPoint.cached_tokens, locale)}</span>
+                                            </div>
+                                            <div className="flex items-baseline justify-end gap-1">
+                                                <span className="text-gray-400 dark:text-gray-500">{t('local_dashboard.request_count')}</span>
+                                                <span className="font-mono text-gray-600 dark:text-gray-300">{formatTokens(hoveredPoint.request_count, locale)}</span>
+                                            </div>
+                                            <div className="col-span-2 flex items-baseline justify-end gap-1">
+                                                <span className="text-gray-400 dark:text-gray-500">{t('local_dashboard.estimated_cost')}</span>
+                                                <span className="font-mono font-medium text-amber-600 dark:text-amber-400">{formatUsd(costForPoint(hoveredPoint))}</span>
+                                            </div>
                                         </div>
                                     </div>
                                 ) : (
@@ -504,7 +544,6 @@ function Dashboard() {
                                                     maxWidth: `${chartBarMaxWidth[range]}px`,
                                                     height: isEmpty ? '2px' : `${height}%`,
                                                 }}
-                                                title={`${point.label}: ${formatTokens(point.total_tokens, locale)} ${t('local_dashboard.token')} · ${t('local_dashboard.input_short')} ${formatTokens(point.input_tokens, locale)} · ${t('local_dashboard.output_short')} ${formatTokens(point.output_tokens, locale)} · ${t('local_dashboard.cached_tokens')} ${formatTokens(point.cached_tokens, locale)} · ${formatTokens(point.request_count, locale)} ${t('local_dashboard.requests')}`}
                                             />
                                         </div>
                                         <span className="w-full whitespace-nowrap text-center text-[10px] text-gray-400 dark:text-gray-500">{showPointLabel ? point.label : '\u00a0'}</span>

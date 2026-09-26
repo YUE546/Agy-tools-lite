@@ -307,19 +307,11 @@ function AccountRowContent({
 
     // 根据 show_all 状态决定显示哪些模型
     const uniqueLabels = new Set<string>();
-    // i18next 在缺少翻译时会把键名原样返回，模型列表里就会漏出 "proxy.model.xxx" 这类内部键，
-    // 所以缺少翻译时一律回退到模型自身的名字。
-    const modelLabel = (key: string | undefined, fallback: string) => {
-        if (!key) return fallback;
-        const translated = t(key);
-        return translated === key ? fallback : translated;
-    };
     const displayModels = sortModels(
         (showAllQuotas
             ? (account.quota?.models || []).map(m => {
                 const config = MODEL_CONFIG[m.name.toLowerCase()];
-                const fallbackLabel = config?.shortLabel || config?.label || m.name;
-                const label = m.display_name || modelLabel(config?.i18nKey, fallbackLabel);
+                const label = m.display_name || config?.label || config?.shortLabel || m.name;
                 return {
                     id: m.name.toLowerCase(),
                     label: label,
@@ -332,10 +324,8 @@ function AccountRowContent({
                 const resolvedConfig = sel.model ? MODEL_CONFIG[sel.model.name.toLowerCase()] : undefined;
                 if (!selectorConfig && !sel.model) return null;
                 const label = sel.model?.display_name
-                    || (resolvedConfig?.shortLabel || resolvedConfig?.label)
-                    || (selectorConfig?.shortLabel || selectorConfig?.label)
-                    || (resolvedConfig?.i18nKey ? modelLabel(resolvedConfig.i18nKey, resolvedConfig.shortLabel || resolvedConfig.label || sel.selectorId) : undefined)
-                    || (selectorConfig?.i18nKey ? modelLabel(selectorConfig.i18nKey, selectorConfig.shortLabel || selectorConfig.label || sel.selectorId) : undefined)
+                    || resolvedConfig?.label || resolvedConfig?.shortLabel
+                    || selectorConfig?.label || selectorConfig?.shortLabel
                     || sel.selectorId;
                 return {
                     id: sel.model?.name.toLowerCase() ?? sel.selectorId.toLowerCase(),
@@ -530,7 +520,7 @@ function AccountRowContent({
                     <button
                         className={`p-1.5 text-gray-500 dark:text-gray-400 rounded-lg transition-all ${(isSwitching || isDisabled) ? 'bg-blue-50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400 cursor-not-allowed' : 'hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
                         onClick={(e) => { e.stopPropagation(); onSwitch(); }}
-                        title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_classic', '切换到 Antigravity (经典版)'))}
+                        title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_this'))}
                         disabled={isSwitching || isDisabled}
                     >
                         <ArrowRightLeft className={`w-3.5 h-3.5 ${isSwitching ? 'animate-spin' : ''}`} />
@@ -538,7 +528,7 @@ function AccountRowContent({
                     <button
                         className={`p-1.5 text-gray-500 dark:text-gray-400 rounded-lg transition-all ${(isRefreshing || isDisabled) ? 'bg-green-50 dark:bg-green-900/10 text-green-600 dark:text-green-400 cursor-not-allowed' : 'hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30'}`}
                         onClick={(e) => { e.stopPropagation(); onRefresh(); }}
-                        title={isDisabled ? t('accounts.disabled_tooltip') : (isRefreshing ? t('common.refreshing') : t('common.refresh'))}
+                        title={isDisabled ? t('accounts.disabled_tooltip') : (isRefreshing ? t('common.refreshing') : t('accounts.refresh_quota'))}
                         disabled={isRefreshing || isDisabled}
                     >
                         <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -555,8 +545,8 @@ function AccountRowContent({
                     <button
                         className="p-1.5 text-gray-500 dark:text-gray-400 rounded-lg transition-all hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 disabled:cursor-not-allowed disabled:opacity-50"
                         onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                        title={t('common.delete')}
-                        aria-label={`${t('common.delete')} ${account.email}`}
+                        title={t('accounts.delete_account')}
+                        aria-label={`${t('accounts.delete_account')} ${account.email}`}
                         disabled={isRefreshing || isSwitching}
                     >
                         <Trash2 className="w-3.5 h-3.5" />

@@ -269,7 +269,7 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                     <button
                         className={`p-1.5 rounded-lg transition-all ${(isSwitching || isDisabled) ? 'text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/10 cursor-not-allowed' : 'text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
                         onClick={(e) => { e.stopPropagation(); onSwitch(); }}
-                        title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_classic', '切换到 Antigravity (经典版)'))}
+                        title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_this'))}
                         disabled={isSwitching || isDisabled}
                     >
                         <ArrowRightLeft className={`w-3.5 h-3.5 ${isSwitching ? 'animate-spin' : ''}`} />
@@ -280,7 +280,7 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                             : 'text-gray-400 hover:text-green-600 hover:bg-green-50'}`}
                         onClick={(e) => { e.stopPropagation(); onRefresh(); }}
                         disabled={isRefreshing || isDisabled}
-                        title={isDisabled ? t('accounts.disabled_tooltip') : t('common.refresh')}
+                        title={isDisabled ? t('accounts.disabled_tooltip') : t('accounts.refresh_quota')}
                     >
                         <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
                     </button>
@@ -297,8 +297,8 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                         className="p-1.5 rounded-lg transition-all text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/30"
                         onClick={(e) => { e.stopPropagation(); onDelete(); }}
                         disabled={isRefreshing || isSwitching}
-                        title={t('common.delete')}
-                        aria-label={`${t('common.delete')} ${account.email}`}
+                        title={t('accounts.delete_account')}
+                        aria-label={`${t('accounts.delete_account')} ${account.email}`}
                     >
                         <Trash2 className="w-3.5 h-3.5" />
                     </button>

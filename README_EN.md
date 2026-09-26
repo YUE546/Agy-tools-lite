@@ -1,15 +1,48 @@
-# Antigravity Tools
+# Antigravity Tools Lite
 
 [简体中文](./README.md)
 
-A macOS desktop app for Antigravity users to manage local accounts and review token usage on their device.
+A macOS desktop app for Antigravity users: manage your local Google accounts and review token usage and estimated cost on your machine. All data stays on this device.
+
+## Download
+
+**[⬇︎ Download the latest release](https://github.com/anglee0323/Antigravity-Tools-Lite/releases/latest)** (macOS · Apple Silicon)
+
+1. Download `Antigravity-Tools-<version>-macos-arm64.zip`
+2. Unzip it and drag `Antigravity Tools Lite.app` into Applications
+3. If macOS says the developer cannot be verified: **right-click the icon in Applications → Open → Open again**, or run
+   `xattr -dr com.apple.quarantine "/Applications/Antigravity Tools Lite.app"`
+
+> The app is ad-hoc signed and not notarized by Apple, so the first launch needs that manual confirmation.
+
+**Requirements**: macOS (Apple Silicon) with Antigravity installed.
+
+## Screenshots
+
+| Dashboard (light) | Dashboard (dark / English) |
+| --- | --- |
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Dark mode](docs/screenshots/dashboard-dark.png) |
+
+| Accounts | Settings |
+| --- | --- |
+| ![Accounts](docs/screenshots/accounts.png) | ![Settings](docs/screenshots/settings.png) |
+
+> Screenshots use sample data to demonstrate the interface.
 
 ## Features
 
-- **Account management**: Add and organize Google accounts, review quotas, and switch the active account in the local Antigravity environment.
-- **Token dashboard**: Scan local Antigravity conversation records and view usage for today, yesterday, the last 3, 7, or 30 days. Inspect per-model details and estimated costs.
+- **Account management**: Add and organize Google accounts, review per-model quotas with reset times, and switch the active account in the local Antigravity environment.
+- **Token dashboard**: Scan local Antigravity conversation records and view usage for today, yesterday, the last 3, 7, or 30 days. Per-model details, and hovering a chart bar shows that hour's input / output / cached / request counts plus the estimated cost.
 - **Preferences**: Choose a light, dark, or system theme; use the Simplified Chinese or English interface; configure background quota refresh and active-account sync intervals.
-- **Local data**: Account configuration is stored on the device under `~/.antigravity_tools/`. Token statistics are read from local records. Public model pricing used for cost estimates is fetched and cached locally.
+- **Local data**: Account configuration is stored under `~/.antigravity_tools/`. Token statistics are read from local records, and public model pricing used for cost estimates is fetched and cached locally.
+
+## Diff from upstream
+
+This project is a customization of [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager) that keeps only what a desktop app needs:
+
+- Removed the upstream proxy backend (reverse proxy, HTTP API, Cloudflared tunnel, IP management, token statistics modules) and its UI entry points.
+- Removed the Web/Docker login gate and its copy.
+- Focused the UI on account management, the local token dashboard and settings, with light/dark themes, Simplified Chinese / English, and cost estimation.
 
 ## Build
 
@@ -31,6 +64,7 @@ src/                  React + TypeScript interface
 src/locales/          Simplified Chinese and English
 src-tauri/src/        Rust / Tauri desktop application
 src-tauri/icons/      Application icons
+docs/screenshots/     README screenshots
 ```
 
 ## License and attribution
