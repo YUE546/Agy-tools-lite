@@ -42,6 +42,16 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # package-lock.json 只记录了生成它的平台下的 CLI 二进制（可选依赖），
+      # 在 Windows 上需要补上对应平台的包，否则 tauri CLI 找不到原生模块。
+      - name: Ensure the Windows tauri CLI binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          CLI_VERSION="$(node -p "require('./node_modules/@tauri-apps/cli/package.json').version")"
+          npm install --no-save --no-package-lock "@tauri-apps/cli-win32-x64-msvc@${CLI_VERSION}"
+          node -e "require('@tauri-apps/cli-win32-x64-msvc')" && echo "native CLI resolved"
+
       - name: Build Windows installer
         run: npm run tauri build -- --bundles nsis
 
