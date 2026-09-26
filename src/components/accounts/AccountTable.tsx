@@ -307,11 +307,19 @@ function AccountRowContent({
 
     // 根据 show_all 状态决定显示哪些模型
     const uniqueLabels = new Set<string>();
+    // i18next 在缺少翻译时会把键名原样返回，模型列表里就会漏出 "proxy.model.xxx" 这类内部键，
+    // 所以缺少翻译时一律回退到模型自身的名字。
+    const modelLabel = (key: string | undefined, fallback: string) => {
+        if (!key) return fallback;
+        const translated = t(key);
+        return translated === key ? fallback : translated;
+    };
     const displayModels = sortModels(
         (showAllQuotas
             ? (account.quota?.models || []).map(m => {
                 const config = MODEL_CONFIG[m.name.toLowerCase()];
-                const label = m.display_name || (config?.i18nKey ? t(config.i18nKey) : (config?.shortLabel || config?.label || m.name));
+                const fallbackLabel = config?.shortLabel || config?.label || m.name;
+                const label = m.display_name || modelLabel(config?.i18nKey, fallbackLabel);
                 return {
                     id: m.name.toLowerCase(),
                     label: label,
@@ -326,8 +334,8 @@ function AccountRowContent({
                 const label = sel.model?.display_name
                     || (resolvedConfig?.shortLabel || resolvedConfig?.label)
                     || (selectorConfig?.shortLabel || selectorConfig?.label)
-                    || (resolvedConfig?.i18nKey ? t(resolvedConfig.i18nKey) : undefined)
-                    || (selectorConfig?.i18nKey ? t(selectorConfig.i18nKey) : undefined)
+                    || (resolvedConfig?.i18nKey ? modelLabel(resolvedConfig.i18nKey, resolvedConfig.shortLabel || resolvedConfig.label || sel.selectorId) : undefined)
+                    || (selectorConfig?.i18nKey ? modelLabel(selectorConfig.i18nKey, selectorConfig.shortLabel || selectorConfig.label || sel.selectorId) : undefined)
                     || sel.selectorId;
                 return {
                     id: sel.model?.name.toLowerCase() ?? sel.selectorId.toLowerCase(),

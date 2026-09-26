@@ -242,9 +242,11 @@
       "pro_image_1_1": "Image Generation (1:1)",
       "claude_sonnet": "Code Reasoning (Claude 4.6)",
       "claude_sonnet_thinking": "Chain of Thought (4.6 Think)",
+      "claude_opus": "Strongest Model (Claude Opus)",
       "claude_opus_thinking": "Strongest Thinking (Opus Think)",
       "gemini_2_5_flash": "Flash Model (2.5 Flash)",
-      "gemini_2_5_pro": "High Performance (2.5 Pro)"
+      "gemini_2_5_pro": "High Performance (2.5 Pro)",
+      "gpt_oss": "Open Model (GPT-OSS)"
     }
   }
 }

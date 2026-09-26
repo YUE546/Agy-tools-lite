@@ -242,9 +242,11 @@
       "pro_image_1_1": "图片生成 (1:1)",
       "claude_sonnet": "代码推理 (Claude 4.6)",
       "claude_sonnet_thinking": "思维链 (4.6 Think)",
+      "claude_opus": "最强模型 (Claude Opus)",
       "claude_opus_thinking": "最强思维 (Opus Think)",
       "gemini_2_5_flash": "极速模型 (2.5 Flash)",
-      "gemini_2_5_pro": "高性能推理 (2.5 Pro)"
+      "gemini_2_5_pro": "高性能推理 (2.5 Pro)",
+      "gpt_oss": "开源模型 (GPT-OSS)"
     }
   }
 }
