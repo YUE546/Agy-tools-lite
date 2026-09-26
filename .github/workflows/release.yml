@@ -7,9 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "要附加安装包的 tag（例如 v4.7.3）"
+        description: "要附加安装包的 tag（例如 v4.7.5）"
         required: true
-        default: v4.7.3
+        default: v4.7.5
+      ref:
+        description: "用哪个分支/提交来构建（留空则用 tag 本身）"
+        required: false
+        default: ""
       build_macos:
         description: "同时重新构建 macOS 包"
         type: boolean
@@ -26,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          ref: ${{ inputs.ref || (github.event_name == 'push' && github.ref_name) || inputs.tag }}
 
       - uses: actions/setup-node@v5
         with:
@@ -85,7 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          ref: ${{ inputs.ref || (github.event_name == 'push' && github.ref_name) || inputs.tag }}
 
       - uses: actions/setup-node@v5
         with:
