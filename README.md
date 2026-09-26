@@ -20,12 +20,12 @@
 ## 界面
 
 | 仪表盘（浅色） | 仪表盘（深色 / 英文） |
-| --- | --- |
-| ![仪表盘](docs/screenshots/dashboard.png) | ![深色模式](docs/screenshots/dashboard-dark.png) |
+| :---: | :---: |
+| <img src="docs/screenshots/dashboard.png" width="430" alt="仪表盘"> | <img src="docs/screenshots/dashboard-dark.png" width="430" alt="深色模式"> |
 
 | 账号管理 | 设置 |
-| --- | --- |
-| ![账号管理](docs/screenshots/accounts.png) | ![设置](docs/screenshots/settings.png) |
+| :---: | :---: |
+| <img src="docs/screenshots/accounts.png" width="430" alt="账号管理"> | <img src="docs/screenshots/settings.png" width="430" alt="设置"> |
 
 > 截图使用示例数据，用于展示界面。
 

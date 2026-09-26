@@ -20,12 +20,12 @@ A macOS desktop app for Antigravity users: manage your local Google accounts and
 ## Screenshots
 
 | Dashboard (light) | Dashboard (dark / English) |
-| --- | --- |
-| ![Dashboard](docs/screenshots/dashboard.png) | ![Dark mode](docs/screenshots/dashboard-dark.png) |
+| :---: | :---: |
+| <img src="docs/screenshots/dashboard.png" width="430" alt="Dashboard"> | <img src="docs/screenshots/dashboard-dark.png" width="430" alt="Dark mode"> |
 
 | Accounts | Settings |
-| --- | --- |
-| ![Accounts](docs/screenshots/accounts.png) | ![Settings](docs/screenshots/settings.png) |
+| :---: | :---: |
+| <img src="docs/screenshots/accounts.png" width="430" alt="Accounts"> | <img src="docs/screenshots/settings.png" width="430" alt="Settings"> |
 
 > Screenshots use sample data to demonstrate the interface.
 
