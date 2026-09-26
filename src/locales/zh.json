@@ -138,8 +138,7 @@
     "settings": "设置",
     "theme_to_dark": "切换到深色模式",
     "theme_to_light": "切换到浅色模式",
-    "user_token": "用户 Token",
-    "logout": "登出"
+    "user_token": "用户 Token"
   },
   "dashboard": {
     "hello": "你好, 用户 👋",
@@ -1232,18 +1231,6 @@
       "not_ready": "自动更新包尚未就绪，为您跳转到下载页面...",
       "failed": "自动更新失败，为您跳转到下载页面..."
     }
-  },
-  "login": {
-    "title": "安全访问控制",
-    "desc": "当前运行在 Web 模式下，请输入管理密码或 API Key 以进入后台。",
-    "placeholder": "请输入管理密码或 API Key",
-    "btn_login": "验证并进入",
-    "btn_verifying": "验证中...",
-    "error_invalid_key": "密码或 API Key 错误，请重试",
-    "error_network": "网络连接失败，请检查服务是否正常运行",
-    "note": "注意：如果设置了独立的管理密码，请输入管理密码；否则请输入 API_KEY。",
-    "lookup_hint": "如果您忘记了，请运行 docker logs antigravity-manager 寻找 Current API Key 或 Web UI Password",
-    "config_hint": "或执行 grep -E '\"api_key\"|\"admin_password\"' ~/.antigravity_tools/gui_config.json 查看。"
   },
   "token_stats": {
     "title": "Token 消费统计",

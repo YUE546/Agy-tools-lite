@@ -11,7 +11,6 @@ import { useAccountStore } from './stores/useAccountStore';
 import { useTranslation } from 'react-i18next';
 import { listen } from '@tauri-apps/api/event';
 import { isTauri } from './utils/env';
-import { AdminAuthGuard } from './components/common/AdminAuthGuard';
 
 const router = createBrowserRouter([
   {
@@ -97,10 +96,10 @@ function App() {
   }, [fetchCurrentAccount, fetchAccounts]);
 
   return (
-    <AdminAuthGuard>
+    <>
       <ThemeManager />
       <RouterProvider router={router} />
-    </AdminAuthGuard>
+    </>
   );
 }
 

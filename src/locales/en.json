@@ -141,8 +141,7 @@
     "settings": "Settings",
     "theme_to_dark": "Switch to Dark Mode",
     "theme_to_light": "Switch to Light Mode",
-    "user_token": "User Tokens",
-    "logout": "Logout"
+    "user_token": "User Tokens"
   },
   "dashboard": {
     "hello": "Hello, User 👋",
@@ -1270,18 +1269,6 @@
       "not_ready": "Update artifacts are not ready yet. Will retry later.",
       "failed": "Auto-update failed"
     }
-  },
-  "login": {
-    "title": "Secure Access Control",
-    "desc": "Running in Web mode. Please enter management password or API Key to access.",
-    "placeholder": "Enter management password or API Key",
-    "btn_login": "Verify and Enter",
-    "btn_verifying": "Verifying...",
-    "error_invalid_key": "Invalid password or API Key, please try again",
-    "error_network": "Network connection failed, please check if the service is running",
-    "note": "Note: If a separate management password is set, please enter it; otherwise, enter API_KEY.",
-    "lookup_hint": "If forgotten, run docker logs antigravity-manager to find Current API Key or Web UI Password",
-    "config_hint": "Or run grep -E '\"api_key\"|\"admin_password\"' ~/.antigravity_tools/gui_config.json to view."
   },
   "token_stats": {
     "title": "Token Consumption Stats",

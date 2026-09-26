@@ -351,6 +351,14 @@ function Dashboard() {
             : t('local_dashboard.pricing_google')
         : t('local_dashboard.pricing_fallback');
 
+    // Scan freshness is intentionally not rendered inline: the toolbar row only fits next to
+    // the page title when this string stays out of the layout. It is exposed on the refresh button.
+    const scanStatus = loading
+        ? t('local_dashboard.scanning')
+        : lastUpdatedAt
+            ? `${t('local_dashboard.scanned_at', { time: formatTime(lastUpdatedAt, locale) })}${usage?.last_activity ? t('local_dashboard.data_through', { time: formatTime(usage.last_activity * 1000, locale) }) : ''}`
+            : t('local_dashboard.waiting_scan');
+
     return (
         <div className="h-full w-full overflow-y-auto lg:overflow-hidden">
             <div className="mx-auto flex min-h-full max-w-7xl flex-col gap-2 p-3 lg:h-full lg:min-h-0 lg:p-4">
@@ -365,13 +373,6 @@ function Dashboard() {
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500" aria-live="polite">
-                            {loading
-                                ? t('local_dashboard.scanning')
-                                : lastUpdatedAt
-                                    ? `${t('local_dashboard.scanned_at', { time: formatTime(lastUpdatedAt, locale) })}${usage?.last_activity ? t('local_dashboard.data_through', { time: formatTime(usage.last_activity * 1000, locale) }) : ''}`
-                                    : t('local_dashboard.waiting_scan')}
-                        </span>
                         <div className="flex items-center gap-1 rounded-xl border border-gray-100 bg-white p-1 shadow-sm dark:border-base-200 dark:bg-base-100">
                             <div className="flex items-center gap-1 px-1 text-[11px] text-gray-500 dark:text-gray-400">
                                 <CalendarDays className="h-3.5 w-3.5" />
@@ -400,6 +401,7 @@ function Dashboard() {
                         <button
                             onClick={() => fetchUsage(true)}
                             disabled={loading}
+                            title={scanStatus}
                             className="flex items-center gap-1.5 rounded-xl bg-blue-500 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
