@@ -120,10 +120,6 @@ export async function setActiveOAuthClient(clientKey: string): Promise<void> {
 }
 
 // 导入
-export async function importV1Accounts(): Promise<Account[]> {
-    return await invoke('import_v1_accounts');
-}
-
 export async function importFromDb(targetIde?: string): Promise<Account[]> {
     const res = await invoke<any>('import_from_db', { targetIde });
     if (Array.isArray(res)) return res;

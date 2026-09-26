@@ -142,7 +142,7 @@
       "tabs": {
         "oauth": "OAuth",
         "token": "Refresh Token",
-        "import": "Import DB"
+        "import": "Import from Mac"
       },
       "oauth": {
         "recommend": "Recommended",
@@ -174,14 +174,12 @@
         "batch_fail": "Import failed"
       },
       "import": {
-        "scheme_a": "Option 1: scan this Mac for signed-in accounts",
-        "scheme_a_desc": "Scans the system keychain, Antigravity IDE, plugins and CLI data, then imports every signed-in account.",
-        "btn_db": "Import all signed-in accounts",
-        "or": "OR",
-        "scheme_b": "Option 2: import from a legacy backup",
-        "scheme_b_desc": "Scans ~/.antigravity-agent for legacy (V1) account data.",
-        "btn_v1": "Import legacy (V1) backup",
-        "btn_custom_db": "Import Custom DB"
+        "scan_title": "Scan this Mac for accounts",
+        "scan_desc": "Reads the accounts already signed in to the system keychain, Antigravity IDE, plugins and CLI, then imports them.",
+        "scan_btn": "Scan and import",
+        "file_title": "Import from a database file",
+        "file_desc": "If the scan finds nothing, pick an Antigravity state.vscdb file yourself.",
+        "file_btn": "Choose a database file…"
       },
       "btn_cancel": "Cancel",
       "btn_confirm": "Confirm",

@@ -142,7 +142,7 @@
       "tabs": {
         "oauth": "OAuth 授权",
         "token": "Refresh Token",
-        "import": "从数据库导入"
+        "import": "从本机导入"
       },
       "oauth": {
         "recommend": "推荐方式",
@@ -174,14 +174,12 @@
         "batch_fail": "导入失败"
       },
       "import": {
-        "scheme_a": "方式一：扫描本机已登录账号",
-        "scheme_a_desc": "自动扫描系统钥匙串、Antigravity IDE、插件与 CLI 的登录状态，批量导入已登录账号。",
-        "btn_db": "导入本机所有已登录账号",
-        "or": "或者",
-        "scheme_b": "方式二：从旧版备份导入",
-        "scheme_b_desc": "扫描 ~/.antigravity-agent 目录，批量导入旧版（V1）的账号数据。",
-        "btn_v1": "导入旧版（V1）备份",
-        "btn_custom_db": "从自定义 DB 导入"
+        "scan_title": "自动扫描本机账号",
+        "scan_desc": "读取系统钥匙串、Antigravity IDE、插件与 CLI 中已登录的账号，并批量导入。",
+        "scan_btn": "扫描并导入本机账号",
+        "file_title": "从数据库文件导入",
+        "file_desc": "自动扫描没找到账号时，可以手动选择 Antigravity 的 state.vscdb 文件。",
+        "file_btn": "选择数据库文件…"
       },
       "btn_cancel": "取消",
       "btn_confirm": "确认添加",

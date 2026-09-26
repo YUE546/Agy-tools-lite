@@ -327,7 +327,6 @@ pub fn run() {
             commands::list_oauth_clients,
             commands::get_active_oauth_client,
             commands::set_active_oauth_client,
-            commands::import_v1_accounts,
             commands::import_from_db,
             commands::import_custom_db,
             commands::sync_account_from_db,

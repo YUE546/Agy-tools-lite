@@ -280,18 +280,6 @@ pub async fn set_active_oauth_client(client_key: String) -> Result<(), String> {
 // --- 导入命令 ---
 
 #[tauri::command]
-pub async fn import_v1_accounts(app: tauri::AppHandle) -> Result<Vec<Account>, String> {
-    let accounts = modules::migration::import_from_v1().await?;
-
-    // 对导入的账号尝试刷新一波
-    for mut account in accounts.clone() {
-        let _ = internal_refresh_account_quota(&app, &mut account).await;
-    }
-
-    Ok(accounts)
-}
-
-#[tauri::command]
 pub async fn import_from_db(
     app: tauri::AppHandle,
     target_ide: Option<String>,

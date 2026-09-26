@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Database, Globe, FileClock, Loader2, CheckCircle2, XCircle, Copy, Check, Info, Link2 } from 'lucide-react';
+import { Plus, Database, Globe, FileSearch, Loader2, CheckCircle2, XCircle, Copy, Check, Info, Link2 } from 'lucide-react';
 import { useAccountStore } from '../../stores/useAccountStore';
 import { useTranslation } from 'react-i18next';
 import { listen } from '@tauri-apps/api/event';
@@ -30,7 +30,7 @@ function AddAccountDialog({ onAdd, showText = true }: AddAccountDialogProps) {
     const [status, setStatus] = useState<Status>('idle');
     const [message, setMessage] = useState('');
 
-    const { startOAuthLogin, completeOAuthLogin, cancelOAuthLogin, importFromDb, importV1Accounts, importFromCustomDb } = useAccountStore();
+    const { startOAuthLogin, completeOAuthLogin, cancelOAuthLogin, importFromDb, importFromCustomDb } = useAccountStore();
 
     const oauthUrlRef = useRef(oauthUrl);
     const statusRef = useRef(status);
@@ -428,10 +428,6 @@ function AddAccountDialog({ onAdd, showText = true }: AddAccountDialogProps) {
         });
     };
 
-    const handleImportV1 = () => {
-        handleAction(t('accounts.add.import.btn_v1'), importV1Accounts);
-    };
-
     const handleImportCustomDb = async () => {
         try {
             if (!isTauri()) {
@@ -450,7 +446,7 @@ function AddAccountDialog({ onAdd, showText = true }: AddAccountDialogProps) {
             });
 
             if (selected && typeof selected === 'string') {
-                handleAction(t('accounts.add.import.btn_custom_db') || 'Import Custom DB', () => importFromCustomDb(selected));
+                handleAction(t('accounts.add.import.file_btn'), () => importFromCustomDb(selected));
             }
         } catch (err) {
             console.error('Failed to open dialog:', err);
@@ -484,7 +480,7 @@ function AddAccountDialog({ onAdd, showText = true }: AddAccountDialogProps) {
     return (
         <>
             <button
-                className="px-2.5 lg:px-4 py-2 bg-white dark:bg-base-100 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-2 shadow-sm border border-gray-200/50 dark:border-base-300 relative z-[100]"
+                className="px-2.5 lg:px-4 py-2 bg-white dark:bg-base-100 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-2 shadow-sm border border-gray-200/50 dark:border-base-300"
                 onClick={() => {
                     console.log('AddAccountDialog button clicked');
                     setIsOpen(true);
@@ -662,54 +658,48 @@ function AddAccountDialog({ onAdd, showText = true }: AddAccountDialogProps) {
                                 </div>
                             )}
 
-                            {/* 从数据库导入 */}
+                            {/* 从本机导入 */}
                             {activeTab === 'import' && (
-                                <div className="space-y-6 py-2">
-                                    <div className="space-y-2">
-                                        <h4 className="font-semibold flex items-center gap-2 text-gray-800 dark:text-gray-200">
-                                            <Database className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                                            {t('accounts.add.import.scheme_a')}
-                                        </h4>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            {t('accounts.add.import.scheme_a_desc')}
-                                        </p>
+                                <div className="space-y-4 py-2">
+                                    <section className="space-y-3 rounded-2xl border border-gray-100 bg-gray-50/60 p-4 dark:border-base-300 dark:bg-base-200/40">
+                                        <div className="space-y-1">
+                                            <h4 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-200">
+                                                <Database className="w-4 h-4 text-blue-500" />
+                                                {t('accounts.add.import.scan_title')}
+                                            </h4>
+                                            <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                                                {t('accounts.add.import.scan_desc')}
+                                            </p>
+                                        </div>
                                         <button
-                                            className="w-full px-4 py-3 bg-gray-50 dark:bg-base-200 text-gray-700 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:hover:border-blue-800 hover:text-blue-600 dark:hover:text-blue-400 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed mb-2 shadow-sm"
+                                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-medium text-white shadow-sm shadow-blue-500/20 transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                                             onClick={handleImportDb}
                                             disabled={status === 'loading' || status === 'success'}
                                         >
-                                            <CheckCircle2 className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                            {t('accounts.add.import.btn_db')}
+                                            {status === 'loading' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                                            {t('accounts.add.import.scan_btn')}
                                         </button>
+                                    </section>
+
+                                    <section className="space-y-3 rounded-2xl border border-dashed border-gray-200 p-4 dark:border-base-300">
+                                        <div className="space-y-1">
+                                            <h4 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-200">
+                                                <FileSearch className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                                                {t('accounts.add.import.file_title')}
+                                            </h4>
+                                            <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                                                {t('accounts.add.import.file_desc')}
+                                            </p>
+                                        </div>
                                         <button
-                                            className="w-full px-4 py-3 bg-gray-50 dark:bg-base-200 text-gray-700 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:border-indigo-200 dark:hover:border-indigo-800 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                                            className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-all hover:border-blue-300 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-base-300 dark:bg-base-100 dark:text-gray-300 dark:hover:text-blue-400"
                                             onClick={handleImportCustomDb}
                                             disabled={status === 'loading' || status === 'success'}
                                         >
-                                            <Database className="w-4 h-4" />
-                                            {t('accounts.add.import.btn_custom_db') || 'Custom DB (state.vscdb)'}
+                                            <FileSearch className="w-4 h-4" />
+                                            {t('accounts.add.import.file_btn')}
                                         </button>
-                                    </div>
-
-                                    <div className="divider text-xs text-gray-300 dark:text-gray-600">{t('accounts.add.import.or')}</div>
-
-                                    <div className="space-y-2">
-                                        <h4 className="font-semibold flex items-center gap-2 text-gray-800 dark:text-gray-200">
-                                            <FileClock className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                                            {t('accounts.add.import.scheme_b')}
-                                        </h4>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            {t('accounts.add.import.scheme_b_desc')}
-                                        </p>
-                                        <button
-                                            className="w-full px-4 py-3 bg-gray-50 dark:bg-base-200 text-gray-700 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:border-emerald-200 dark:hover:border-emerald-800 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                                            onClick={handleImportV1}
-                                            disabled={status === 'loading' || status === 'success'}
-                                        >
-                                            <FileClock className="w-4 h-4" />
-                                            {t('accounts.add.import.btn_v1')}
-                                        </button>
-                                    </div>
+                                    </section>
                                 </div>
                             )}
                         </div>
