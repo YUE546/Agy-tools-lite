@@ -144,6 +144,8 @@ fn get_version_windows(exe_path: &PathBuf) -> Result<AntigravityVersion, String>
 fn get_version_linux(exe_path: &PathBuf) -> Result<AntigravityVersion, String> {
     use std::process::Command;
 
+    let exe_path = std::fs::canonicalize(exe_path).unwrap_or_else(|_| exe_path.clone());
+
     // 方法1 (优先): 尝试从安装目录的 package.json 读取，避免执行可执行文件意外拉起 GUI
     if let Some(parent) = exe_path.parent() {
         let package_json = parent.join("resources/app/package.json");
@@ -162,7 +164,11 @@ fn get_version_linux(exe_path: &PathBuf) -> Result<AntigravityVersion, String> {
     }
 
     // 方法2 (兜底): 尝试执行 --version (仅在无法从 package.json 获取时执行)
-    let output = Command::new(exe_path).arg("--version").output();
+    let mut command = Command::new(&exe_path);
+    command.arg("--version");
+    crate::modules::process::clean_appimage_env(&mut command);
+    let output =
+        crate::utils::process::output_with_timeout(command, std::time::Duration::from_secs(3));
 
     if let Ok(result) = output {
         if result.status.success() {

@@ -6,6 +6,10 @@ pub mod db;
 pub mod device;
 pub mod i18n;
 pub mod integration;
+#[cfg(target_os = "linux")]
+pub mod linux_credentials;
+#[cfg(target_os = "linux")]
+pub mod linux_paths;
 pub mod logger;
 pub mod migration;
 pub mod native_token_stats;

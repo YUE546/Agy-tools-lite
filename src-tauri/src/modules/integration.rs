@@ -1,5 +1,6 @@
 use crate::modules::{db, device, process, version};
 use std::fs;
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 pub trait SystemIntegration: Send + Sync {
@@ -28,13 +29,47 @@ impl SystemIntegration for DesktopIntegration {
         account: &crate::models::Account,
         target_ide: Option<&str>,
     ) -> Result<(), String> {
+        let integration = DesktopIntegration {
+            app_handle: self.app_handle.clone(),
+        };
+        let account = account.clone();
+        let target = target_ide.map(str::to_owned);
+        tokio::task::spawn_blocking(move || integration.switch_sync(&account, target.as_deref()))
+            .await
+            .map_err(|_| "Account switch worker failed.".to_string())?
+    }
+
+    fn update_tray(&self) {
+        let _ = crate::modules::tray::update_tray_menus(&self.app_handle);
+    }
+
+    fn show_notification(&self, title: &str, body: &str) {
+        // 使用 tauri-plugin-dialog 或原生通知（此处简化）
+        crate::modules::logger::log_info(&format!("[Notification] {}: {}", title, body));
+    }
+}
+
+impl DesktopIntegration {
+    fn switch_sync(
+        &self,
+        account: &crate::models::Account,
+        target_ide: Option<&str>,
+    ) -> Result<(), String> {
         crate::modules::logger::log_info(&format!(
             "[Desktop] Executing system switch for: {} (target_ide: {:?})",
             account.email, target_ide
         ));
 
-        if target_ide == Some("agy") {
-            write_to_system_keyring(account)?;
+        #[cfg(target_os = "linux")]
+        let cli_only = target_ide == Some("agy")
+            || (target_ide.is_none()
+                && process::get_antigravity_executable_path(target_ide).is_none()
+                && linux_cli_session_path().is_some());
+        #[cfg(not(target_os = "linux"))]
+        let cli_only = target_ide == Some("agy");
+
+        if cli_only {
+            write_to_system_keyring(account, true)?;
 
             if let Ok(storage_path) = device::get_storage_path(target_ide) {
                 if let Some(ref profile) = account.device_profile {
@@ -58,6 +93,11 @@ impl SystemIntegration for DesktopIntegration {
             self.update_tray();
 
             return Ok(());
+        }
+
+        #[cfg(target_os = "linux")]
+        if process::get_antigravity_executable_path(target_ide).is_none() {
+            return Err("Cannot find Antigravity. Set its executable path in Settings, or install and initialize agy before switching accounts.".into());
         }
 
         // 1. 先关闭外部正在运行的进程（无论是原生还是IDE，先安全关闭，避免文件或凭据冲突）
@@ -118,7 +158,7 @@ impl SystemIntegration for DesktopIntegration {
         if use_keyring {
             // ================== 最新版 Antigravity 原生应用逻辑 (>= 2.0.0) ==================
             // 2.1 写入系统 Keychain/Keyring
-            write_to_system_keyring(account)?;
+            write_to_system_keyring(account, false)?;
 
             // 2.2 原生应用可能没有 storage.json，但如果有的话，我们也可以尝试安全地写入设备 Profile，以兼容指纹信息
             if let Ok(storage_path) = device::get_storage_path(target_ide) {
@@ -164,19 +204,31 @@ impl SystemIntegration for DesktopIntegration {
 
         Ok(())
     }
+}
 
-    fn update_tray(&self) {
-        let _ = crate::modules::tray::update_tray_menus(&self.app_handle);
-    }
+#[cfg(target_os = "linux")]
+fn linux_cli_session_path() -> Option<std::path::PathBuf> {
+    crate::modules::linux_paths::find_executable("agy")?;
+    let directory = dirs::home_dir()?.join(".gemini/antigravity-cli");
+    directory
+        .is_dir()
+        .then(|| directory.join("antigravity-oauth-token"))
+}
 
-    fn show_notification(&self, title: &str, body: &str) {
-        // 使用 tauri-plugin-dialog 或原生通知（此处简化）
-        crate::modules::logger::log_info(&format!("[Notification] {}: {}", title, body));
-    }
+#[cfg(target_os = "linux")]
+pub fn read_linux_cli_credentials() -> Result<crate::modules::migration::ImportedOAuthState, String>
+{
+    let path = linux_cli_session_path().ok_or("No initialized agy CLI session found.")?;
+    let payload = std::fs::read_to_string(path)
+        .map_err(|error| format!("Cannot read agy session: {error}"))?;
+    parse_keyring_payload(&payload)
 }
 
 /// 辅助方法：向宿主操作系统的 Keychain/Credentials Manager 写入 Token
-fn write_to_system_keyring(account: &crate::models::Account) -> Result<(), String> {
+fn write_to_system_keyring(account: &crate::models::Account, cli_only: bool) -> Result<(), String> {
+    #[cfg(not(target_os = "linux"))]
+    let _ = cli_only;
+
     // 1. 构建 Token 的 JSON Payload，并将过期时间戳格式化为符合 RFC3339 的带微秒格式
     let expiry_datetime = chrono::DateTime::from_timestamp(account.token.expiry_timestamp, 0)
         .unwrap_or_else(|| chrono::Utc::now());
@@ -332,90 +384,19 @@ fn write_to_system_keyring(account: &crate::models::Account) -> Result<(), Strin
 
     #[cfg(target_os = "linux")]
     {
-        // 2.3 Linux Secret Service API
-        // [FIX #3418] 在 Linux GNOME 环境下，Secret Service 往往同时存在 'login' 集合与 'default' 集合。
-        // agy CLI 读取凭据时严格从 'login' 集合检索。若未指定 --collection，secret-tool 会写入 default 集合，
-        // 导致两个集合内容分叉，agy 持续读取到 login 集合中的旧账号。
-        // 此处封装辅助函数：优先写入 login 集合，同时确保与 default 集合同步。
-        use std::io::Write;
-        use std::sync::mpsc;
-
-        let store_to_collection = |collection_opt: Option<&str>,
-                                   payload: &[u8]|
-         -> Result<(), String> {
-            let mut cmd = Command::new("secret-tool");
-            cmd.arg("store");
-            if let Some(col) = collection_opt {
-                cmd.arg(format!("--collection={}", col));
-                cmd.arg("--label=Password for 'antigravity' on 'gemini'");
-            } else {
-                cmd.arg("--label=gemini");
-            }
-            cmd.args(["service", "gemini", "username", "antigravity"]);
-            cmd.stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped());
-
-            let mut child = cmd
-                .spawn()
-                .map_err(|e| format!("Failed to spawn secret-tool: {}", e))?;
-
-            if let Some(mut stdin) = child.stdin.take() {
-                stdin
-                    .write_all(payload)
-                    .map_err(|e| format!("Failed to write to secret-tool stdin: {}", e))?;
-            }
-
-            let child_pid = child.id();
-            let (tx, rx) = mpsc::channel::<Result<std::process::Output, std::io::Error>>();
-            std::thread::spawn(move || {
-                let _ = tx.send(child.wait_with_output());
-            });
-
-            let output = match rx.recv_timeout(std::time::Duration::from_secs(10)) {
-                Ok(result) => {
-                    result.map_err(|e| format!("Failed to wait for secret-tool: {}", e))?
-                }
-                Err(_) => {
-                    let _ = Command::new("kill")
-                        .args(["-9", &child_pid.to_string()])
-                        .output();
-                    crate::modules::logger::log_error(
-                        "[Desktop] secret-tool store blocked for >10s — D-Bus session bus unreachable.",
-                    );
-                    return Err(
-                        "Keyring write timed out (10s). The D-Bus session bus is not reachable from this process."
-                            .to_string(),
-                    );
-                }
-            };
-
-            if !output.status.success() {
-                let err_msg = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("Linux secret-tool failed: {}", err_msg.trim()));
-            }
-
-            Ok(())
-        };
-
-        // 1. 优先尝试写入 'login' 集合（agy CLI 所需）
-        let login_res = store_to_collection(Some("login"), payload_json.as_bytes());
-
-        // 2. 同时写入默认集合（保证其他依赖 default collection 的系统工具也能读取）
-        let default_res = store_to_collection(None, payload_json.as_bytes());
-
-        // 若两者均失败，则返回错误；若至少一个成功，则记录并继续
-        if login_res.is_err() && default_res.is_err() {
-            return Err(login_res.unwrap_err());
-        } else if let Err(e) = login_res {
-            crate::modules::logger::log_warn(&format!(
-                "[Desktop] Failed to write token to 'login' collection, falling back to default collection: {}",
-                e
-            ));
+        let cli_path = linux_cli_session_path();
+        if cli_only && cli_path.is_some() {
+            crate::utils::fs::write_atomic_verified(
+                cli_path.as_ref().unwrap(),
+                payload_json.as_bytes(),
+            )?;
+        } else if let Some(path) = cli_path {
+            let cli_payload = payload_json.clone();
+            crate::modules::linux_credentials::write_with_commit(&payload_json, move || {
+                crate::utils::fs::write_atomic_verified(&path, cli_payload.as_bytes())
+            })?;
         } else {
-            crate::modules::logger::log_info(
-                "[Desktop] Successfully synced credential to Secret Service 'login' collection.",
-            );
+            crate::modules::linux_credentials::write(&payload_json)?;
         }
     }
 
@@ -424,6 +405,7 @@ fn write_to_system_keyring(account: &crate::models::Account) -> Result<(), Strin
     );
 
     // 同步写入 ~/.gemini/ 目录下的文件凭据，兼容 SSH 会话、容器环境和无 Keyring/D-Bus 场景
+    #[cfg(not(target_os = "linux"))]
     if let Err(e) = write_to_file_credentials(account) {
         crate::modules::logger::log_warn(&format!("[Desktop] File credential sync warning: {}", e));
     }
@@ -433,6 +415,7 @@ fn write_to_system_keyring(account: &crate::models::Account) -> Result<(), Strin
 
 /// 辅助方法：同步写入本地文件凭据 (~/.gemini/oauth_creds.json 以及 ~/.gemini/google_accounts.json)
 /// 用于在 SSH 会话、容器环境或无系统 Keyring / D-Bus 的场景下保障 CLI/工具的凭据兼容性
+#[cfg(not(target_os = "linux"))]
 fn write_to_file_credentials(account: &crate::models::Account) -> Result<(), String> {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -624,17 +607,7 @@ pub fn read_from_system_keyring() -> Result<crate::modules::migration::ImportedO
 
     #[cfg(target_os = "linux")]
     {
-        let output = Command::new("secret-tool")
-            .args(["lookup", "service", "gemini", "username", "antigravity"])
-            .output()
-            .map_err(|e| format!("Failed to execute secret-tool: {}", e))?;
-
-        if !output.status.success() {
-            return Err("No credential found in Linux secret-tool".to_string());
-        }
-
-        let payload_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        return parse_keyring_payload(&payload_str);
+        return parse_keyring_payload(&crate::modules::linux_credentials::read()?);
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -705,5 +678,61 @@ impl SystemIntegration for SystemManager {
             app_handle: self.app_handle.clone(),
         }
         .show_notification(title, body);
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    #[ignore = "requires a disposable HOME; run with --test-threads=1"]
+    fn isolated_linux_cli_switch() {
+        assert_eq!(
+            std::env::var("ANTIGRAVITY_TEST_SECRET_SERVICE").as_deref(),
+            Ok("isolated")
+        );
+        let home = dirs::home_dir().unwrap();
+        let bin = home.join(".local/bin");
+        let session = home.join(".gemini/antigravity-cli");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&session).unwrap();
+        let executable = bin.join("agy");
+        std::fs::write(&executable, b"#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let unrelated = home.join(".gemini/oauth_creds.json");
+        std::fs::write(&unrelated, b"unrelated-gemini-fixture").unwrap();
+        let mut account = crate::models::Account::new(
+            "fixture".into(),
+            "fixture@example.invalid".into(),
+            crate::models::TokenData::new(
+                "fixture-access".into(),
+                "fixture-old".into(),
+                3600,
+                None,
+                None,
+                None,
+                true,
+                None,
+            ),
+        );
+        write_to_system_keyring(&account, true).unwrap();
+        assert_eq!(
+            read_linux_cli_credentials().unwrap().refresh_token,
+            "fixture-old"
+        );
+        account.token.refresh_token = "fixture-new".into();
+        write_to_system_keyring(&account, true).unwrap();
+        assert_eq!(
+            read_linux_cli_credentials().unwrap().refresh_token,
+            "fixture-new"
+        );
+        let metadata = std::fs::metadata(session.join("antigravity-oauth-token")).unwrap();
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            std::fs::read(unrelated).unwrap(),
+            b"unrelated-gemini-fixture"
+        );
     }
 }

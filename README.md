@@ -11,8 +11,8 @@ A local desktop application for [Antigravity](https://antigravity.google). It ma
 - **Account management** — import accounts already present on the machine, switch the account Antigravity uses, annotate accounts with remarks, remove them again
 - **Quota overview** — per-model quota and reset time, grouped by PRO / ULTRA / FREE, with table and card views
 - **Usage dashboard** — token usage for today, yesterday, the last 3, 7 or 30 days, broken down per model, with an estimated API cost
-- **One switch for both clients** — the Antigravity app and the `agy` CLI read the same credential entry, so switching once applies to either of them
-- **Local data only** — no proxy, no background service, no telemetry; credentials stay in the operating system's credential store
+- **One switch for both clients** — switching synchronizes the credentials used by Antigravity and an initialized `agy` CLI
+- **Local data only** — no proxy, no background service, no telemetry; credentials stay in local account files and the credential stores required by the clients
 - **Bilingual interface** — Simplified Chinese and English, light and dark themes, tray menu
 
 ## Download
@@ -23,8 +23,9 @@ A local desktop application for [Antigravity](https://antigravity.google). It ma
 | --- | --- | --- |
 | macOS (Apple Silicon) | `Antigravity-Tools-Lite-<version>-macos-arm64.zip` | Unpack, then move `Antigravity Tools Lite.app` to Applications |
 | Windows (x64) | `Antigravity-Tools-Lite-<version>-windows-x64-setup.exe` | NSIS installer, per-user installation |
+| Linux (x64) | `Antigravity-Tools-Lite-<version>-linux-amd64.deb` | `sudo apt install ./package.deb` |
 
-Both builds are unsigned, so the first launch triggers the usual operating system warnings
+macOS and Windows builds are unsigned, so the first launch triggers the usual operating system warnings
 
 ```bash
 # macOS: right-click the app in Applications → Open → Open, or
@@ -47,7 +48,7 @@ Each row provides four actions, each with a tooltip
 
 | Action | Effect |
 | --- | --- |
-| **Switch to this account** | Makes this account the one Antigravity uses. A running Antigravity is closed first, the credentials are written to the credential store Antigravity reads (or to `state.vscdb` on builds older than 2.0), and the tray is updated. After reopening Antigravity you are signed in as this account. The `agy` CLI reads the same credential entry, so its next command uses this account as well |
+| **Switch to this account** | Makes this account the one Antigravity uses. A running Antigravity is closed first, the credentials are written to the credential store Antigravity reads (or to `state.vscdb` on builds older than 2.0), and the tray is updated. After reopening Antigravity you are signed in as this account. On Linux, the initialized agy session file is synchronized separately; its next CLI command uses the selected account |
 | **Refresh quota** | Re-reads this account's per-model quota and reset times |
 | **Edit remark** | Stores a short label, up to 15 characters, to distinguish accounts |
 | **Delete** | Removes the account from this application |
@@ -56,7 +57,7 @@ Rows can be sorted by quota reset time or by last use, reordered by dragging, an
 
 ### Why the application is closed during a switch
 
-Antigravity and the `agy` CLI read the same credential entry, so a single switch is sufficient for both. The application is closed during the switch because a running instance keeps the previous token in memory and writes it back when it refreshes, which would silently revert the switch. The CLI does not need a restart
+A single switch synchronizes the credential locations used by Antigravity and an initialized `agy` CLI. The application is closed during the switch because a running instance keeps the previous token in memory and writes it back when it refreshes, which would silently revert the switch. The CLI does not need a restart
 
 On Antigravity builds older than 2.0 there is no credential entry to write; the application detects this and injects the token into the local `state.vscdb` database instead
 
@@ -91,7 +92,9 @@ Cost is estimated from Google's public Gemini pricing pages, which are fetched o
 
 ## Building from source
 
-Node.js 20 or newer, a stable Rust toolchain and the platform build tools required by Tauri 2 are needed
+See [Linux support](docs/linux.md) for Linux build and compatibility details.
+
+Node.js 22 or newer, a stable Rust toolchain and the platform build tools required by Tauri 2 are needed
 
 ```bash
 npm ci
@@ -100,7 +103,7 @@ npm run build           # frontend only
 npm run tauri build     # macOS .app or Windows installer
 ```
 
-Bundles are written to `src-tauri/target/release/bundle/`. Pushing a `v*` tag runs the release workflow, which builds both platforms and attaches the results to the GitHub release
+Bundles are written to `src-tauri/target/release/bundle/`. Pushing a `v*` tag runs the release workflow, which builds macOS, Windows and Linux deb packages and attaches the results to the GitHub release
 
 ## Relation to the upstream project
 

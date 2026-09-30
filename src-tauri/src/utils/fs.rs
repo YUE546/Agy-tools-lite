@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -73,7 +72,15 @@ pub fn write_atomic<P: AsRef<Path>>(target_path: P, content: &[u8]) -> Result<()
     let temp_filename = format!("{}.tmp.{}", file_name, Uuid::new_v4());
     let temp_path: PathBuf = parent_dir.join(temp_filename);
 
-    let mut file = File::create(&temp_path)
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&temp_path)
         .map_err(|e| format!("Failed to create temporary file {:?}: {}", temp_path, e))?;
 
     if let Err(e) = file.write_all(content) {
@@ -103,10 +110,56 @@ pub fn write_atomic<P: AsRef<Path>>(target_path: P, content: &[u8]) -> Result<()
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+pub fn write_atomic_verified(target: &Path, content: &[u8]) -> Result<(), String> {
+    let old = match std::fs::read(target) {
+        Ok(old) => Some(old),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("Cannot snapshot CLI session: {error}")),
+    };
+    write_atomic(target, content)?;
+    match std::fs::read(target) {
+        Ok(actual) if actual == content => Ok(()),
+        _ => {
+            let recovered = if let Some(old) = old {
+                write_atomic(target, &old)
+            } else {
+                std::fs::remove_file(target).map_err(|error| error.to_string())
+            };
+            Err(if recovered.is_ok() {
+                "CLI session readback failed; the previous file was restored.".into()
+            } else {
+                "CLI session readback and recovery failed; check the active CLI account.".into()
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+
+    #[cfg(unix)]
+    #[test]
+    fn private_permissions_apply_to_new_and_replaced_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("antigravity-oauth-token");
+        write_atomic(&target, b"fixture-first").unwrap();
+        assert_eq!(
+            fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
+        write_atomic(&target, b"fixture-second").unwrap();
+        assert_eq!(
+            fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(fs::read(&target).unwrap(), b"fixture-second");
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn test_write_atomic_basic() {

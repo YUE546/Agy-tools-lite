@@ -5,6 +5,7 @@ import { useConfigStore } from '../stores/useConfigStore';
 import { AppConfig } from '../types/config';
 import { request as invoke } from '../utils/request';
 import { showToast } from '../components/common/ToastContainer';
+import { open } from '@tauri-apps/plugin-dialog';
 
 const LANGUAGES = [
     { code: 'zh', label: '简体中文' },
@@ -41,6 +42,15 @@ function Settings() {
             await invoke('open_data_folder');
         } catch (error) {
             showToast(t('local_settings.open_failed', { error: String(error) }), 'error');
+        }
+    };
+
+    const chooseExecutable = async (field: 'antigravity_executable' | 'antigravity_ide_executable') => {
+        try {
+            const selected = await open({ multiple: false, directory: false, title: t('local_settings.choose_executable') });
+            if (typeof selected === 'string') await updateConfig({ [field]: selected });
+        } catch (error) {
+            showToast(t('local_settings.save_failed', { error: String(error) }), 'error');
         }
     };
 
@@ -244,6 +254,21 @@ function Settings() {
                                     {t('local_settings.open_directory')}
                                 </button>
                             </div>
+                        </div>
+
+                        <div className="mt-4 space-y-3">
+                            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('local_settings.application_paths')}</h3>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{t('local_settings.application_paths_desc')}</p>
+                            {(['antigravity_executable', 'antigravity_ide_executable'] as const).map((field) => (
+                                <div key={field} className="rounded-xl border border-gray-200 p-3 dark:border-slate-700">
+                                    <div className="text-xs font-medium text-gray-700 dark:text-gray-200">{field === 'antigravity_executable' ? 'Antigravity' : 'Antigravity IDE'}</div>
+                                    <div className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">{config?.[field] || t('local_settings.automatic_detection')}</div>
+                                    <div className="mt-2 flex gap-3">
+                                        <button type="button" disabled={!config} onClick={() => chooseExecutable(field)} className="text-xs text-blue-600 dark:text-blue-400 disabled:opacity-50">{t('local_settings.choose_executable')}</button>
+                                        {config?.[field] && <button type="button" onClick={() => updateConfig({ [field]: undefined })} className="text-xs text-gray-500 dark:text-gray-400">{t('local_settings.reset_detection')}</button>}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
 
                         <div className="mt-3 grid gap-3 sm:grid-cols-2">

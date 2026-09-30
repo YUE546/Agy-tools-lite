@@ -1023,6 +1023,11 @@ pub async fn switch_account(
 ) -> Result<(), String> {
     use crate::modules::oauth;
 
+    // A switch spans external processes and multiple credential locations. Serialize
+    // the whole operation so concurrent clicks cannot activate different accounts.
+    static SWITCH_LOCK: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mutex::new(()));
+    let _switch_guard = SWITCH_LOCK.lock().await;
+
     let index = {
         let _lock = ACCOUNT_INDEX_LOCK
             .lock()

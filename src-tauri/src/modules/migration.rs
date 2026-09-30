@@ -285,7 +285,16 @@ pub async fn import_all_local_accounts(target_ide: Option<&str>) -> Result<Vec<A
     let mut seen_refresh_tokens = std::collections::HashSet::new();
 
     // 1. Check System Keyring / Keychain
-    if let Ok(oauth_state) = integration::read_from_system_keyring() {
+    let mut credential_states = Vec::new();
+    if let Ok(Ok(state)) = tokio::task::spawn_blocking(integration::read_from_system_keyring).await
+    {
+        credential_states.push(state);
+    }
+    #[cfg(target_os = "linux")]
+    if let Ok(state) = integration::read_linux_cli_credentials() {
+        credential_states.push(state);
+    }
+    for oauth_state in credential_states {
         let refresh_token = oauth_state.refresh_token.clone();
         if !refresh_token.is_empty() && seen_refresh_tokens.insert(refresh_token.clone()) {
             crate::modules::logger::log_info("Discovered OAuth state in System Keyring/Keychain");
@@ -504,6 +513,15 @@ fn extract_oauth_state_from_file(db_path: &PathBuf) -> Result<ImportedOAuthState
 
 /// Get current Refresh Token from System Keyring or candidate databases
 pub fn get_refresh_token_from_db(target_ide: Option<&str>) -> Result<String, String> {
+    #[cfg(target_os = "linux")]
+    if target_ide == Some("agy")
+        || (target_ide.is_none()
+            && crate::modules::process::get_antigravity_executable_path(target_ide).is_none())
+    {
+        if let Ok(state) = integration::read_linux_cli_credentials() {
+            return Ok(state.refresh_token);
+        }
+    }
     use crate::modules::integration;
 
     if let Ok(oauth_state) = integration::read_from_system_keyring() {

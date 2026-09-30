@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-面向 [Antigravity](https://antigravity.google) 的本地桌面应用。用于管理 Antigravity 应用与其 `agy` CLI 所使用的 Google 账号，查看各模型配额与重置倒计时，并基于本机记录统计 Token 用量与预估 API 费用。全部处理都在本机完成
+面向 [Antigravity](https://antigravity.google) 的本地桌面应用。用于管理 Antigravity 应用与其 `agy` CLI 所使用的 Google 账号，查看各模型配额与重置倒计时，并基于本机记录统计 Token 用量与预估 API 费用。账号与用量数据保存在本机；授权、配额刷新和价格同步需要访问相应服务
 
 ![仪表盘](docs/screenshots/dashboard-zh.png)
 
@@ -11,8 +11,8 @@
 - **账号管理** —— 导入本机已有账号、切换 Antigravity 使用的账号、为账号添加备注、删除账号
 - **配额总览** —— 按模型查看配额与重置时间，并按 PRO / ULTRA / FREE 分组，支持表格与卡片两种视图
 - **用量仪表盘** —— 今天、昨天、近 3 天、近 7 天或近 30 天的 Token 用量，按模型拆分，并给出预估 API 费用
-- **一个动作覆盖两个客户端** —— Antigravity 应用与 `agy` CLI 读取同一个凭据项，切换一次即可同时生效
-- **仅使用本地数据** —— 没有代理、没有后台服务、没有埋点；凭据只保存在操作系统凭据存储中
+- **一个动作覆盖两个客户端** —— 一次切换同步 Antigravity 应用与已初始化的 `agy` CLI 所需的凭据
+- **仅使用本地数据** —— 没有代理、没有后台服务、没有埋点；账号凭据保存在本机账号文件及客户端所需的凭据存储中
 - **中英双语界面** —— 简体中文与英文，浅色与深色主题，托盘菜单
 
 ## 下载安装
@@ -23,8 +23,9 @@
 | --- | --- | --- |
 | macOS（Apple Silicon） | `Antigravity-Tools-Lite-<版本>-macos-arm64.zip` | 解压后把 `Antigravity Tools Lite.app` 移入「应用程序」 |
 | Windows（x64） | `Antigravity-Tools-Lite-<版本>-windows-x64-setup.exe` | NSIS 安装程序，按用户安装 |
+| Linux（x64） | `Antigravity-Tools-Lite-<版本>-linux-amd64.deb` | `sudo apt install ./安装包.deb` |
 
-两个平台均为未签名构建，首次启动会出现系统提示
+macOS 与 Windows 均为未签名构建，首次启动会出现系统提示
 
 ```bash
 # macOS：在「应用程序」中右键点图标 → 打开 → 再点「打开」，或执行
@@ -47,7 +48,7 @@ Windows 上 SmartScreen 可能提示「Windows 已保护你的电脑」，选择
 
 | 操作 | 效果 |
 | --- | --- |
-| **切换到此账号** | 使 Antigravity 使用该账号：先关闭正在运行的 Antigravity，再把凭据写入它读取的凭据存储（2.0 以前的老版本写入 `state.vscdb`），并更新托盘。重新打开 Antigravity 即为该账号。`agy` CLI 读取同一个凭据项，因此下一条 CLI 命令同样使用该账号 |
+| **切换到此账号** | 使 Antigravity 使用该账号：先关闭正在运行的 Antigravity，再把凭据写入它读取的凭据存储（2.0 以前的老版本写入 `state.vscdb`），并更新托盘。Linux 上还会同步已初始化的 agy 会话文件。重新打开 Antigravity 即为该账号。已初始化的 `agy` CLI 下一条命令同样使用该账号 |
 | **刷新此账号配额** | 重新读取该账号各模型的配额与重置时间 |
 | **编辑备注** | 保存最多 15 个字符的短标签，用于区分账号 |
 | **删除此账号** | 从本应用中移除该账号 |
@@ -56,7 +57,7 @@ Windows 上 SmartScreen 可能提示「Windows 已保护你的电脑」，选择
 
 ### 切换时为何会关闭应用
 
-Antigravity 应用与 `agy` CLI 读取同一个凭据项，切换一次对两者都生效。切换过程中关闭应用是必要的：正在运行的实例会在内存中保留旧 Token，并在刷新时写回凭据，使切换结果被静默覆盖。CLI 无需重启
+一次切换会同步 Antigravity 应用与已初始化的 `agy` CLI 所需的凭据位置。切换过程中关闭应用是必要的：正在运行的实例会在内存中保留旧 Token，并在刷新时写回凭据，使切换结果被静默覆盖。CLI 无需重启
 
 对于 2.0 以前的 Antigravity 版本，没有凭据项可写，应用会自动改为把 Token 注入该版本本地的 `state.vscdb` 数据库
 
@@ -91,7 +92,9 @@ Antigravity 应用与 `agy` CLI 读取同一个凭据项，切换一次对两者
 
 ## 从源码构建
 
-需要 Node.js 20 及以上版本、stable Rust 工具链，以及 Tauri 2 对应的平台构建工具
+Linux 构建与兼容性说明见 [Linux 支持](docs/linux.md)。
+
+需要 Node.js 22 及以上版本、stable Rust 工具链，以及 Tauri 2 对应的平台构建工具
 
 ```bash
 npm ci
@@ -100,7 +103,7 @@ npm run build           # 仅构建前端
 npm run tauri build     # macOS .app 或 Windows 安装包
 ```
 
-构建产物位于 `src-tauri/target/release/bundle/`。推送 `v*` tag 会触发发布工作流，同时构建两个平台并挂载到 GitHub Release
+构建产物位于 `src-tauri/target/release/bundle/`。推送 `v*` tag 会触发发布工作流，构建 macOS、Windows 和 Linux deb 并挂载到 GitHub Release
 
 ## 与上游项目的关系
 

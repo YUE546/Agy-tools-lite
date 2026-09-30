@@ -1,0 +1,28 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Antigravity Tools Lite",
+        "width": 1024,
+        "height": 700,
+        "transparent": false,
+        "decorations": true,
+        "visible": true
+      }
+    ]
+  },
+  "bundle": {
+    "linux": {
+      "deb": {
+        "depends": [
+          "xdg-utils"
+        ],
+        "recommends": [
+          "gnome-keyring"
+        ]
+      }
+    }
+  },
+  "mainBinaryName": "antigravity-tools-lite"
+}

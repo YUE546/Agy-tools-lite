@@ -1228,8 +1228,15 @@ fn check_standard_locations(target_ide: Option<&str>) -> Option<std::path::PathB
                 "antigravity"
             };
 
+            if let Some(path) = crate::modules::linux_paths::find_executable(exe_name) {
+                return Some(path);
+            }
+
             let possible_paths = vec![
                 std::path::PathBuf::from(format!("/usr/bin/{}", exe_name)),
+                std::path::PathBuf::from(format!("/usr/local/bin/{}", exe_name)),
+                std::path::PathBuf::from(format!("/opt/{}/{}", exe_name, exe_name)),
+                std::path::PathBuf::from(format!("/usr/share/{}/{}", exe_name, exe_name)),
                 std::path::PathBuf::from(format!("/opt/{}/{}", folder_name, exe_name)),
                 std::path::PathBuf::from(format!("/usr/share/{}/{}", folder_name, exe_name)),
             ];
@@ -1237,14 +1244,14 @@ fn check_standard_locations(target_ide: Option<&str>) -> Option<std::path::PathB
             // User local installation
             if let Some(home) = dirs::home_dir() {
                 let user_local = home.join(format!(".local/bin/{}", exe_name));
-                if user_local.exists() {
-                    return Some(user_local);
+                if let Some(path) = crate::modules::linux_paths::executable(&user_local) {
+                    return Some(path);
                 }
             }
 
             for path in possible_paths {
-                if path.exists() {
-                    return Some(path);
+                if let Some(resolved) = crate::modules::linux_paths::executable(&path) {
+                    return Some(resolved);
                 }
             }
         }

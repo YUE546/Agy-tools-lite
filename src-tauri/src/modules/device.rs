@@ -75,12 +75,12 @@ pub fn get_storage_path(target_ide: Option<&str>) -> Result<PathBuf, String> {
 
     #[cfg(target_os = "linux")]
     {
-        let home = dirs::home_dir().ok_or("failed_to_get_home_dir")?;
+        let config_home =
+            crate::modules::linux_paths::config_home().ok_or("failed_to_get_config_dir")?;
         for folder_name in folder_names {
-            let path = home.join(format!(
-                ".config/{}/User/globalStorage/storage.json",
-                folder_name
-            ));
+            let path = config_home
+                .join(folder_name)
+                .join("User/globalStorage/storage.json");
             if path.exists() {
                 return Ok(path);
             }

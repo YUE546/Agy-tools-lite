@@ -4,10 +4,15 @@ use std::path::PathBuf;
 
 fn get_antigravity_path(target_ide: Option<&str>) -> Option<PathBuf> {
     if let Ok(config) = crate::modules::config::load_app_config() {
-        if let Some(path_str) = config.antigravity_executable {
+        let configured_path = if target_ide == Some("ide") {
+            config.antigravity_ide_executable
+        } else {
+            config.antigravity_executable
+        };
+        if let Some(path_str) = configured_path {
             let path = PathBuf::from(path_str);
             if path.exists() {
-                return Some(path);
+                return Some(std::fs::canonicalize(&path).unwrap_or(path));
             }
         }
     }
@@ -71,12 +76,13 @@ pub fn get_all_candidate_db_paths(target_ide: Option<&str>) -> Vec<PathBuf> {
     }
 
     #[cfg(target_os = "linux")]
-    if let Some(home) = dirs::home_dir() {
+    if let Some(config_home) = crate::modules::linux_paths::config_home() {
         for folder_name in folder_names {
-            paths.push(home.join(format!(
-                ".config/{}/User/globalStorage/state.vscdb",
-                folder_name
-            )));
+            paths.push(
+                config_home
+                    .join(folder_name)
+                    .join("User/globalStorage/state.vscdb"),
+            );
         }
     }
 

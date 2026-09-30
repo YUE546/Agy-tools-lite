@@ -49,6 +49,8 @@ fn should_enable_tray() -> bool {
             let has_appindicator = [
                 "/usr/lib/x86_64-linux-gnu/libayatana-appindicator3.so.1",
                 "/usr/lib/x86_64-linux-gnu/libappindicator3.so.1",
+                "/usr/lib/aarch64-linux-gnu/libayatana-appindicator3.so.1",
+                "/usr/lib/aarch64-linux-gnu/libappindicator3.so.1",
                 "/usr/lib64/libayatana-appindicator3.so.1",
                 "/usr/lib64/libappindicator3.so.1",
                 "/usr/lib/libayatana-appindicator3.so.1",
@@ -216,6 +218,9 @@ mod windows_api {
 pub fn run() {
     modules::logger::init_logger();
 
+    #[cfg(target_os = "linux")]
+    configure_linux_graphics();
+
     // Increase the file descriptor limit on macOS.
     #[cfg(target_os = "macos")]
     increase_nofile_limit();
@@ -249,30 +254,6 @@ pub fn run() {
         .manage(AppRuntimeFlags { tray_enabled })
         .setup(|app| {
             info!("Setup starting...");
-
-            // Linux: Workaround for transparent window crash/freeze
-            // The transparent window feature is unstable on Linux with WebKitGTK
-            // We disable the visual alpha channel to prevent softbuffer-related crashes
-            #[cfg(target_os = "linux")]
-            {
-                use tauri::Manager;
-                if is_wayland_session() {
-                    info!("Linux Wayland session detected; skipping transparent window workaround");
-                } else if let Some(window) = app.get_webview_window("main") {
-                    // Access GTK window and disable transparency at the GTK level
-                    if let Ok(gtk_window) = window.gtk_window() {
-                        use gtk::prelude::WidgetExt;
-                        // Remove the visual's alpha channel to disable transparency
-                        if let Some(screen) = gtk_window.screen() {
-                            // Use non-composited visual if available
-                            if let Some(visual) = screen.system_visual() {
-                                gtk_window.set_visual(Some(&visual));
-                            }
-                            info!("Linux: Applied transparent window workaround");
-                        }
-                    }
-                }
-            }
 
             let runtime_flags = app.state::<AppRuntimeFlags>();
             if runtime_flags.tray_enabled {
@@ -340,14 +321,14 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
+        .run(|_app_handle, _event| {
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { .. } = event {
-                if let Some(window) = app_handle.get_webview_window("main") {
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                if let Some(window) = _app_handle.get_webview_window("main") {
                     let _ = window.show();
                     let _ = window.unminimize();
                     let _ = window.set_focus();
-                    app_handle
+                    _app_handle
                         .set_activation_policy(tauri::ActivationPolicy::Regular)
                         .unwrap_or(());
                 }
