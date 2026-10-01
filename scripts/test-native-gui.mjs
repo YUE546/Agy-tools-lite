@@ -18,12 +18,14 @@ if (!selfTest) {
 const root = mkdtempSync(join(realpathSync(tmpdir()), 'agy-lite-native-'));
 const home = join(root, 'home'), data = join(root, 'data');
 const output = resolve('artifacts/native-gui');
-const owned = [root];
+const owned = [root], ownedFiles = [];
 const originals = new Map();
 let driver, session, driverExit, binary;
 let driverLog = '';
 let report = { passed: false, platform: platform(), os_release: release(), capture: 'Actual Tauri native WebView viewport; excludes OS window frame; synthetic example data', screenshots: [], checks: [], cleanup: {} };
 let error;
+class EnvironmentBlocked extends Error {}
+const knownWindowsBlock = (info, wry) => info.is_elevated === true && Number(info.runtime_version.split('.')[0]) >= 150 && wry === '0.54.1';
 const json = (path, value) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, JSON.stringify(value, null, 2) + '\n'); };
 const exists = path => { try { return lstatSync(path); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } };
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -149,10 +151,27 @@ function appProcesses(binary) {
 try {
     const info = windows && !selfTest ? JSON.parse(readFileSync(process.env.GUI_WINDOWS_INFO, 'utf8').replace(/^\uFEFF/, '')) : {};
     if (windows && !selfTest) {
+        assert.equal(dirname(process.env.GUI_WINDOWS_INFO), resolve(process.env.RUNNER_TEMP));
+        assert.match(process.env.GUI_WINDOWS_INFO, /agy-lite-windows-driver-[a-f0-9-]+\.json$/i);
+        ownedFiles.push(process.env.GUI_WINDOWS_INFO);
         if (info.downloaded_driver_directory) {
             assert.equal(dirname(info.downloaded_driver_directory), resolve(process.env.RUNNER_TEMP));
             assert.match(info.downloaded_driver_directory, /agy-lite-edge-[a-f0-9-]+$/i);
             owned.push(info.downloaded_driver_directory);
+        }
+    }
+    if (!selfTest) {
+        binary = resolve(process.argv[2] || `src-tauri/target/debug/antigravity-tools${windows ? '.exe' : ''}`);
+        assertNoLinks(binary);
+        report = { ...report, source_head: process.env.SOURCE_HEAD, checkout_commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), run_id: process.env.GITHUB_RUN_ID, binary_sha256: hash(readFileSync(binary)), profile: 'debug, custom-protocol, same executable as CLI smoke', tauri_driver_version: '2.0.6', native_driver_version: windows ? info.driver_version : execFileSync('dpkg-query', ['-W', '-f=${Version}', 'webkit2gtk-driver'], { encoding: 'utf8' }) };
+        assert.match(report.source_head || '', /^[a-f0-9]{40}$/);
+        assert.equal(report.checkout_commit, report.source_head, 'Test must use the exact requested source SHA');
+    }
+    if (windows && !selfTest) {
+        report.windows_driver = info;
+        const wry = readFileSync('src-tauri/Cargo.lock', 'utf8').match(/\[\[package\]\]\r?\nname = "wry"\r?\nversion = "([^"]+)"/)[1];
+        if (knownWindowsBlock(info, wry)) {
+            throw new EnvironmentBlocked('Windows native GUI NOT TESTED: elevated hosted runner + WebView2 150+ + Wry 0.54.1 cannot establish a WebDriver session. No registry/security workaround is applied. https://github.com/tauri-apps/wry/issues/1782');
         }
         const paths = [join(info.known_home, '.gemini'), join(info.known_home, '.antigravity_tools'), join(info.known_roaming, 'com.lbjlaq.antigravity-tools-lite'), join(info.known_local, 'com.lbjlaq.antigravity-tools-lite')];
         // Check ALL paths before creating ANY. Never inspect contents of an existing profile directory.
@@ -165,6 +184,10 @@ try {
     const env = isolatedEnv(info);
     assert.ok(!Object.keys(env).some(key => /TOKEN|SECRET|PASSWORD|AWS|AZURE|GITHUB/.test(key)));
     if (selfTest) {
+        assert.equal(knownWindowsBlock({ is_elevated: true, runtime_version: '153.0.4234.48' }, '0.54.1'), true);
+        assert.equal(knownWindowsBlock({ is_elevated: false, runtime_version: '153.0.4234.48' }, '0.54.1'), false);
+        assert.equal(knownWindowsBlock({ is_elevated: true, runtime_version: '149.0.0.0' }, '0.54.1'), false);
+        assert.equal(knownWindowsBlock({ is_elevated: true, runtime_version: '153.0.4234.48' }, 'different-version'), false);
         assert.equal(JSON.parse(readFileSync(join(data, 'accounts.json'))).current_account_id, null);
         assert.equal(JSON.parse(readFileSync(join(data, 'gui_config.json'))).auto_refresh, false);
         assert.equal(JSON.parse(readFileSync(join(data, 'auto_switch.json'))).enabled, false);
@@ -178,11 +201,6 @@ try {
         report.passed = true; console.log('Fixture, environment allowlist, and blank-image rejection checks passed (no native GUI launched).');
     } else {
         mkdirSync(output, { recursive: true });
-        binary = resolve(process.argv[2] || `src-tauri/target/debug/antigravity-tools${windows ? '.exe' : ''}`);
-        assertNoLinks(binary);
-        report = { ...report, source_head: process.env.SOURCE_HEAD, checkout_commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), run_id: process.env.GITHUB_RUN_ID, binary_sha256: hash(readFileSync(binary)), profile: 'debug, custom-protocol, same executable as CLI smoke', tauri_driver_version: '2.0.6', native_driver_version: windows ? info.driver_version : execFileSync('dpkg-query', ['-W', '-f=${Version}', 'webkit2gtk-driver'], { encoding: 'utf8' }) };
-        assert.match(report.source_head || '', /^[a-f0-9]{40}$/);
-        assert.equal(report.checkout_commit, report.source_head, 'Test must use the exact requested source SHA');
         assert.equal(appProcesses(binary).length, 0, 'Refusing a previously running app');
         driver = spawn(process.env.TAURI_DRIVER || (windows ? 'tauri-driver.exe' : 'tauri-driver'), ['--port', '4444', '--native-port', '4445', '--native-host', '127.0.0.1', '--native-driver', process.env.NATIVE_DRIVER || '/usr/bin/WebKitWebDriver'], { env, cwd: root, detached: !windows, stdio: ['ignore', 'pipe', 'pipe'] });
         driverExit = new Promise(resolve => { driver.once('exit', resolve); driver.once('error', resolve); });
@@ -228,7 +246,10 @@ try {
         report.passed = true;
         writeFileSync(join(output, 'driver.log'), driverLog);
     }
-} catch (caught) { error = caught; report.error = String(caught.stack || caught); }
+} catch (caught) {
+    if (caught instanceof EnvironmentBlocked) { report.status = 'blocked'; report.capture = 'none (native GUI blocked before app launch)'; report.blocker = caught.message; console.log(`::warning::${caught.message}`); }
+    else { error = caught; report.error = String(caught.stack || caught); }
+}
 finally {
     if (session) try { await command('DELETE', ''); } catch { /* Clean up owned process tree below. */ }
     if (driver?.pid) {
@@ -238,6 +259,11 @@ finally {
         if (driver.exitCode === null && !windows) try { process.kill(-driver.pid, 'SIGKILL'); } catch { /* Process already exited. */ }
         if (binary) try { await until(() => appProcesses(binary).length === 0, 'owned app cleanup', 10000); report.cleanup.processes_exited = true; } catch (e) { error ||= e; report.cleanup.error = String(e); }
     }
+    report.cleanup.owned_files = [...ownedFiles];
+    for (const path of ownedFiles) {
+        try { assertNoLinks(path); rmSync(path); assert.equal(exists(path), null); }
+        catch (e) { error ||= e; report.cleanup.error = String(e); }
+    }
     report.cleanup.owned_directories = [...owned];
     for (const path of owned.reverse()) {
         try { assertNoLinks(path); rmSync(path, { recursive: true, force: true, maxRetries: 3 }); assert.equal(exists(path), null); }
@@ -245,6 +271,9 @@ finally {
     }
     report.cleanup.completed = !report.cleanup.error;
     if (error) report.passed = false;
+    report.status ||= report.passed ? 'passed' : 'failed';
+    if (error) report.status = 'failed';
+    if (!selfTest && process.env.GITHUB_STEP_SUMMARY) writeFileSync(process.env.GITHUB_STEP_SUMMARY, `Native GUI (${platform()}): **${report.status.toUpperCase()}**\n\n${report.blocker || (report.passed ? 'Real Tauri viewport checks and cleanup passed; synthetic example data.' : 'Native acceptance failed. Inspect acceptance.json and diagnostics.')}\n`, { flag: 'a' });
     if (!selfTest) { mkdirSync(output, { recursive: true }); json(join(output, 'acceptance.json'), report); writeFileSync(join(output, 'driver.log'), driverLog); }
 }
 if (error) throw error;

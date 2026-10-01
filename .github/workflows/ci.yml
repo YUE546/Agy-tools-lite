@@ -108,7 +108,7 @@ jobs:
           SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" dbus-run-session -- node scripts/test-native-gui.mjs src-tauri/target/debug/antigravity-tools
 
-      - name: Test actual Windows Tauri window with isolated synthetic data
+      - name: Check Windows native GUI compatibility and test when supported
         if: runner.os == 'Windows'
         timeout-minutes: 5
         env:

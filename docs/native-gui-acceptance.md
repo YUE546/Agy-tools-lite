@@ -23,7 +23,11 @@ session. Windows uses the installed Microsoft WebView2 Runtime and a matching
 Microsoft Edge WebDriver. WebDriver starts the exact app executable; its unique PID
 and executable path are checked before screenshots. There is no browser-mode
 fallback in this lane. Missing drivers, failed launch, blank/transparent images,
-missing controls, layout overflow, or failure to exit/clean up fail acceptance.
+missing controls, layout overflow, or failure to exit/clean up fail acceptance. A narrowly detected incompatible Windows
+environment is explicitly reported as `status: blocked`, `passed: false`, with no
+app launch or screenshots; its compatibility step emits a warning and lets build
+and unit tests continue. This exception is not a native GUI pass. Unexpected
+errors still fail CI.
 
 The report records the source and checked-out SHA, executable SHA-256, OS, driver
 versions, session capabilities, app PID, exact viewport, PNG SHA-256 and pixel
@@ -89,7 +93,9 @@ isolation/cleanup, but native session creation timed out. WebView2 150+ delibera
 ignores environment-based debugging overrides for elevated host processes; see
 [Microsoft's explanation](https://github.com/MicrosoftEdge/WebView2Feedback/issues/5645)
 and the [upstream testing issue](https://github.com/webdriverio/desktop-mobile/issues/542).
-The locked Wry 0.54.1/hosted administrator combination remains blocked. This is not a
+The locked Wry 0.54.1/hosted administrator combination remains blocked. A read-only
+elevation/runtime/version preflight now records that exact combination as blocked
+before creating any Windows application directories or starting the app. This is not a
 Windows GUI pass. This lane does not change registry policies, weaken security, or
 modify the production dependency to force a pass.
 
@@ -97,3 +103,10 @@ The initial Linux run reached a real app PID and real IPC, but rejected a two-co
 first capture. Screenshots now wait for fonts and painted frames, then validate
 pixels for a bounded rendering window. An image still rejected is retained with a
 `.rejected.png` suffix for diagnosis only; pixel thresholds remain unchanged.
+
+The [second hosted run](https://github.com/anglee0323/antigravity-tools-lite/actions/runs/36922441718)
+at `d0003780894a75abf3fee83f5d46af5808ed9e6e` passed all six Linux native captures,
+real IPC, theme persistence, 760px layout checks, app exit and cleanup. All six images
+were visually reviewed. Waiting for real paint resolved the capture race; no
+software-renderer workaround or production graphics setting change was needed.
+Windows native GUI remains blocked, separately from passing release CLI checks.

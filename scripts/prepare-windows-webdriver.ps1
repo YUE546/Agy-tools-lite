@@ -31,8 +31,9 @@ if ((($installedVersion -split '\.')[0..2] -join '.') -ne (($version -split '\.'
         throw
     }
 }
-$infoPath = Join-Path $env:RUNNER_TEMP 'agy-lite-windows-driver.json'
+$infoPath = Join-Path $env:RUNNER_TEMP ('agy-lite-windows-driver-' + [guid]::NewGuid() + '.json')
 @{
+    is_elevated = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     driver = $driver; driver_version = (& $driver --version); driver_sha256 = (Get-FileHash $driver -Algorithm SHA256).Hash
     runtime = $runtime.FullName; runtime_version = $version; downloaded_driver_directory = $downloadRoot
     # dirs 5 uses Windows Known Folders. Changing HOME/APPDATA does NOT redirect these.
