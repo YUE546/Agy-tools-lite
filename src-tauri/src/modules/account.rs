@@ -1027,6 +1027,7 @@ pub async fn switch_account(
     // the whole operation so concurrent clicks cannot activate different accounts.
     static SWITCH_LOCK: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mutex::new(()));
     let _switch_guard = SWITCH_LOCK.lock().await;
+    let _process_guard = crate::cli::SwitchLock::acquire(&get_data_dir()?)?;
 
     let index = {
         let _lock = ACCOUNT_INDEX_LOCK

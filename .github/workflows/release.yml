@@ -125,7 +125,7 @@ jobs:
   macos:
     name: macOS (Apple Silicon)
     if: github.event_name == 'push' || inputs.build_macos
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
@@ -138,6 +138,8 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
 
       - uses: swatinem/rust-cache@v2
         with:
@@ -147,7 +149,7 @@ jobs:
         run: npm ci
 
       - name: Build app bundle
-        run: npm run tauri build -- --bundles app
+        run: npm run tauri build -- --target aarch64-apple-darwin --bundles app -- --locked
 
       - name: Publish app bundle to the release
         env:
@@ -156,11 +158,20 @@ jobs:
           set -euo pipefail
           TAG="${{ github.event_name == 'push' && github.ref_name || inputs.tag }}"
           VERSION="$(node -p "require('./package.json').version")"
+          [[ "$TAG" == "v$VERSION" ]] || { echo "Release tag must match package version" >&2; exit 1; }
+          APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Antigravity Tools Lite.app"
+          [[ "$(lipo -archs "$APP/Contents/MacOS/antigravity-tools")" == "arm64" ]]
+          "$APP/Contents/MacOS/antigravity-tools" --version
           ASSET_NAME="Antigravity-Tools-Lite-${VERSION}-macos-arm64.zip"
           ditto -c -k --sequesterRsrc --keepParent \
-            "src-tauri/target/release/bundle/macos/Antigravity Tools Lite.app" \
+            "$APP" \
             "$ASSET_NAME"
+          node scripts/generate-homebrew.mjs \
+            --archive "$ASSET_NAME" \
+            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET_NAME}" \
+            --version "$VERSION" \
+            --output artifacts/homebrew/Casks/antigravity-tools-lite.rb
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --title "Antigravity Tools Lite $VERSION" --generate-notes
-          gh release upload "$TAG" "$ASSET_NAME" --clobber
+          gh release upload "$TAG" "$ASSET_NAME" artifacts/homebrew/Casks/antigravity-tools-lite.rb --clobber
           echo "uploaded $ASSET_NAME to $TAG"

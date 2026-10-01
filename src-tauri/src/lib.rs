@@ -1,3 +1,4 @@
+pub mod cli;
 mod commands;
 pub mod constants;
 pub mod error;
