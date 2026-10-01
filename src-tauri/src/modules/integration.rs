@@ -1,4 +1,4 @@
-use crate::modules::{db, device, process, version};
+use crate::modules::{cli_credentials, db, device, process, version};
 use std::fs;
 #[cfg(target_os = "macos")]
 use std::process::Command;
@@ -64,7 +64,8 @@ impl DesktopIntegration {
         let cli_only = target_ide == Some("agy")
             || (target_ide.is_none()
                 && process::get_antigravity_executable_path(target_ide).is_none()
-                && linux_cli_session_path().is_some());
+                && crate::modules::linux_paths::find_executable("agy").is_some()
+                && cli_session_path()?.is_some());
         #[cfg(not(target_os = "linux"))]
         let cli_only = target_ide == Some("agy");
 
@@ -80,7 +81,7 @@ impl DesktopIntegration {
             let is_running = process::is_process_running_by_name("agy");
             let msg = if is_running {
                 format!(
-                    "Account {} activated. Agy is running, token will be picked up automatically.",
+                    "Account {} activated. Agy is running; start a new CLI command to use the updated session.",
                     account.email
                 )
             } else {
@@ -194,6 +195,19 @@ impl DesktopIntegration {
                 account.token.id_token.as_deref(),
                 account.token.oauth_client_key.as_deref(),
             )?;
+
+            // Legacy native APPs still share the initialized agy session. IDE
+            // switches keep their existing, independent SQLite-only behavior.
+            if !is_ide {
+                let payload = cli_credentials::payload(&account.token)?;
+                cli_session_path()
+                    .and_then(|path| {
+                        cli_credentials::sync_session(path.as_deref(), &payload, false)
+                    })
+                    .map_err(|error| {
+                        format!("APP database was updated, but agy session sync failed: {error}")
+                    })?;
+            }
         }
 
         // 3. 重启外部进程
@@ -206,58 +220,28 @@ impl DesktopIntegration {
     }
 }
 
-#[cfg(target_os = "linux")]
-fn linux_cli_session_path() -> Option<std::path::PathBuf> {
-    crate::modules::linux_paths::find_executable("agy")?;
-    let directory = dirs::home_dir()?.join(".gemini/antigravity-cli");
-    directory
-        .is_dir()
-        .then(|| directory.join("antigravity-oauth-token"))
+fn cli_session_path() -> Result<Option<std::path::PathBuf>, String> {
+    let home = dirs::home_dir().ok_or("Failed to resolve user home directory")?;
+    cli_credentials::session_path(&home)
 }
 
-#[cfg(target_os = "linux")]
-pub fn read_linux_cli_credentials() -> Result<crate::modules::migration::ImportedOAuthState, String>
-{
-    let path = linux_cli_session_path().ok_or("No initialized agy CLI session found.")?;
+pub fn read_cli_credentials() -> Result<crate::modules::migration::ImportedOAuthState, String> {
+    let path = cli_session_path()?.ok_or("No initialized agy CLI session found.")?;
     let payload = std::fs::read_to_string(path)
         .map_err(|error| format!("Cannot read agy session: {error}"))?;
     parse_keyring_payload(&payload)
 }
 
-/// 辅助方法：向宿主操作系统的 Keychain/Credentials Manager 写入 Token
+/// Sync the APP's platform credential store and an existing native agy session.
 fn write_to_system_keyring(account: &crate::models::Account, cli_only: bool) -> Result<(), String> {
-    #[cfg(not(target_os = "linux"))]
-    let _ = cli_only;
+    let payload_json = cli_credentials::payload(&account.token)?;
+    let cli_path = cli_session_path()?;
 
-    // 1. 构建 Token 的 JSON Payload，并将过期时间戳格式化为符合 RFC3339 的带微秒格式
-    let expiry_datetime = chrono::DateTime::from_timestamp(account.token.expiry_timestamp, 0)
-        .unwrap_or_else(|| chrono::Utc::now());
-    let expiry_str = expiry_datetime.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
-
-    #[derive(serde::Serialize)]
-    struct KeyringTokenDetails {
-        access_token: String,
-        token_type: String,
-        refresh_token: String,
-        expiry: String,
+    // Explicit CLI switches do not need or modify the APP credential store.
+    // Require initialization so a missing session cannot be reported as success.
+    if cli_only {
+        return cli_credentials::sync_session(cli_path.as_deref(), &payload_json, true);
     }
-
-    #[derive(serde::Serialize)]
-    struct KeyringPayload {
-        token: KeyringTokenDetails,
-        auth_method: String,
-    }
-
-    let payload_json = serde_json::to_string(&KeyringPayload {
-        token: KeyringTokenDetails {
-            access_token: account.token.access_token.clone(),
-            token_type: "Bearer".to_string(),
-            refresh_token: account.token.refresh_token.clone(),
-            expiry: expiry_str,
-        },
-        auth_method: "consumer".to_string(),
-    })
-    .map_err(|e| format!("Failed to serialize keyring JSON: {}", e))?;
 
     crate::modules::logger::log_info(&format!(
         "[Desktop] Writing token to system credential store for: {}",
@@ -384,125 +368,24 @@ fn write_to_system_keyring(account: &crate::models::Account, cli_only: bool) -> 
 
     #[cfg(target_os = "linux")]
     {
-        let cli_path = linux_cli_session_path();
-        if cli_only && cli_path.is_some() {
-            crate::utils::fs::write_atomic_verified(
-                cli_path.as_ref().unwrap(),
-                payload_json.as_bytes(),
-            )?;
-        } else if let Some(path) = cli_path {
+        if let Some(path) = cli_path {
             let cli_payload = payload_json.clone();
             crate::modules::linux_credentials::write_with_commit(&payload_json, move || {
-                crate::utils::fs::write_atomic_verified(&path, cli_payload.as_bytes())
+                cli_credentials::write_session(&path, &cli_payload)
             })?;
         } else {
             crate::modules::linux_credentials::write(&payload_json)?;
         }
     }
 
+    #[cfg(not(target_os = "linux"))]
+    cli_credentials::sync_session(cli_path.as_deref(), &payload_json, false).map_err(|error| {
+        format!("System credential store was updated, but agy session sync failed: {error}")
+    })?;
+
     crate::modules::logger::log_info(
         "[Desktop] Successfully wrote token to system credential store.",
     );
-
-    // 同步写入 ~/.gemini/ 目录下的文件凭据，兼容 SSH 会话、容器环境和无 Keyring/D-Bus 场景
-    #[cfg(not(target_os = "linux"))]
-    if let Err(e) = write_to_file_credentials(account) {
-        crate::modules::logger::log_warn(&format!("[Desktop] File credential sync warning: {}", e));
-    }
-
-    Ok(())
-}
-
-/// 辅助方法：同步写入本地文件凭据 (~/.gemini/oauth_creds.json 以及 ~/.gemini/google_accounts.json)
-/// 用于在 SSH 会话、容器环境或无系统 Keyring / D-Bus 的场景下保障 CLI/工具的凭据兼容性
-#[cfg(not(target_os = "linux"))]
-fn write_to_file_credentials(account: &crate::models::Account) -> Result<(), String> {
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return Err("Failed to resolve user home directory".to_string()),
-    };
-    let gemini_dir = home.join(".gemini");
-
-    if !gemini_dir.exists() {
-        if let Err(e) = std::fs::create_dir_all(&gemini_dir) {
-            crate::modules::logger::log_warn(&format!(
-                "[Desktop] Failed to create .gemini directory: {}",
-                e
-            ));
-            return Err(format!("Failed to create .gemini directory: {}", e));
-        }
-    }
-
-    let expiry_ms = if account.token.expiry_timestamp > 10_000_000_000 {
-        account.token.expiry_timestamp
-    } else {
-        account.token.expiry_timestamp * 1000
-    };
-
-    #[derive(serde::Serialize)]
-    struct OAuthCredsFile {
-        access_token: String,
-        refresh_token: String,
-        token_type: String,
-        expiry_date: i64,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        id_token: Option<String>,
-        scope: String,
-    }
-
-    let creds = OAuthCredsFile {
-        access_token: account.token.access_token.clone(),
-        refresh_token: account.token.refresh_token.clone(),
-        token_type: "Bearer".to_string(),
-        expiry_date: expiry_ms,
-        id_token: account.token.id_token.clone(),
-        scope: "https://www.googleapis.com/auth/userinfo.email openid https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.profile".to_string(),
-    };
-
-    let creds_path = gemini_dir.join("oauth_creds.json");
-    let json_str = serde_json::to_string_pretty(&creds)
-        .map_err(|e| format!("Failed to serialize oauth_creds JSON: {}", e))?;
-
-    if let Err(e) = std::fs::write(&creds_path, json_str) {
-        crate::modules::logger::log_warn(&format!(
-            "[Desktop] Failed to write oauth_creds.json: {}",
-            e
-        ));
-        return Err(format!("Failed to write oauth_creds.json: {}", e));
-    }
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&creds_path, std::fs::Permissions::from_mode(0o600));
-    }
-
-    #[derive(serde::Serialize)]
-    struct GoogleAccountsFile {
-        active: String,
-        old: Vec<String>,
-    }
-
-    let accounts_info = GoogleAccountsFile {
-        active: account.email.clone(),
-        old: vec![],
-    };
-
-    let accounts_path = gemini_dir.join("google_accounts.json");
-    if let Ok(accounts_json_str) = serde_json::to_string_pretty(&accounts_info) {
-        let _ = std::fs::write(&accounts_path, accounts_json_str);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ =
-                std::fs::set_permissions(&accounts_path, std::fs::Permissions::from_mode(0o600));
-        }
-    }
-
-    crate::modules::logger::log_info(&format!(
-        "[Desktop] Successfully synced file-based credentials to ~/.gemini/oauth_creds.json for: {}",
-        account.email
-    ));
 
     Ok(())
 }
@@ -687,6 +570,59 @@ mod linux_tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
+    #[ignore = "requires a disposable D-Bus/keyring session"]
+    fn isolated_linux_app_and_cli_sync() {
+        assert_eq!(
+            std::env::var("ANTIGRAVITY_TEST_SECRET_SERVICE").as_deref(),
+            Ok("isolated")
+        );
+        let home = dirs::home_dir().unwrap();
+        std::fs::create_dir_all(home.join(".gemini/antigravity-cli")).unwrap();
+        let path = cli_session_path().unwrap().unwrap();
+        let mut account = crate::models::Account::new(
+            "fixture".into(),
+            "fixture@example.invalid".into(),
+            crate::models::TokenData::new(
+                "fixture-access".into(),
+                "fixture-app".into(),
+                3600,
+                None,
+                None,
+                None,
+                true,
+                Some("fixture-id".into()),
+            ),
+        );
+        write_to_system_keyring(&account, false).unwrap();
+        let app_payload = crate::modules::linux_credentials::read().unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), app_payload);
+
+        // An explicit CLI switch must leave the APP's active credential alone.
+        account.token.refresh_token = "fixture-cli-only".into();
+        write_to_system_keyring(&account, true).unwrap();
+        assert_eq!(
+            read_cli_credentials().unwrap().refresh_token,
+            "fixture-cli-only"
+        );
+        assert_eq!(
+            crate::modules::linux_credentials::read().unwrap(),
+            app_payload
+        );
+
+        // Force the real APP+CLI commit callback to fail and verify rollback.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        let failure = write_to_system_keyring(&account, false).unwrap_err();
+        assert!(failure.contains("Previous credentials were restored"));
+        assert_eq!(
+            crate::modules::linux_credentials::read().unwrap(),
+            app_payload
+        );
+        assert!(path.is_dir());
+        std::fs::remove_dir(&path).unwrap();
+    }
+
+    #[test]
     #[ignore = "requires a disposable HOME; run with --test-threads=1"]
     fn isolated_linux_cli_switch() {
         assert_eq!(
@@ -702,7 +638,9 @@ mod linux_tests {
         std::fs::write(&executable, b"#!/bin/sh\nexit 0\n").unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
         let unrelated = home.join(".gemini/oauth_creds.json");
+        let unrelated_accounts = home.join(".gemini/google_accounts.json");
         std::fs::write(&unrelated, b"unrelated-gemini-fixture").unwrap();
+        std::fs::write(&unrelated_accounts, b"unrelated-accounts-fixture").unwrap();
         let mut account = crate::models::Account::new(
             "fixture".into(),
             "fixture@example.invalid".into(),
@@ -718,21 +656,19 @@ mod linux_tests {
             ),
         );
         write_to_system_keyring(&account, true).unwrap();
-        assert_eq!(
-            read_linux_cli_credentials().unwrap().refresh_token,
-            "fixture-old"
-        );
+        assert_eq!(read_cli_credentials().unwrap().refresh_token, "fixture-old");
         account.token.refresh_token = "fixture-new".into();
         write_to_system_keyring(&account, true).unwrap();
-        assert_eq!(
-            read_linux_cli_credentials().unwrap().refresh_token,
-            "fixture-new"
-        );
+        assert_eq!(read_cli_credentials().unwrap().refresh_token, "fixture-new");
         let metadata = std::fs::metadata(session.join("antigravity-oauth-token")).unwrap();
         assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
         assert_eq!(
             std::fs::read(unrelated).unwrap(),
             b"unrelated-gemini-fixture"
+        );
+        assert_eq!(
+            std::fs::read(unrelated_accounts).unwrap(),
+            b"unrelated-accounts-fixture"
         );
     }
 }
