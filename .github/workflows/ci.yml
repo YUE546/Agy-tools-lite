@@ -50,6 +50,9 @@ jobs:
       - name: Check Tauri backend
         run: cargo check --locked --manifest-path src-tauri/Cargo.toml
 
+      - name: Test native CLI credentials on every platform
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib cli_credentials::tests
+
       - name: Test Linux backend
         if: runner.os == 'Linux'
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib

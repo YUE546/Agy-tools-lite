@@ -40,7 +40,7 @@ Windows 上 SmartScreen 可能提示「Windows 已保护你的电脑」，选择
 
 - **OAuth 授权** —— 打开浏览器完成 Google 授权后即可添加
 - **Refresh Token** —— 可粘贴单个 Token，也可粘贴 JSON 数组一次导入多个账号
-- **从本机导入** —— 扫描系统凭据存储、Antigravity 数据库、已安装插件以及 CLI 数据目录（`~/.antigravity-agent`），导入找到的全部账号
+- **从本机导入** —— 扫描系统凭据存储、Antigravity 数据库、已安装插件、原生 agy 会话以及旧版 CLI 数据目录（`~/.antigravity-agent`），导入找到的全部账号
 
 ![账号管理 —— 表格视图](docs/screenshots/accounts-list.png)
 
@@ -50,7 +50,7 @@ Windows 上 SmartScreen 可能提示「Windows 已保护你的电脑」，选择
 
 | 操作 | 效果 |
 | --- | --- |
-| **切换到此账号** | 使 Antigravity 使用该账号：先关闭正在运行的 Antigravity，再把凭据写入它读取的凭据存储（2.0 以前的老版本写入 `state.vscdb`），并更新托盘。Linux 上还会同步已初始化的 agy 会话文件。重新打开 Antigravity 即为该账号。已初始化的 `agy` CLI 下一条命令同样使用该账号 |
+| **切换到此账号** | 使 Antigravity 使用该账号：先关闭正在运行的 Antigravity，再把凭据写入它读取的凭据存储（2.0 以前的老版本写入 `state.vscdb`），并更新托盘。macOS、Windows、Linux 上都会同步已初始化的原生 agy 会话文件。重新打开 Antigravity 即为该账号。已初始化的 `agy` CLI 下一条命令同样使用该账号 |
 | **刷新此账号配额** | 重新读取该账号各模型的配额与重置时间 |
 | **编辑备注** | 保存最多 15 个字符的短标签，用于区分账号 |
 | **删除此账号** | 从本应用中移除该账号 |
@@ -59,9 +59,13 @@ Windows 上 SmartScreen 可能提示「Windows 已保护你的电脑」，选择
 
 ### 切换时为何会关闭应用
 
-一次切换会同步 Antigravity 应用与已初始化的 `agy` CLI 所需的凭据位置。切换过程中关闭应用是必要的：正在运行的实例会在内存中保留旧 Token，并在刷新时写回凭据，使切换结果被静默覆盖。CLI 无需重启
+一次切换会同步 Antigravity 应用与已初始化的 `agy` CLI 所需的凭据位置。切换过程中关闭应用是必要的：正在运行的实例会在内存中保留旧 Token，并在刷新时写回凭据，使切换结果被静默覆盖。切换后请新开一条 CLI 命令；已运行的 CLI 命令可能仍持有旧 Token
 
-对于 2.0 以前的 Antigravity 版本，没有凭据项可写，应用会自动改为把 Token 注入该版本本地的 `state.vscdb` 数据库
+对于 2.0 以前的 Antigravity 版本，没有凭据项可写，应用会自动改为把 Token 注入该版本本地的 `state.vscdb` 数据库，同时同步已初始化的原生 agy 会话。单独针对 IDE 的切换仍只处理该 IDE 的数据库
+
+三个平台的原生 agy 会话路径均为 `~/.gemini/antigravity-cli/antigravity-oauth-token`。仅使用已有的 `antigravity-cli` 目录，请先初始化 agy。显式的 CLI-only 切换只更新该会话，不修改 APP 的系统凭据。通用 Google Gemini CLI 的 `~/.gemini/oauth_creds.json` 和 `~/.gemini/google_accounts.json` 均不会被创建、修改或删除
+
+会话采用原子替换与写后校验，Unix 文件权限为 `0600`。Linux 新版 APP 使用系统凭据切换时，若会话同步失败，会恢复之前的系统凭据。旧版 APP 的数据库更新不会回滚，会话失败时会报告部分更新。macOS/Windows 在系统凭据已更新后若会话同步失败，会明确报告部分更新，请确认两个客户端的状态后再重试
 
 ## 用量仪表盘
 
@@ -89,7 +93,7 @@ Windows 上 SmartScreen 可能提示「Windows 已保护你的电脑」，选择
 | | |
 | --- | --- |
 | 读取 | Antigravity 本地的对话数据库与归档，其中包含 Token 数、模型名称与时间戳 |
-| 写入 | `~/.antigravity_tools/` 用于保存账号、配置与价格缓存；切换账号时写入操作系统凭据存储 |
+| 写入 | `~/.antigravity_tools/` 用于保存账号、配置与价格缓存；切换账号时写入操作系统凭据存储及已初始化的原生 agy 会话 |
 | 不上传 | 对话内容与凭据均不会上传；没有代理，也没有任何服务端组件 |
 
 ## 从源码构建
