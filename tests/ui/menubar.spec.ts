@@ -457,14 +457,18 @@ test("refresh failure retains known data, and Escape dismisses instead of reopen
   ]);
   await bounded(page);
   await page.keyboard.press("Escape");
-  expect(
-    await page.evaluate(
-      () =>
-        (window as any).__menuFixture.calls.filter(
-          (c: any) => c.cmd === "hide_menu_bar_dashboard",
-        ).length,
-    ),
-  ).toBe(1);
+  // The key handler awaits request()'s dynamic import before native IPC runs.
+  // Wait for the observable dismissal rather than racing that microtask.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as any).__menuFixture.calls.filter(
+            (c: any) => c.cmd === "hide_menu_bar_dashboard",
+          ).length,
+      ),
+    )
+    .toBe(1);
   expect(
     await page.evaluate(() =>
       (window as any).__menuFixture.calls.some(
