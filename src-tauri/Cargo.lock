@@ -80,6 +80,7 @@ dependencies = [
  "futures",
  "image",
  "libc",
+ "objc2-app-kit",
  "once_cell",
  "plist",
  "rand 0.8.5",

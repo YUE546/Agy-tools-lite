@@ -44,7 +44,7 @@ export function compactQuotaGroups(
   const selected = pinned.length
     ? models.filter((model) => pinned.includes(model.name))
     : [];
-  return (selected.length ? selected : models).slice(0, 4).map((model) => ({
+  return (selected.length ? selected : models).map((model) => ({
     name: model.display_name || model.name,
     rows: [
       {
@@ -92,4 +92,35 @@ export function resetTimestamp(value: string): number | null {
   if (!value) return null;
   const valueMs = Date.parse(value);
   return Number.isFinite(valueMs) ? valueMs : null;
+}
+
+export interface PagedQuotaRow extends CompactQuotaRow {
+  group: string;
+}
+/** Bounded pages keep every data item accessible without an unbounded popover. */
+export function quotaPages(
+  groups: CompactQuotaGroup[],
+  pageSize = 4,
+): PagedQuotaRow[][] {
+  const size = Math.max(1, Math.floor(pageSize));
+  const rows = groups.flatMap((group) =>
+    group.rows.map((row) => ({ ...row, group: group.name })),
+  );
+  return Array.from({ length: Math.ceil(rows.length / size) }, (_, index) =>
+    rows.slice(index * size, (index + 1) * size),
+  );
+}
+
+export function pageSlice<T>(items: T[], page: number, pageSize = 4): T[] {
+  const size = Math.max(1, Math.floor(pageSize));
+  const lastPage = Math.max(0, Math.ceil(items.length / size) - 1);
+  const index = Math.max(0, Math.min(Math.floor(page), lastPage));
+  return items.slice(index * size, (index + 1) * size);
+}
+
+export function pageSizeForHeight(height: number): number {
+  if (height >= 440) return 4;
+  if (height >= 360) return 3;
+  if (height >= 300) return 2;
+  return 1;
 }

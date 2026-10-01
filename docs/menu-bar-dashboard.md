@@ -1,6 +1,12 @@
 # Quick dashboard and startup preferences
 
+The compact panel is 380 × 480 logical pixels, with a flat system-menu layout. It never scrolls vertically: quotas and the account selector use up to four rows per page. The account selector replaces the quota view within the same fixed window.
+
 Click the menu-bar icon on macOS (or the tray icon on Windows) to toggle a compact dashboard. Linux desktops use the native tray menu's **Quick Dashboard** action because Tauri does not deliver tray-click events there. If a Linux tray is unavailable, the ordinary application window remains usable.
+
+On macOS the panel uses the system Popover vibrancy material over a transparent WebView. It reads Reduce Transparency and Increase Contrast when opened and falls back to an opaque surface when requested or when the effect fails. The CSS media preference provides an additional immediate reduce-transparency fallback. Windows and Linux use the same compact layout with opaque, higher-contrast surfaces; no unsupported desktop blur is simulated there. The macOS transparent WebView uses Tauri's documented `macos-private-api` feature, so this build is not intended for Mac App Store distribution.
+
+A browser preview uses synthetic data and CSS to approximate the material. It cannot verify native macOS desktop blur or accessibility changes.
 
 The panel includes:
 - The active account, subscription tier and quota update age
@@ -36,6 +42,6 @@ Before release, validate on an installed macOS build: menu-bar positioning on mu
 
 ## Design references
 
-The information hierarchy was informed by [CodexBar](https://github.com/steipete/CodexBar) and [ClaudeBar](https://github.com/tddworks/ClaudeBar), using their published screenshots and documentation. The implementation, layout and copy here are original. No project logos, screenshots, or source code were copied into the application.
+The information hierarchy was informed by [OpenUsage](https://github.com/robinebers/openusage), [CodexBar](https://github.com/steipete/CodexBar), and [ClaudeBar](https://github.com/tddworks/ClaudeBar), using their published screenshots and documentation. The implementation, layout and copy here are original. No project logos, screenshots, or source code were copied into the application.
 
 Platform behavior follows the official Tauri [system-tray](https://v2.tauri.app/learn/system-tray/) and [autostart](https://v2.tauri.app/plugin/autostart/) APIs.

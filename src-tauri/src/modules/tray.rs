@@ -224,10 +224,14 @@ pub fn create_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 }
 
 fn open_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) {
-    if let Err(error) = modules::desktop::toggle_dashboard(app, rect) {
-        modules::logger::log_warn(&format!("Quick dashboard unavailable: {error}"));
-        let _ = modules::desktop::show_main(app);
-    }
+    let app = app.clone();
+    // WebView2 creation must not run synchronously in the Windows event loop.
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) = modules::desktop::toggle_dashboard(&app, rect) {
+            modules::logger::log_warn(&format!("Quick dashboard unavailable: {error}"));
+            let _ = modules::desktop::show_main(&app);
+        }
+    });
 }
 
 pub fn update_tray_menus(app: &tauri::AppHandle) {

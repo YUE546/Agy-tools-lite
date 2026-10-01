@@ -12,6 +12,11 @@ pub const DASHBOARD_LABEL: &str = "menubar";
 pub struct DesktopRuntime {
     tray_available: AtomicBool,
     preferences_lock: tokio::sync::Mutex<()>,
+    panel_transition: std::sync::Mutex<()>,
+    #[cfg(target_os = "macos")]
+    appearance_lock: std::sync::Mutex<()>,
+    #[cfg(target_os = "macos")]
+    material_applied: AtomicBool,
 }
 
 pub fn set_tray_available(app: &tauri::AppHandle, available: bool) {
@@ -24,6 +29,87 @@ pub fn tray_available(app: &tauri::AppHandle) -> bool {
     app.state::<DesktopRuntime>()
         .tray_available
         .load(Ordering::Relaxed)
+}
+
+#[derive(Clone, Serialize)]
+pub struct MenuBarAppearance {
+    platform: &'static str,
+    native_material: bool,
+    reduced_transparency: bool,
+    high_contrast: bool,
+}
+
+fn use_native_material(macos: bool, reduced_transparency: bool, high_contrast: bool) -> bool {
+    macos && !reduced_transparency && !high_contrast
+}
+
+/// Read accessibility preferences without changing any system setting. Recheck
+/// whenever the panel opens, including after a visit to System Settings.
+#[tauri::command]
+pub async fn get_menu_bar_appearance(app: tauri::AppHandle) -> Result<MenuBarAppearance, String> {
+    // Native effects may dispatch to the UI thread. Never block that same thread
+    // on the appearance mutex while another caller is applying a material.
+    tauri::async_runtime::spawn_blocking(move || apply_menu_bar_appearance(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn apply_menu_bar_appearance(app: &tauri::AppHandle) -> Result<MenuBarAppearance, String> {
+    #[cfg(target_os = "macos")]
+    let (reduced_transparency, high_contrast) = {
+        let workspace = objc2_app_kit::NSWorkspace::sharedWorkspace();
+        (
+            workspace.accessibilityDisplayShouldReduceTransparency(),
+            workspace.accessibilityDisplayShouldIncreaseContrast(),
+        )
+    };
+    #[cfg(not(target_os = "macos"))]
+    let (reduced_transparency, high_contrast) = (false, false);
+    let native_material = use_native_material(
+        cfg!(target_os = "macos"),
+        reduced_transparency,
+        high_contrast,
+    );
+    #[cfg(target_os = "macos")]
+    let native_material = {
+        let state = app.state::<DesktopRuntime>();
+        let _guard = state.appearance_lock.lock().map_err(|e| e.to_string())?;
+        if let Some(window) = app.get_webview_window(DASHBOARD_LABEL) {
+            let applied = state.material_applied.load(Ordering::Relaxed);
+            if native_material && !applied {
+                use tauri::window::{Effect, EffectState, EffectsBuilder};
+                let success = window
+                    .set_effects(
+                        EffectsBuilder::new()
+                            .effect(Effect::Popover)
+                            .state(EffectState::Active)
+                            .radius(10.0)
+                            .build(),
+                    )
+                    .is_ok();
+                state.material_applied.store(success, Ordering::Relaxed);
+                success
+            } else if !native_material {
+                if applied {
+                    let _ = window.set_effects(None);
+                }
+                state.material_applied.store(false, Ordering::Relaxed);
+                false
+            } else {
+                true
+            }
+        } else {
+            false
+        }
+    };
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+    Ok(MenuBarAppearance {
+        platform: std::env::consts::OS,
+        native_material,
+        reduced_transparency,
+        high_contrast,
+    })
 }
 
 #[derive(Serialize)]
@@ -219,8 +305,8 @@ fn panel_bounds(
     let (ax, ay, aw, ah) = anchor;
     let (x, y, w, h) = area;
     let margin = 8.0 * scale;
-    let width = (400.0 * scale).min((w - margin * 2.0).max(1.0));
-    let height = (620.0 * scale).min((h - margin * 2.0).max(1.0));
+    let width = (380.0 * scale).min((w - margin * 2.0).max(1.0));
+    let height = (480.0 * scale).min((h - margin * 2.0).max(1.0));
     let px =
         (ax + aw / 2.0 - width / 2.0).clamp(x + margin, (x + w - width - margin).max(x + margin));
     let below = ay + ah + margin;
@@ -238,6 +324,8 @@ fn panel_bounds(
 }
 
 pub fn toggle_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Result<(), String> {
+    let runtime = app.state::<DesktopRuntime>();
+    let _transition = runtime.panel_transition.lock().map_err(|e| e.to_string())?;
     if let Some(window) = app.get_webview_window(DASHBOARD_LABEL) {
         if window.is_visible().unwrap_or(false) {
             return window.hide().map_err(|e| e.to_string());
@@ -245,17 +333,23 @@ pub fn toggle_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Re
     }
     let window = match app.get_webview_window(DASHBOARD_LABEL) {
         Some(window) => window,
-        None => WebviewWindowBuilder::new(app, DASHBOARD_LABEL, WebviewUrl::App("menubar".into()))
-            .title("Antigravity · Quick Dashboard")
-            .inner_size(400.0, 620.0)
-            .resizable(false)
-            .decorations(false)
-            .visible(false)
-            .skip_taskbar(true)
-            .always_on_top(true)
-            .shadow(true)
-            .build()
-            .map_err(|e| e.to_string())?,
+        None => {
+            let builder =
+                WebviewWindowBuilder::new(app, DASHBOARD_LABEL, WebviewUrl::App("menubar".into()))
+                    .title("Antigravity · Quick Dashboard")
+                    .inner_size(380.0, 480.0)
+                    .resizable(false)
+                    .decorations(false)
+                    .visible(false)
+                    .skip_taskbar(true)
+                    .always_on_top(true)
+                    .shadow(true);
+            #[cfg(target_os = "macos")]
+            let builder = builder
+                .transparent(true)
+                .background_color(tauri::window::Color(0, 0, 0, 0));
+            builder.build().map_err(|e| e.to_string())?
+        }
     };
     let anchor = rect.or_else(|| {
         app.tray_by_id("main")
@@ -301,6 +395,8 @@ pub fn toggle_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Re
     } else {
         window.center().map_err(|e| e.to_string())?;
     }
+    let appearance = apply_menu_bar_appearance(app)?;
+    let _ = window.emit("menubar://appearance", &appearance);
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
     let _ = window.emit("menubar://opened", ());
@@ -341,7 +437,14 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
 
 #[cfg(test)]
 mod tests {
-    use super::{panel_bounds, start_hidden};
+    use super::{panel_bounds, start_hidden, use_native_material};
+    #[test]
+    fn material_requires_macos_and_accessibility_opt_in() {
+        assert!(use_native_material(true, false, false));
+        assert!(!use_native_material(false, false, false));
+        assert!(!use_native_material(true, true, false));
+        assert!(!use_native_material(true, false, true));
+    }
     #[test]
     fn background_start_requires_every_safety_condition() {
         for autostart in [false, true] {
@@ -372,8 +475,8 @@ mod tests {
             (0.0, 0.0, 2880.0, 1760.0),
             2.0,
         );
-        assert_eq!(w, 800.0);
-        assert_eq!(h, 1240.0);
+        assert_eq!(w, 760.0);
+        assert_eq!(h, 960.0);
         assert!(x + w <= 2864.0 && y + h < 1760.0);
     }
 }

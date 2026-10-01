@@ -20,6 +20,7 @@ export default function ThemeManager() {
         const applyTheme = async (theme: string) => {
             const root = document.documentElement;
             const isDark = theme === 'dark';
+            const isPanel = Boolean((window as any).__TAURI_INTERNALS__) && getCurrentWindow().label === 'menubar';
 
             // Set Tauri window background color
             // Skip on Linux due to crash with transparent windows + softbuffer
@@ -27,7 +28,7 @@ export default function ThemeManager() {
                 if (!isLinux() && (window as any).__TAURI_INTERNALS__) {
                     const bgColor = isDark ? '#1d232a' : '#FAFBFC';
                     // Don't await this, let it happen in background to avoid blocking React render
-                    getCurrentWindow().setBackgroundColor(bgColor).catch(e =>
+                    if (!isPanel) getCurrentWindow().setBackgroundColor(bgColor).catch(e =>
                         console.error('Failed to set window background color:', e)
                     );
 
@@ -45,7 +46,8 @@ export default function ThemeManager() {
             root.setAttribute('data-theme', theme);
 
             // Set inline style for immediate visual feedback
-            root.style.backgroundColor = isDark ? '#1d232a' : '#FAFBFC';
+            root.style.backgroundColor = isPanel ? 'transparent' : isDark ? '#1d232a' : '#FAFBFC';
+            if (isPanel) document.body.style.backgroundColor = 'transparent';
 
             // Set Tailwind dark mode class
             if (isDark) {

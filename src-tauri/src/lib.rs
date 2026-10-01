@@ -275,6 +275,7 @@ pub fn run() {
         .on_window_event(modules::desktop::handle_window_event)
         .invoke_handler(tauri::generate_handler![
             modules::desktop::get_desktop_settings,
+            modules::desktop::get_menu_bar_appearance,
             modules::desktop::set_desktop_preferences,
             modules::desktop::open_app_page,
             modules::desktop::hide_menu_bar_dashboard,

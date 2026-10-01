@@ -20,6 +20,9 @@ const {
   isAccountSwitchable,
   isQuotaStale,
   resetTimestamp,
+  quotaPages,
+  pageSlice,
+  pageSizeForHeight,
 } = await import(
   `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
 );
@@ -129,5 +132,59 @@ test("invalid resets stay unavailable", () => {
   assert.equal(resetTimestamp("bad"), null);
   assert.equal(resetTimestamp(""), null);
   assert.ok(resetTimestamp("2026-10-01T12:00:00Z"));
+});
+test("quota pages show at most four rows without dropping later pools", () => {
+  const groups = Array.from({ length: 3 }, (_, index) => ({
+    name: `Pool ${index}`,
+    rows: Array.from({ length: 3 }, (_, row) => ({
+      id: `${index}-${row}`,
+      label: "weekly",
+      remaining: 50,
+      resetTime: "",
+    })),
+  }));
+  const pages = quotaPages(groups);
+  assert.deepEqual(
+    pages.map((page) => page.length),
+    [4, 4, 1],
+  );
+  assert.equal(pages.flat().length, 9);
+  assert.equal(pages[2][0].group, "Pool 2");
+});
+test("model fallback is paginated rather than silently truncated", () => {
+  const groups = compactQuotaGroups({
+    models: Array.from({ length: 7 }, (_, index) => ({
+      name: `model-${index}`,
+      percentage: 50,
+      reset_time: "",
+    })),
+  });
+  assert.deepEqual(
+    quotaPages(groups).map((page) => page.length),
+    [4, 3],
+  );
+});
+test("large account lists use fixed size pages and clamp stale page indexes", () => {
+  const accounts = Array.from({ length: 13 }, (_, index) => index);
+  assert.deepEqual(pageSlice(accounts, 0), [0, 1, 2, 3]);
+  assert.deepEqual(pageSlice(accounts, 3), [12]);
+  assert.deepEqual(pageSlice(accounts, 999), [12]);
+  assert.deepEqual(pageSlice(accounts, -4), [0, 1, 2, 3]);
+  assert.deepEqual(pageSlice([], 4), []);
+});
+test("the compact panel has no scroll surfaces or decorative gradients", () => {
+  const css = readFileSync(
+    new URL("../src/components/menubar/MenuBarDashboard.css", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(css, /overflow(?:-y)?:\s*(auto|scroll)/);
+  assert.doesNotMatch(css, /(?<!repeating-)linear-gradient/);
+  assert.match(css, /overflow:\s*hidden/);
+});
+test("short display work areas reduce page size instead of scrolling or clipping", () => {
+  assert.equal(pageSizeForHeight(480), 4);
+  assert.equal(pageSizeForHeight(400), 3);
+  assert.equal(pageSizeForHeight(330), 2);
+  assert.equal(pageSizeForHeight(280), 1);
 });
 console.log(`${passed} tests passed`);
