@@ -42,7 +42,9 @@ Windows 上 SmartScreen 可能提示「Windows 已保护你的电脑」，选择
 - **Refresh Token** —— 可粘贴单个 Token，也可粘贴 JSON 数组一次导入多个账号
 - **从本机导入** —— 扫描系统凭据存储、Antigravity 数据库、已安装插件以及 CLI 数据目录（`~/.antigravity-agent`），导入找到的全部账号
 
-![账号管理](docs/screenshots/accounts-zh.png)
+![账号管理 —— 表格视图](docs/screenshots/accounts-list.png)
+
+![账号管理 —— 卡片视图](docs/screenshots/accounts-cards.png)
 
 每一行提供四个操作，均带悬浮说明
 

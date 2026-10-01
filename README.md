@@ -42,7 +42,9 @@ The **+** button offers three ways to add an account
 - **Refresh token** — paste a single token or a JSON array of tokens to import several accounts at once
 - **Import from this machine** — scans the system credential store, the Antigravity databases, installed plugins and the CLI data directory (`~/.antigravity-agent`), then imports every account it finds
 
-![Accounts](docs/screenshots/accounts-en.png)
+![Accounts — table view](docs/screenshots/accounts-list.png)
+
+![Accounts — card view](docs/screenshots/accounts-cards.png)
 
 Each row provides four actions, each with a tooltip
 
