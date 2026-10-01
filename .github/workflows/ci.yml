@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, windows-latest, ubuntu-22.04]
+        platform: [macos-15, windows-latest, ubuntu-22.04]
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 30
     steps:
@@ -69,6 +69,31 @@ jobs:
 
       - name: Test native CLI credentials on every platform
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib cli_credentials::tests
+
+      - name: Package macOS arm64 test app
+        if: runner.os == 'macOS'
+        env:
+          SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          npm run tauri bundle -- --debug --bundles app
+          APP="src-tauri/target/debug/bundle/macos/Antigravity Tools Lite.app"
+          [[ "$(lipo -archs "$APP/Contents/MacOS/antigravity-tools")" == "arm64" ]]
+          node scripts/test-cli.mjs "$APP/Contents/MacOS/antigravity-tools"
+          mkdir -p artifacts/macos-test
+          ARCHIVE="artifacts/macos-test/Antigravity-Tools-Lite-test-${SOURCE_HEAD}-macos-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ARCHIVE"
+          shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+          node --input-type=module -e 'import { writeFileSync } from "node:fs"; import { execFileSync } from "node:child_process"; writeFileSync("artifacts/macos-test/build-info.json", JSON.stringify({ source_head: process.env.SOURCE_HEAD, checkout_commit: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), run_id: process.env.GITHUB_RUN_ID, architecture: "arm64", profile: "debug", distribution: "CI test build; not a signed or notarized release" }, null, 2) + "\n");'
+
+      - name: Upload macOS test app
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-test-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/macos-test/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Test Linux backend
         if: runner.os == 'Linux'
