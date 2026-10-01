@@ -853,26 +853,38 @@ async fn evaluate_core<E: Environment>(
         }
     }
     let mut candidate = None;
-    for id in &config.candidate_account_ids {
-        if id == &source_id {
-            continue;
-        }
-        if let Ok(a) = refresh(runtime, &environment, id, force).await {
-            if account_remaining(&a, &config.monitored_model, now)
-                .is_ok_and(|p| p >= config.candidate_min_percentage as f64)
-            {
-                candidate = Some(a);
-                break;
+    let candidate_ids = &config.candidate_account_ids;
+    let len = candidate_ids.len();
+    if len > 0 {
+        let start_idx = candidate_ids
+            .iter()
+            .position(|id| id == &source_id)
+            .map(|idx| (idx + 1) % len)
+            .unwrap_or(0);
+
+        for step in 0..len {
+            let idx = (start_idx + step) % len;
+            let id = &candidate_ids[idx];
+            if id == &source_id {
+                continue;
             }
-        }
-        if runtime
-            .data
-            .lock()
-            .map_err(|_| "State unavailable")?
-            .revision
-            != revision
-        {
-            return Ok(false);
+            if let Ok(a) = refresh(runtime, &environment, id, force).await {
+                if account_remaining(&a, &config.monitored_model, now)
+                    .is_ok_and(|p| p >= config.candidate_min_percentage as f64)
+                {
+                    candidate = Some(a);
+                    break;
+                }
+            }
+            if runtime
+                .data
+                .lock()
+                .map_err(|_| "State unavailable")?
+                .revision
+                != revision
+            {
+                return Ok(false);
+            }
         }
     }
     let Some(candidate) = candidate else {
@@ -1665,4 +1677,35 @@ mod tests {
             );
         });
     }
+
+    #[test]
+    fn circular_round_robin_advances_sequentially_from_source() {
+        let candidates = vec![
+            "A".to_string(),
+            "B".to_string(),
+            "C".to_string(),
+            "D".to_string(),
+        ];
+        let len = candidates.len();
+
+        let get_order = |source: &str| -> Vec<String> {
+            let start_idx = candidates
+                .iter()
+                .position(|id| id == source)
+                .map(|idx| (idx + 1) % len)
+                .unwrap_or(0);
+            (0..len)
+                .map(|step| (start_idx + step) % len)
+                .map(|idx| candidates[idx].clone())
+                .filter(|id| id != source)
+                .collect()
+        };
+
+        assert_eq!(get_order("A"), vec!["B", "C", "D"]);
+        assert_eq!(get_order("B"), vec!["C", "D", "A"]);
+        assert_eq!(get_order("C"), vec!["D", "A", "B"]);
+        assert_eq!(get_order("D"), vec!["A", "B", "C"]);
+        assert_eq!(get_order("X"), vec!["A", "B", "C", "D"]);
+    }
 }
+

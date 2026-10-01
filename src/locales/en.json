@@ -267,6 +267,7 @@
     "remaining": "Current account has {{percent}}% remaining",
     "next_account": "Backup account: {{email}}",
     "check_now": "Check status",
+    "switch_now_restart": "Switch & Restart Client Now",
     "cancel": "Cancel this switch",
     "stop_guide": "Show stop instructions",
     "understood": "Got it",

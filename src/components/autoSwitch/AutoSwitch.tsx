@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Account } from '../../types/account';
 import { AutoSwitchConfig, AutoSwitchStatus } from '../../types/autoSwitch';
 import * as service from '../../services/autoSwitchService';
-import { listAccounts, getCurrentAccount } from '../../services/accountService';
+import { listAccounts, getCurrentAccount, switchAccount } from '../../services/accountService';
 import { isTauri } from '../../utils/env';
 
 const PRIMARY_BUTTON = 'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-blue-600 bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:border-slate-700 dark:disabled:bg-slate-800 dark:disabled:text-slate-500';
@@ -56,6 +56,26 @@ function StatusBody({ status, compact = false }: { status: AutoSwitchStatus; com
                 {status.phase === 'completed' && <p className="text-xs text-slate-500 dark:text-slate-400">{t('auto_switch.manual_continue')}</p>}
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
+                {status.target_account_id && status.reason === 'clients_running' && (
+                    <button
+                        disabled={busy || status.phase === 'switching'}
+                        onClick={async () => {
+                            setBusy(true);
+                            setError('');
+                            try {
+                                await switchAccount(status.target_account_id!);
+                            } catch (e) {
+                                setError(String(e));
+                            } finally {
+                                setBusy(false);
+                            }
+                        }}
+                        className={PRIMARY_BUTTON}
+                    >
+                        <ArrowLeftRight size={14} />
+                        {t('auto_switch.switch_now_restart')}
+                    </button>
+                )}
                 {status.mode === 'stop' && status.reason === 'clients_running' && <button ref={guideTrigger} onClick={() => setGuide(true)} className={SECONDARY_BUTTON}>{t('auto_switch.stop_guide')}</button>}
                 {status.pending_id && <button disabled={busy || status.phase === 'switching'} onClick={() => action(true)} className={SECONDARY_BUTTON}>{t('auto_switch.cancel')}</button>}
                 <button disabled={busy || status.phase === 'switching'} onClick={() => action(false)} className={SECONDARY_BUTTON}><RefreshCw size={14} className={busy ? 'animate-spin' : ''} />{t('auto_switch.check_now')}</button>
