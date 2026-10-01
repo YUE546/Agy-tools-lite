@@ -1,6 +1,6 @@
 {
   "dictionary_version": "atl-1",
-  "entry_count": 64,
+  "entry_count": 71,
   "upstream_repository": "https://github.com/yiheng8023/antigravity-chinese",
   "upstream_commit": "573fa3c40aa6b410070a0b023730f0d1b4727bb9",
   "upstream_file": "dist/zh-CN.bundle.json",
@@ -8,5 +8,43 @@
   "upstream_package_version": "3.3.15",
   "license": "MIT",
   "scope": "Manually selected exact static UI labels. No regex, runtime, installer, ASAR patcher or network code copied.",
-  "production_supported_app_versions": []
+  "production_supported_app_versions": [
+    "2.19.1"
+  ],
+  "production_verified_scope": [
+    "settings-button > span.truncate.text-sm single Settings TextNode"
+  ],
+  "manually_authored_entries": [
+    "Application",
+    "Skin",
+    "Developer",
+    "Tab",
+    "Editor",
+    "Shortcuts",
+    "Provide Feedback"
+  ],
+  "candidate_scope": {
+    "status": "pending-real-App-QA; disabled by literal build-time constant",
+    "source_sha256": "47f36abaabd34f7d54a95df40d942b609c02db9f5c04d56b124a048571b9f16d",
+    "component_names": [
+      "hOb",
+      "T4",
+      "s6a"
+    ],
+    "labels": [
+      "Settings",
+      "General",
+      "Application",
+      "Appearance",
+      "Skin",
+      "Notifications",
+      "Models",
+      "Customizations",
+      "Developer",
+      "Tab",
+      "Editor",
+      "Shortcuts",
+      "Provide Feedback"
+    ]
+  }
 }

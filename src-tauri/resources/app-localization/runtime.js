@@ -7,15 +7,42 @@
  * verifying its exact release, static-label ownership and DOM paths against an
  * official App build. A dictionary match alone is never permission to translate.
  *
- * There are currently NO verified production adapters. The synthetic adapter
- * in the offline tests is not an Antigravity compatibility claim.
+ * The 2.19.1 Settings button is live-verified. Broader navigation selectors
+ * remain a build-time candidate until separately verified in the real App.
  */
 (function createAppLocalization(host, config) {
   'use strict';
 
   const REGISTRY_KEY = '__ANTIGRAVITY_TOOLS_LOCALIZATION__';
   const BRAND = 'antigravity-tools-scoped-localization-v1';
-  const VERIFIED_ADAPTERS = Object.freeze([]); // OFFLINE_TEST_ADAPTERS_ONLY
+  const ENABLE_SOURCE_DERIVED_NAVIGATION = false; // ENABLE_ONLY_AFTER_LIVE_NAVIGATION_QA
+  const NAV_ROOT_CLASS = 'h-full w-full flex flex-col bg-sidebar';
+  const SCROLL_CLASS = 'flex-1 flex flex-col gap-1 py-3 overflow-y-auto';
+  const HEADER_CLASS = 'm-0 text-xs font-medium text-muted-foreground select-none';
+  const GROUP_CLASS = 'flex flex-col gap-0.5';
+  const BUTTON_CLASS = 'flex items-center gap-1.5 group mx-2 px-2 py-1 rounded-lg cursor-pointer border-none text-left transition-all outline-none';
+  const LABEL_CLASS = 'text-sm transition-colors select-none truncate flex-1';
+  const NAV_LABELS = Object.freeze({
+    General: 'General', App: 'Application', Appearance: 'Appearance', Skin: 'Skin',
+    Notifications: 'Notifications', Models: 'Models', Customizations: 'Customizations',
+    Developer: 'Developer', Tab: 'Tab', Editor: 'Editor',
+  });
+  const INTERNAL_SCREENS = new Set(['Jetski Chat', 'Regroup Google3 Chats']);
+  const TAIL_LABELS = ['Shortcuts', 'Provide Feedback'];
+  const SETTINGS_BUTTON_SCOPE = {
+    id: 'settings-button', optional: true, verification: 'live-verified',
+    root: { testId: 'settings-button', tagName: 'BUTTON' },
+    fields: [{ id: 'label', path: [{ tagName: 'SPAN', attributes: { class: 'truncate text-sm' } }], kind: 'text', source: 'Settings' }],
+  };
+  const NAVIGATION_SCOPE = {
+    id: 'settings-navigation', optional: true, kind: 'settings-navigation',
+    verification: 'source-derived-candidate',
+    root: { tagName: 'DIV', attributes: { class: NAV_ROOT_CLASS } },
+  };
+  const VERIFIED_ADAPTERS = Object.freeze([{
+    id: 'antigravity-2.19.1-limited-ui', appVersion: '2.19.1',
+    scopes: [SETTINGS_BUTTON_SCOPE, ...(ENABLE_SOURCE_DERIVED_NAVIGATION ? [NAVIGATION_SCOPE] : [])],
+  }]); // PRODUCTION_ADAPTERS_END
   const LEASE_MS = 15000; // Tools must explicitly renew every 3000 ms.
   const TEXT = 'text';
   const ATTRIBUTE_KINDS = new Set(['title', 'aria-label', 'aria-description']);
@@ -48,8 +75,8 @@
   let active = false;
   let disposed = false;
   let api;
-  let observedRoot = null;
-  let observedRootParent = null;
+  let observedScopes = [];
+  let scopeStatuses = [];
   let dependencies = new Set();
   const owned = new Map();
   const exact = Object.create(null);
@@ -72,6 +99,8 @@
       adapterId: adapter ? adapter.id : null,
       translated: owned.size,
       reason: reason || null,
+      scopes: scopeStatuses.map((scope) => ({ ...scope })),
+      awaitingScope: active && owned.size === 0,
     }, extra || {});
   }
 
@@ -85,16 +114,20 @@
     adapter = VERIFIED_ADAPTERS.find((item) => item.appVersion === appVersion) || null;
   }
 
+  const scopes = adapter ? adapter.scopes || [{ id: 'legacy', root: adapter.root, fields: adapter.fields }] : [];
   if (adapter) {
     const dictionary = ownData(config, 'dictionary');
     const inputExact = ownData(dictionary, 'exact');
-    for (const field of adapter.fields) {
-      const value = ownData(inputExact, field.source);
+    const sources = new Set(scopes.flatMap((scope) => scope.kind === 'settings-navigation'
+      ? ['Settings', ...Object.values(NAV_LABELS), ...TAIL_LABELS]
+      : scope.fields.map((field) => field.source)));
+    for (const source of sources) {
+      const value = ownData(inputExact, source);
       if (typeof value !== 'string' || value.length === 0 || value.length > 2000) {
         configError = 'Missing or invalid allowlisted exact dictionary entry';
         break;
       }
-      exact[field.source] = value;
+      exact[source] = value;
     }
   }
 
@@ -126,18 +159,83 @@
       element.getAttribute(name) === value);
   }
 
-  function findRoot() {
-    // Exactly one pre-reviewed test id, never body text, a TreeWalker or '*'.
-    const roots = doc.querySelectorAll('[data-testid="' + adapter.root.testId + '"]');
-    return roots.length === 1 && matches(roots[0], adapter.root) && safeElement(roots[0])
-      ? roots[0] : null;
+  function rootSelector(scope) {
+    // These selectors are code-owned literals, never config or dictionary data.
+    return scope.root.testId ? '[data-testid="' + scope.root.testId + '"]'
+      : scope.root.tagName.toLowerCase() + '[class="' + scope.root.attributes.class + '"]';
+  }
+
+  function classAnchor(tagName, value, index) {
+    return { tagName, attributes: { class: value }, ...(index === undefined ? {} : { index }) };
+  }
+
+  function navButtonField(button, prefix, path, index) {
+    const testId = button.getAttribute('data-testid');
+    const key = testId && testId.slice('settings-nav-item-'.length);
+    if (!testId || testId !== 'settings-nav-item-' + key) return null;
+    const activeClass = BUTTON_CLASS + ' bg-sidebar-secondary';
+    const inactiveClass = BUTTON_CLASS + ' hover:bg-sidebar-muted';
+    const buttonClass = button.getAttribute('class');
+    if (button.tagName !== 'BUTTON' || button.getAttribute('type') !== 'button' ||
+        ![activeClass, inactiveClass].includes(buttonClass) || button.children.length !== 1) return null;
+    const labelClass = LABEL_CLASS + (buttonClass === activeClass
+      ? ' text-foreground' : ' text-secondary-foreground group-hover:text-foreground');
+    const source = prefix === 'global' ? NAV_LABELS[key] : TAIL_LABELS.includes(key) ? key : null;
+    if (!source && !(prefix === 'global' && INTERNAL_SCREENS.has(key))) return null;
+    const label = button.children[0];
+    if (!matches(label, classAnchor('SPAN', labelClass)) || label.childNodes.length !== 1 ||
+        label.firstChild.nodeType !== 3 || !safeElement(label)) return null;
+    return {
+      id: prefix + ':' + key, source: source || key, skip: !source, kind: TEXT,
+      path: [...path, { tagName: 'BUTTON', testId, index,
+        attributes: { type: 'button', class: buttonClass } }, classAnchor('SPAN', labelClass, 0)],
+    };
+  }
+
+  function fieldsForScope(scope, root) {
+    if (scope.kind !== 'settings-navigation') return scope.fields;
+    const scrollPath = [classAnchor('DIV', SCROLL_CLASS, 0)];
+    const scroll = root.children[0];
+    if (!matches(scroll, scrollPath[0])) return null;
+    const header = scroll.children[0];
+    const group = scroll.children[1];
+    if (!matches(header, classAnchor('DIV', 'px-4')) || header.children.length !== 1 ||
+        !matches(header.children[0], classAnchor('H1', HEADER_CLASS)) ||
+        !matches(group, classAnchor('DIV', GROUP_CLASS))) return null;
+    const fields = [{ id: 'heading', kind: TEXT, source: 'Settings',
+      path: [...scrollPath, classAnchor('DIV', 'px-4', 0), classAnchor('H1', HEADER_CLASS, 0)] }];
+    const ids = new Set();
+    for (const [index, button] of [...group.children].entries()) {
+      const field = navButtonField(button, 'global', [...scrollPath, classAnchor('DIV', GROUP_CLASS, 1)], index);
+      if (!field || ids.has(field.id)) return null;
+      ids.add(field.id);
+      fields.push(field);
+    }
+    // The reusable T4 test id also labels user projects/workspaces. Only the
+    // first, header-adjacent group above is owned global navigation. No other
+    // group is traversed. Fixed footer controls are direct children after the
+    // source-literal flex-1 spacer, never descendants of workspace/project groups.
+    const spacers = [...scroll.children].filter((child) => matches(child, classAnchor('DIV', 'flex-1')));
+    if (spacers.length !== 1) return null;
+    const spacerIndex = [...scroll.children].indexOf(spacers[0]);
+    if (spacerIndex < 2) return null;
+    let lastOrder = -1;
+    for (let index = spacerIndex + 1; index < scroll.children.length; index += 1) {
+      const field = navButtonField(scroll.children[index], 'tail', scrollPath, index);
+      const order = field ? TAIL_LABELS.indexOf(field.source) : -1;
+      if (!field || order <= lastOrder) return null;
+      lastOrder = order;
+      fields.push(field);
+    }
+    return fields;
   }
 
   function resolve(root, field, dependents) {
     let current = root;
     for (const anchor of field.path) {
       // Paths are direct child chains, not unconstrained descendant queries.
-      const found = [...current.children].filter((child) => matches(child, anchor));
+      const found = [...current.children].filter((child, index) =>
+        (anchor.index === undefined || anchor.index === index) && matches(child, anchor));
       if (found.length !== 1) return null;
       current = found[0];
       if (dependents) dependents.add(current);
@@ -189,29 +287,58 @@
         typeof host.setTimeout !== 'function' || typeof host.clearTimeout !== 'function') {
       return { error: status('runtime_error', 'Required DOM lifecycle APIs are unavailable') };
     }
-    const root = findRoot();
-    if (!root) return { error: status('unsupported_dom', 'Verified root is missing, ambiguous, or excluded') };
-    const nextDependencies = new Set([root]);
-    for (let parent = root.parentElement; parent; parent = parent.parentElement) nextDependencies.add(parent);
+    const nextDependencies = new Set();
     const targets = [];
+    const nextScopes = [];
+    const nextStatuses = [];
     const uniqueProperties = new Map();
-    for (const [index, field] of adapter.fields.entries()) {
-      const target = resolve(root, field, nextDependencies);
-      if (!target) return { error: status('unsupported_dom', 'Verified static label path is missing or excluded') };
-      const properties = uniqueProperties.get(target.node) || new Set();
-      if (properties.has(field.kind)) return { error: status('unsupported_dom', 'Adapter contains overlapping fields') };
-      properties.add(field.kind);
-      uniqueProperties.set(target.node, properties);
-      const value = readValue(target);
-      const record = owned.get(index);
-      const isOurs = record && record.element === target.element && record.node === target.node &&
-        value === record.translated;
-      if (value !== field.source && !isOurs) {
-        return { error: status('unsupported_dom', 'Static label drift; no translation was attempted') };
+    for (const scope of scopes) {
+      const roots = doc.querySelectorAll(rootSelector(scope));
+      if (roots.length === 0 && scope.optional) {
+        // Route removal detaches the old root. A still-connected root losing
+        // its verified identity is DOM drift, not an absent optional scope.
+        if (observedScopes.some((entry) => entry.scope.id === scope.id && entry.root.isConnected)) {
+          return { error: status('unsupported_dom', 'Scope ' + scope.id + ': connected root identity drift') };
+        }
+        nextStatuses.push({ id: scope.id, present: false, labelCount: 0, verification: scope.verification || 'offline-fixture' });
+        continue;
       }
-      targets.push(target);
+      if (roots.length !== 1 || !matches(roots[0], scope.root) || !safeElement(roots[0])) {
+        return { error: status('unsupported_dom', 'Scope ' + scope.id + ': root is missing, ambiguous, or excluded') };
+      }
+      const root = roots[0];
+      const prior = observedScopes.find((entry) => entry.scope.id === scope.id);
+      if (prior && prior.root.isConnected && (prior.root !== root || prior.rootParent !== root.parentNode)) {
+        return { error: status('unsupported_dom', 'Scope ' + scope.id + ': connected root moved or changed identity') };
+      }
+      for (let current = root; current; current = current.parentElement) nextDependencies.add(current);
+      const fields = fieldsForScope(scope, root);
+      if (!fields) return { error: status('unsupported_dom', 'Scope ' + scope.id + ': static structure drift') };
+      let labelCount = 0;
+      for (const [index, field] of fields.entries()) {
+        const target = resolve(root, field, nextDependencies);
+        if (!target) return { error: status('unsupported_dom', 'Scope ' + scope.id + ': static label path is missing or excluded') };
+        const properties = uniqueProperties.get(target.node) || new Set();
+        if (properties.has(field.kind)) return { error: status('unsupported_dom', 'Adapter contains overlapping fields') };
+        properties.add(field.kind);
+        uniqueProperties.set(target.node, properties);
+        const key = scope.id + '/' + (field.id || index);
+        const value = readValue(target);
+        const record = owned.get(key);
+        const isOurs = record && record.root === root && record.element === target.element &&
+          record.node === target.node && value === record.translated;
+        if (value !== field.source && !isOurs) {
+          return { error: status('unsupported_dom', 'Scope ' + scope.id + ': static label drift') };
+        }
+        if (!field.skip) {
+          targets.push({ ...target, key, scope, root, rootParent: root.parentNode });
+          labelCount += 1;
+        }
+      }
+      nextScopes.push({ scope, root, rootParent: root.parentNode });
+      nextStatuses.push({ id: scope.id, present: true, labelCount, verification: scope.verification || 'offline-fixture' });
     }
-    return { root, targets, dependencies: nextDependencies };
+    return { scopes: nextScopes, targets, dependencies: nextDependencies, scopeStatuses: nextStatuses };
   }
 
   function clearTimer() {
@@ -230,16 +357,20 @@
   function restoreOwned() {
     let restored = 0;
     let preserved = 0;
-    let currentRoot = null;
-    // Undo is tied to the exact root object we changed. A newly added duplicate
-    // root must not prevent rollback of the still-owned original UI.
-    try {
-      if (observedRoot && observedRoot.parentNode === observedRootParent &&
-          matches(observedRoot, adapter.root) && safeElement(observedRoot)) currentRoot = observedRoot;
-    } catch (_) { /* fail closed */ }
+    // Ownership is tied to each original root object and its parent. A new
+    // duplicate must not prevent rollback of the original still-owned label.
     for (const record of owned.values()) {
       let currentTarget = null;
-      try { if (currentRoot === observedRoot) currentTarget = resolve(currentRoot, record.field); } catch (_) { /* fail closed */ }
+      try {
+        if (record.root.parentNode === record.rootParent && matches(record.root, record.scope.root) && safeElement(record.root)) {
+          // Resolve with the CURRENT active/inactive class variants after React
+          // changes selection, without adopting text it wrote concurrently.
+          const fields = fieldsForScope(record.scope, record.root);
+          const field = fields && fields.find((candidate, index) =>
+            record.key === record.scope.id + '/' + (candidate.id || index));
+          if (field) currentTarget = resolve(record.root, field);
+        }
+      } catch (_) { /* fail closed */ }
       // A moved/replaced/excluded target or changed value belongs to the App.
       if (currentTarget && currentTarget.element === record.element && currentTarget.node === record.node &&
           readValue(record) === record.translated) {
@@ -262,12 +393,21 @@
     return status(error.status, error.reason, restored);
   }
 
+  function routeCandidate(mutation) {
+    if (mutation.type !== 'childList') return false;
+    return [...mutation.addedNodes].some((node) => {
+      if (!node || node.nodeType !== 1 || !safeElement(node)) return false;
+      return scopes.some((scope) => matches(node, scope.root) ||
+        (typeof node.querySelectorAll === 'function' && node.querySelectorAll(rootSelector(scope)).length > 0));
+    });
+  }
+
   function watch() {
     if (!observer) {
       observer = new host.MutationObserver((mutations) => {
         if (!active || disposed) return;
         releaseExternalWrites(mutations);
-        if (!mutations.some((mutation) => dependencies.has(mutation.target))) return;
+        if (!mutations.some((mutation) => dependencies.has(mutation.target) || routeCandidate(mutation))) return;
         if (pendingTimer === null) {
           pendingTimer = host.setTimeout(() => {
             pendingTimer = null;
@@ -277,25 +417,34 @@
       });
     }
     const attributeFilter = [...new Set([...OBSERVED_ATTRIBUTES,
-      ...Object.keys(adapter.root.attributes || {}),
-      ...adapter.fields.flatMap((field) => field.path.flatMap((anchor) => Object.keys(anchor.attributes || {}))),
+      ...scopes.flatMap((scope) => Object.keys(scope.root.attributes || {})),
+      ...scopes.flatMap((scope) => (scope.fields || []).flatMap((field) =>
+        field.path.flatMap((anchor) => Object.keys(anchor.attributes || {})))), 'type',
     ])];
-    observer.observe(observedRoot, {
-      subtree: true, childList: true, characterData: true, characterDataOldValue: true,
-      attributes: true, attributeOldValue: true, attributeFilter,
-    });
-    // Ancestor identity/removal can invalidate a formerly safe root. No ancestor
-    // subtree text is observed and no listeners, intervals or global scans exist.
-    for (let parent = observedRoot.parentElement; parent; parent = parent.parentElement) {
-      observer.observe(parent, { childList: true, attributes: true, attributeFilter });
+    // Never observe document-wide text. Structural insertions discover routes;
+    // filtered identity/guard attributes invalidate already-known dependencies.
+    // The callback never reads arbitrary attribute values or user text.
+    observer.observe(doc.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter });
+    for (const { root } of observedScopes) {
+      observer.observe(root, {
+        subtree: true, childList: true, characterData: true, characterDataOldValue: true,
+        attributes: true, attributeOldValue: true, attributeFilter,
+      });
+      for (let parent = root.parentElement; parent; parent = parent.parentElement) {
+        if (parent !== doc.documentElement) observer.observe(parent, { childList: true, attributes: true, attributeFilter });
+      }
     }
+    // Keep document-level route/guard observation when it is also an ancestor.
+    observer.observe(doc.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter });
   }
 
   function probe() {
     drainExternalWrites();
     try {
       const result = inspect();
-      return result.error || status('supported', null, { labelCount: result.targets.length });
+      if (result.error) return result.error;
+      scopeStatuses = result.scopeStatuses;
+      return status('supported', null, { labelCount: result.targets.length });
     } catch (_) {
       return status('runtime_error', 'DOM inspection failed');
     }
@@ -308,27 +457,28 @@
       const result = inspect();
       if (result.error) return disposed ? result.error : fail(result.error);
       if (observer) observer.disconnect();
-      // Drop references to detached or replaced nodes before taking ownership.
-      for (const [index, record] of owned) {
-        const target = result.targets[index];
-        if (record.node !== target.node || record.element !== target.element) owned.delete(index);
+      // Stable per-scope keys prevent ownership migrating to another route.
+      const targetsByKey = new Map(result.targets.map((target) => [target.key, target]));
+      for (const [key, record] of owned) {
+        const target = targetsByKey.get(key);
+        if (!target || record.node !== target.node || record.element !== target.element || record.root !== target.root) owned.delete(key);
       }
-      observedRoot = result.root;
-      observedRootParent = result.root.parentNode;
+      observedScopes = result.scopes;
+      scopeStatuses = result.scopeStatuses;
       dependencies = result.dependencies;
-      for (const [index, target] of result.targets.entries()) {
-        if (owned.has(index)) continue;
+      for (const target of result.targets) {
+        if (owned.has(target.key)) continue;
         const translated = exact[target.field.source];
         if (translated === target.field.source) continue;
         const record = { ...target, original: target.field.source, translated };
-        owned.set(index, record);
+        owned.set(target.key, record);
         writeValue(target, translated);
       }
       active = true;
       lastFailure = null;
       watch();
       // Only initial apply starts a lease. Observer reapply does not renew it.
-      if (leaseTimer === null) renewLease();
+      if (leaseTimer === null) armLease();
       return status('applied', null);
     } catch (_) {
       return fail(status('runtime_error', 'DOM update failed; owned changes were reverted where safe'));
@@ -338,12 +488,19 @@
   function renewLease() {
     if (disposed) return status('disposed', disposedReason);
     if (!active) return status('inactive', 'Apply successfully before renewing a lease');
+    // Each explicit renewal revalidates exact roots and supports route changes.
+    const result = apply();
+    if (!result.active) return result;
+    armLease();
+    return status('applied', null, { leaseMs: LEASE_MS });
+  }
+
+  function armLease() {
     if (leaseTimer !== null) host.clearTimeout(leaseTimer);
     leaseTimer = host.setTimeout(() => {
       leaseTimer = null;
       dispose('lease_expired');
     }, LEASE_MS);
-    return status('applied', null, { leaseMs: LEASE_MS });
   }
 
   function dispose(reason) {
@@ -351,8 +508,7 @@
     stopObserving();
     const restored = restoreOwned();
     dependencies.clear();
-    observedRoot = null;
-    observedRootParent = null;
+    observedScopes = [];
     observer = null;
     disposed = true;
     disposedReason = reason === 'lease_expired' ? reason : disposedReason;
@@ -362,6 +518,14 @@
 
   api = Object.freeze({
     brand: BRAND, probe, apply, dispose, renewLease,
+    describe: () => ({
+      appVersion, adapterId: adapter ? adapter.id : null, leaseMs: LEASE_MS, renewEveryMs: 3000,
+      navigationCandidateEnabled: ENABLE_SOURCE_DERIVED_NAVIGATION,
+      scopes: scopes.map((scope) => ({ id: scope.id, selector: rootSelector(scope),
+        verification: scope.verification || 'offline-fixture', optional: !!scope.optional,
+        sources: scope.kind === 'settings-navigation' ? ['Settings', ...Object.values(NAV_LABELS), ...TAIL_LABELS]
+          : scope.fields.map((field) => field.source) })),
+    }),
     getStatus: () => disposed ? status('disposed', disposedReason) : lastFailure
       ? status(lastFailure.code, lastFailure.reason) : status(active ? 'applied' : 'inactive'),
   });

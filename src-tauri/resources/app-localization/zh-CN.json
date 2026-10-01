@@ -64,6 +64,13 @@
     "Feedback": "用户反馈",
     "Documentation": "官方文档",
     "Learn more": "了解更多",
-    "Version": "版本信息"
+    "Version": "版本信息",
+    "Application": "应用",
+    "Skin": "界面样式",
+    "Developer": "开发者",
+    "Tab": "代码补全",
+    "Editor": "编辑器",
+    "Shortcuts": "快捷键",
+    "Provide Feedback": "提供反馈"
   }
 }

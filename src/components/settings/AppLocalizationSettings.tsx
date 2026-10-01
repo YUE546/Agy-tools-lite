@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Languages, Play, RefreshCw, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Languages, RefreshCw, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { request } from '../../utils/request';
@@ -13,6 +13,8 @@ interface LocalizationStatus {
     supported_versions: string[];
     can_apply: boolean;
     active: boolean;
+    translated: number;
+    supported: boolean;
     detail: string | null;
 }
 
@@ -24,15 +26,21 @@ export default function AppLocalizationSettings() {
     const [error, setError] = useState<string | null>(null);
     const mounted = useRef(true);
     const operation = useRef(false);
+    const refreshing = useRef(false);
+    const generation = useRef(0);
     const enabled = status?.enabled ?? config?.app_localization?.enabled ?? false;
 
     const refresh = useCallback(async () => {
-        if (operation.current) return;
+        if (operation.current || refreshing.current) return;
+        refreshing.current = true;
+        const observedGeneration = generation.current;
         try {
             const next = await request<LocalizationStatus>('get_app_localization_status');
-            if (mounted.current) { setStatus(next); setError(null); }
+            if (mounted.current && !operation.current && generation.current === observedGeneration) setStatus(next);
         } catch (e) {
-            if (mounted.current) setError(String(e));
+            if (mounted.current && !operation.current && generation.current === observedGeneration) setError(String(e));
+        } finally {
+            refreshing.current = false;
         }
     }, []);
 
@@ -46,6 +54,7 @@ export default function AppLocalizationSettings() {
     const run = async (command: string, args?: Record<string, unknown>) => {
         if (operation.current) return;
         operation.current = true;
+        generation.current += 1;
         setBusy(true);
         setError(null);
         try {
@@ -56,7 +65,7 @@ export default function AppLocalizationSettings() {
             if (mounted.current) setError(String(e));
         } finally {
             operation.current = false;
-            if (mounted.current) { setBusy(false); void refresh(); }
+            if (mounted.current) setBusy(false);
         }
     };
 
@@ -80,16 +89,16 @@ export default function AppLocalizationSettings() {
                 <div aria-live="polite" className="text-sm text-gray-800 dark:text-gray-100">
                     <div className="font-medium">{t(`app_localization.states.${status?.state ?? 'checking'}`)}</div>
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t('app_localization.version', { version: status?.installed_version ?? '—' })}</div>
-                    {status?.detail && <div className="mt-1 max-w-2xl break-words text-xs text-gray-500 dark:text-gray-400">{t(`app_localization.details.${status.detail}`, { defaultValue: status.detail })}</div>}
+                    {!!status?.translated && <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t('app_localization.translated', { count: status.translated })}</div>}
+                    {status?.detail && <div className="mt-1 max-w-2xl break-words text-xs text-gray-500 dark:text-gray-400">{t(`app_localization.details.${status.detail}`, { defaultValue: t('app_localization.details.runtime_failed') })}</div>}
                 </div>
                 <button type="button" className={buttonClass} disabled={busy} onClick={() => void refresh()}><RefreshCw className="h-3.5 w-3.5" />{t('app_localization.refresh')}</button>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-                <button type="button" className={buttonClass} disabled={busy || !enabled || !status?.can_apply} onClick={() => void run('apply_app_localization', { launch: true })}><Play className="h-3.5 w-3.5" />{t('app_localization.launch')}</button>
                 <button type="button" className={buttonClass} disabled={busy || !enabled || !status?.can_apply} onClick={() => void run('apply_app_localization', { launch: false })}><RefreshCw className="h-3.5 w-3.5" />{t('app_localization.apply')}</button>
-                <button type="button" className={buttonClass} disabled={busy || (!enabled && !status?.active)} onClick={() => void run('set_app_localization_enabled', { enabled: false })}><RotateCcw className="h-3.5 w-3.5" />{t('app_localization.restore')}</button>
+                <button type="button" className={buttonClass} disabled={busy || (!enabled && !status?.active && status?.state !== 'restore_pending')} onClick={() => void run('set_app_localization_enabled', { enabled: false })}><RotateCcw className="h-3.5 w-3.5" />{t('app_localization.restore')}</button>
             </div>
-            {error && <p role="alert" className="mt-3 break-words text-xs text-red-600 dark:text-red-400">{error}</p>}
+            {error && <p role="alert" className="mt-3 break-words text-xs text-red-600 dark:text-red-400">{t(`app_localization.details.${error}`, { defaultValue: t('app_localization.details.runtime_failed') })}</p>}
             <div className="mt-4 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
                 <p>{t('app_localization.coverage')}</p>
                 <p className="mt-1">{t('app_localization.source', { version: status?.dictionary_version ?? 'atl-1', count: status?.dictionary_entries ?? 0 })} <a href="https://github.com/yiheng8023/antigravity-chinese/tree/573fa3c40aa6b410070a0b023730f0d1b4727bb9" target="_blank" rel="noreferrer" className="text-blue-600 underline dark:text-blue-400">antigravity-chinese</a> · <a href="https://github.com/yiheng8023/antigravity-chinese/blob/573fa3c40aa6b410070a0b023730f0d1b4727bb9/LICENSE" target="_blank" rel="noreferrer" className="text-blue-600 underline dark:text-blue-400">MIT</a></p>

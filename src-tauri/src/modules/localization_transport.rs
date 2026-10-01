@@ -1,7 +1,6 @@
-//! Dormant, constrained CDP transport for the experimental localization feature.
-//! No Tauri command instantiates this module until installation/process/DOM QA
-//! has completed. It never discovers arbitrary ports or returns page contents.
-#![allow(dead_code)]
+//! Constrained CDP transport for the optional, scoped localization feature.
+//! The platform adapter must verify installation/process metadata first.
+//! It never discovers arbitrary ports or returns page contents.
 
 use serde_json::{json, Value};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
@@ -39,8 +38,8 @@ pub struct ListenerObservation {
 }
 
 /// Must be constructed from a COMPLETE OS socket observation for this port,
-/// not inferred from connecting to it. The future platform adapter is separate.
-#[derive(Debug, Clone)]
+/// not inferred from connecting to it. The platform adapter supplies this proof.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedListener {
     address: SocketAddr,
     browser_pid: u32,
@@ -73,7 +72,7 @@ impl VerifiedListener {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrowserEndpoint {
     listener: VerifiedListener,
     path: String,
@@ -110,6 +109,10 @@ impl BrowserEndpoint {
         })
     }
 
+    pub(crate) fn browser_pid(&self) -> u32 {
+        self.listener.browser_pid
+    }
+
     fn url(&self) -> String {
         format!("ws://{}{}", self.listener.address, self.path)
     }
@@ -121,6 +124,9 @@ impl BrowserEndpoint {
 pub struct AppOrigin(String);
 
 impl AppOrigin {
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
     pub fn from_verified_server_port(port: u16) -> Result<Self, TransportError> {
         if port == 0 {
             return Err(TransportError::WrongTarget);
@@ -147,6 +153,12 @@ impl AppOrigin {
 pub struct PageTarget {
     id: String,
     origin: AppOrigin,
+}
+
+impl PageTarget {
+    pub(crate) fn origin(&self) -> &AppOrigin {
+        &self.origin
+    }
 }
 
 fn verified_pages(result: &Value, origin: &AppOrigin) -> Result<Vec<PageTarget>, TransportError> {
@@ -188,6 +200,28 @@ fn verified_pages(result: &Value, origin: &AppOrigin) -> Result<Vec<PageTarget>,
         return Err(TransportError::AmbiguousTargets);
     }
     Ok(pages)
+}
+
+/// Target disappearance is stronger than an origin mismatch: navigation or a
+/// changed type must never be treated as proof that restoration is unnecessary.
+fn target_destroyed(result: &Value, target: &PageTarget) -> Result<bool, TransportError> {
+    let targets = result
+        .get("targetInfos")
+        .and_then(Value::as_array)
+        .ok_or(TransportError::ProtocolError)?;
+    if targets.len() > 128 {
+        return Err(TransportError::Oversized);
+    }
+    let mut found = false;
+    for candidate in targets {
+        let id = candidate
+            .get("targetId")
+            .and_then(Value::as_str)
+            .filter(|id| safe_id(id))
+            .ok_or(TransportError::ProtocolError)?;
+        found |= id == target.id;
+    }
+    Ok(!found)
 }
 
 fn verify_browser_pid(result: &Value, expected_pid: u32) -> Result<(), TransportError> {
@@ -259,16 +293,16 @@ fn expression(
             if matches!(action, RuntimeAction::Probe) {
                 // A probe must not dispose/recreate an active controller. For
                 // first use, put the temporary registry on a private host facade.
-                format!("const old=window[{registry}]; if(old) return old.brand==='antigravity-tools-scoped-localization-v1' ? old.probe() : {{status:'invalid_config'}}; const host={{document:window.document,MutationObserver:window.MutationObserver,setTimeout:window.setTimeout.bind(window),clearTimeout:window.clearTimeout.bind(window)}}; const c=({RUNTIME})(host,{config}); return c.probe();")
+                format!("const old=window[{registry}]; if(old) return old.brand==='antigravity-tools-scoped-localization-v1' && typeof old.probe==='function' ? old.probe() : {{status:'invalid_config'}}; const host={{document:window.document,MutationObserver:window.MutationObserver,setTimeout:window.setTimeout.bind(window),clearTimeout:window.clearTimeout.bind(window)}}; const c=({RUNTIME})(host,{config}); return c.probe();")
             } else {
                 format!("const c = ({RUNTIME})(window, {config}); return c.apply();")
             }
         }
         RuntimeAction::Renew => format!(
-            "const c=window[{registry}]; return c ? c.renewLease() : {{status:'inactive'}};"
+            "const c=window[{registry}]; if(!c) return {{status:'inactive'}}; if(c.brand!=='antigravity-tools-scoped-localization-v1' || typeof c.renewLease!=='function') return {{status:'invalid_config'}}; return c.renewLease();"
         ),
         RuntimeAction::Dispose => {
-            format!("const c=window[{registry}]; return c ? c.dispose() : {{status:'disposed'}};")
+            format!("const c=window[{registry}]; if(!c) return {{status:'disposed'}}; if(c.brand!=='antigravity-tools-scoped-localization-v1' || typeof c.dispose!=='function') return {{status:'invalid_config'}}; return c.dispose();")
         }
     };
     Ok(format!("(() => {{ if (location.origin !== {expected}) return {{status:'wrong_origin'}}; {operation} }})()"))
@@ -279,6 +313,8 @@ pub struct RuntimeReport {
     pub status: String,
     pub active: bool,
     pub translated: u64,
+    pub label_count: u64,
+    pub awaiting_scope: bool,
 }
 
 fn runtime_report(result: Value) -> Result<RuntimeReport, TransportError> {
@@ -319,6 +355,15 @@ fn runtime_report(result: Value) -> Result<RuntimeReport, TransportError> {
             .and_then(Value::as_u64)
             .unwrap_or(0)
             .min(10000),
+        label_count: value
+            .get("labelCount")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            .min(10000),
+        awaiting_scope: value
+            .get("awaitingScope")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     })
 }
 
@@ -440,6 +485,48 @@ impl CdpTransport {
         verified_pages(&value, origin)
     }
 
+    pub(crate) fn pages_for_origins(
+        &mut self,
+        origins: &[AppOrigin],
+    ) -> Result<Vec<PageTarget>, TransportError> {
+        if origins.is_empty() || origins.len() > 8 {
+            return Err(TransportError::WrongTarget);
+        }
+        self.verify_identity()?;
+        let value = self.call(
+            "Target.getTargets",
+            json!({"filter":[{"type":"page","exclude":false}]}),
+            None,
+        )?;
+        let mut result = Vec::new();
+        for origin in origins {
+            match verified_pages(&value, origin) {
+                Ok(mut pages) => result.append(&mut pages),
+                Err(TransportError::WrongTarget) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        if result.is_empty() {
+            return Err(TransportError::WrongTarget);
+        }
+        if result.len() > MAX_PAGES {
+            return Err(TransportError::AmbiguousTargets);
+        }
+        Ok(result)
+    }
+
+    pub(crate) fn page_destroyed(&mut self, target: &PageTarget) -> Result<bool, TransportError> {
+        self.verify_identity()?;
+        // Include every type. A still-existing target with a changed type or
+        // origin is not sufficient evidence to clear pending restoration.
+        let value = self.call(
+            "Target.getTargets",
+            json!({"filter":[{"exclude":false}]}),
+            None,
+        )?;
+        target_destroyed(&value, target)
+    }
+
     pub fn run(
         &mut self,
         target: &PageTarget,
@@ -534,6 +621,7 @@ mod tests {
             listener(),
         )
         .unwrap();
+        assert_eq!(endpoint.browser_pid(), 42);
         assert_eq!(
             endpoint.url(),
             "ws://127.0.0.1:45678/devtools/browser/ABC-def-123"
@@ -604,6 +692,55 @@ mod tests {
         assert_eq!(pages[0].id, "app-1");
     }
     #[test]
+    fn only_complete_target_id_absence_proves_page_destruction() {
+        let target = PageTarget {
+            id: "app-1".into(),
+            origin: AppOrigin::from_verified_server_port(45679).unwrap(),
+        };
+        assert_eq!(
+            target_destroyed(&json!({"targetInfos":[]}), &target),
+            Ok(true)
+        );
+        assert_eq!(
+            target_destroyed(
+                &json!({"targetInfos":[
+                    {"targetId":"other-1","type":"page","url":"https://example.com/"}
+                ]}),
+                &target
+            ),
+            Ok(true)
+        );
+        // A target that navigated away, or changed type, still exists.
+        assert_eq!(
+            target_destroyed(
+                &json!({"targetInfos":[
+                    {"targetId":"app-1","type":"other","url":"https://example.com/"}
+                ]}),
+                &target
+            ),
+            Ok(false)
+        );
+        for value in [
+            json!({}),
+            json!({"targetInfos":[{}]}),
+            json!({"targetInfos":[{"targetId":""}]}),
+            json!({"targetInfos":[{"targetId":42}]}),
+        ] {
+            assert_eq!(
+                target_destroyed(&value, &target),
+                Err(TransportError::ProtocolError)
+            );
+        }
+        assert_eq!(
+            target_destroyed(
+                &json!({"targetInfos":vec![json!({"targetId":"other"});129]}),
+                &target
+            ),
+            Err(TransportError::Oversized)
+        );
+    }
+
+    #[test]
     fn protocol_ids_errors_and_oversized_messages_fail_closed() {
         assert_eq!(
             response_result(r#"{"method":"Target.targetCreated","params":{}}"#, 1),
@@ -641,15 +778,43 @@ mod tests {
             RuntimeReport {
                 status: "applied".into(),
                 active: true,
-                translated: 1
+                translated: 1,
+                label_count: 0,
+                awaiting_scope: false,
             }
         );
         let origin = AppOrigin::from_verified_server_port(45679).unwrap();
         assert!(expression(RuntimeAction::Apply, "2.19.1\";evil()", &origin).is_err());
         let code = expression(RuntimeAction::Apply, "2.19.1", &origin).unwrap();
         assert!(code.contains("location.origin !== \"https://127.0.0.1:45679\""));
-        assert!(code.contains("const VERIFIED_ADAPTERS = Object.freeze([])"));
+        assert!(
+            code.contains("id: 'settings-button', optional: true, verification: 'live-verified'")
+        );
+        assert!(code.contains("appVersion: '2.19.1'"));
+        assert!(code.contains("const ENABLE_SOURCE_DERIVED_NAVIGATION = false;"));
         assert!(code.len() < MAX_MESSAGE);
+    }
+
+    #[test]
+    fn runtime_report_exposes_only_bounded_counts_and_awaiting_scope() {
+        let report = runtime_report(json!({"result":{"value":{
+            "status":"supported","active":true,"translated":0,"labelCount":1,"awaitingScope":true,
+            "scopes":[{"id":"private remote data"}],"reason":"private remote data"
+        }}}))
+        .unwrap();
+        assert_eq!(report.label_count, 1);
+        assert!(report.awaiting_scope);
+        let report = runtime_report(json!({"result":{"value":{
+            "status":"applied","translated":u64::MAX,"labelCount":u64::MAX,"awaitingScope":"private remote data"
+        }}})).unwrap();
+        assert_eq!(report.translated, 10000);
+        assert_eq!(report.label_count, 10000);
+        assert!(!report.awaiting_scope);
+        let report = runtime_report(json!({"result":{"value":{
+            "status":"supported","labelCount":-1
+        }}}))
+        .unwrap();
+        assert_eq!(report.label_count, 0);
     }
 
     #[test]
@@ -657,14 +822,23 @@ mod tests {
         let origin = AppOrigin::from_verified_server_port(45679).unwrap();
         let code = expression(RuntimeAction::Probe, "2.19.1", &origin).unwrap();
         assert!(code.contains("old.probe()"));
+        assert!(code.contains("old.brand==='antigravity-tools-scoped-localization-v1' && typeof old.probe==='function'"));
         assert!(code.contains("(host,"));
         assert!(!code.contains(")(window,"));
-        assert!(expression(RuntimeAction::Renew, "2.19.1", &origin)
-            .unwrap()
-            .contains("c.renewLease()"));
-        assert!(expression(RuntimeAction::Dispose, "2.19.1", &origin)
-            .unwrap()
-            .contains("c.dispose()"));
+        for (action, method, no_controller_status) in [
+            (RuntimeAction::Renew, "renewLease", "inactive"),
+            (RuntimeAction::Dispose, "dispose", "disposed"),
+        ] {
+            let code = expression(action, "2.19.1", &origin).unwrap();
+            let guard = format!("if(c.brand!=='antigravity-tools-scoped-localization-v1' || typeof c.{method}!=='function') return {{status:'invalid_config'}};");
+            assert!(code.contains(&guard));
+            assert!(code.contains(&format!(
+                "if(!c) return {{status:'{no_controller_status}'}};"
+            )));
+            assert!(
+                code.find(&guard).unwrap() < code.find(&format!("return c.{method}();")).unwrap()
+            );
+        }
     }
 
     #[test]
@@ -756,8 +930,11 @@ mod tests {
                         assert_eq!(request["params"]["returnByValue"], true);
                         let script = request["params"]["expression"].as_str().unwrap();
                         assert!(script.contains("location.origin !== \"https://127.0.0.1:45679\""));
-                        assert!(script.contains("const VERIFIED_ADAPTERS = Object.freeze([])"));
-                        json!({"result":{"value":{"status":"unsupported_version","active":false,"translated":0}}})
+                        assert!(script.contains(
+                            "id: 'settings-button', optional: true, verification: 'live-verified'"
+                        ));
+                        assert!(script.contains("const ENABLE_SOURCE_DERIVED_NAVIGATION = false;"));
+                        json!({"result":{"value":{"status":"applied","active":true,"translated":1,"awaitingScope":false}}})
                     }
                     "Target.detachFromTarget" => json!({}),
                     _ => unreachable!(),
@@ -791,8 +968,10 @@ mod tests {
         let report = client
             .run(&pages[0], "2.19.1", RuntimeAction::Apply)
             .unwrap();
-        assert_eq!(report.status, "unsupported_version");
-        assert!(!report.active);
+        assert_eq!(report.status, "applied");
+        assert!(report.active);
+        assert_eq!(report.translated, 1);
+        assert!(!report.awaiting_scope);
         worker.join().unwrap();
     }
 

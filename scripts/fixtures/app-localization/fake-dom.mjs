@@ -77,24 +77,30 @@ export function createFixtureHost() {
     }
     get classList() { return (this.getAttribute('class') || '').split(/\s+/).filter(Boolean); }
     get isContentEditable() { return this.getAttribute('contenteditable') === 'true'; }
+    querySelectorAll(selector) { return queryWithin(this, selector, false); }
   }
 
   class Document extends Node {
     constructor() { super(9); }
     createElement(tagName) { return new Element(tagName); }
     createTextNode(data) { return new Text(data); }
-    querySelectorAll(selector) {
-      host.metrics.queries.push(selector);
-      const match = /^\[data-testid="([a-zA-Z0-9_-]+)"\]$/.exec(selector);
-      if (!match) throw new Error('Unapproved global selector: ' + selector);
-      const found = [];
-      const visit = (node) => {
-        if (node.nodeType === 1 && node.getAttribute('data-testid') === match[1]) found.push(node);
-        for (const child of node.childNodes) visit(child);
-      };
-      visit(this);
-      return found;
-    }
+    querySelectorAll(selector) { return queryWithin(this, selector, true); }
+  }
+
+  function queryWithin(root, selector, includeRoot) {
+    host.metrics.queries.push(selector);
+    const testId = /^\[data-testid="([^"\\]+)"\]$/.exec(selector);
+    const className = /^([a-z]+)\[class="([^"\\]+)"\]$/.exec(selector);
+    if (!testId && !className) throw new Error('Unapproved selector: ' + selector);
+    const found = [];
+    const visit = (node) => {
+      if (node.nodeType === 1 && (testId ? node.getAttribute('data-testid') === testId[1]
+        : node.tagName === className[1].toUpperCase() && node.getAttribute('class') === className[2])) found.push(node);
+      for (const child of node.childNodes) visit(child);
+    };
+    if (includeRoot) visit(root);
+    else for (const child of root.childNodes) visit(child);
+    return found;
   }
 
   class MutationObserver {

@@ -1,6 +1,8 @@
-# Antigravity App localization (WIP, disabled)
+# Antigravity App localization (experimental)
 
-This draft implements a Settings subsection, migration-safe opt-in configuration, bounded read-only App version detection, and an independently tested reversible runtime. **It does not yet provide working App localization.** There is no production adapter or enabled CDP connection path in this build. A dormant constrained transport is exercised only against a synthetic loopback server. Both UI controls and backend commands fail closed; editing the saved flag cannot enable injection. Do not merge or advertise this feature until the real-App validation gate below passes.
+The Settings subsection is an opt-in, default-off feature for **official Antigravity App 2.19.1 on macOS**. The initial verified scope is the static Settings entry button, not full-App translation. It uses the App's existing local debugging endpoint; it does not launch the App or enable a new port. Linux, Windows and other App versions remain unsupported.
+
+**PR acceptance is still in progress.** The standalone one-label Mac round trip passed; the newly integrated Tools switch, reconnection lifecycle and candidate global Settings navigation need the additional acceptance checks below. Keep the PR draft until those tests pass.
 
 No new navigation tab is added. Tools' existing display language is independent. No installation files, account data, credentials, system startup entries, security settings or debugging flags are changed. No upstream installer is executed.
 
@@ -36,19 +38,31 @@ Official 2.19.1 main-process code itself adds `remote-debugging-port=0` when no 
 
 With authorization, the official App was attempted using a new temporary HOME and no account/login information. This cloud execution environment rejects Unix sockets (`Operation not permitted`). Xvfb could not establish its local listener; the Ozone-headless attempt stopped at Chromium's process singleton socket before showing an App page. The normal Chromium sandbox was retained; no login or injection happened. Retrying Xvfb with the supported permission-review route did not resolve the environment restriction. No further execution workaround was used.
 
-Live App rendering, CDP target identity, actual DOM compatibility, navigation/restart behavior, and macOS/Windows remain **unverified**. Static and synthetic tests do not replace those checks.
+The Linux rendering path remains unverified. A separately authorized macOS test subsequently succeeded; this does not turn the cloud attempt into a pass or establish Linux/Windows support.
 
-## Runtime contract (not activated)
+### Actual macOS acceptance evidence (2026-10-01)
+
+The official Antigravity App 2.19.1 was checked using its existing active-port file. The test independently verified the App executable and PID, complete loopback listener ownership, CDP browser PID, and the language-server executable/parent relationship before selecting a page. No credentials, account text, chat content or input values were captured.
+
+- Read-only probe: `ok=true`, `shape_verified=true`, `changed=false`
+- One Settings TextNode flip for two seconds: `ok=true`, `changed=true`, `restored=true`, `english_postcheck=true`
+- The test detached, the App exited, and temporary test files were cleaned; the account was unchanged
+- This validates **only the Settings entry button**. It does not establish the broader navigation scope, automatic reconnect or Tools UI end-to-end behavior
+
+The reusable bounded acceptance scripts are `scripts/test-installed-app-label.mjs` and `scripts/test-installed-app-controls.mjs`. The latter explicitly enables the source-derived navigation candidate only in its in-memory QA copy after checking exact source hashes. It neither changes the distributed runtime nor creates a port.
+
+## Runtime contract
 
 `runtime.js` evaluates to a factory `(window, JSON config) => controller` with `probe`, `apply`, `dispose`, `renewLease` and `getStatus`. The configuration supplies only an exact App version, `zh-CN`, and dictionary data. It cannot provide adapters or selectors.
 
-- Production adapter registry is empty; no version can apply
-- Offline tests use transformed copies of the runtime with synthetic and source-derived adapters, never patching the distributed registry
+- The production registry accepts exactly 2.19.1; the platform collector additionally permits only macOS
+- The global Settings-navigation candidate is separately gated until its real-App QA succeeds
+- Offline tests cover production and test-only synthetic/source-derived adapters separately
 - Writes are limited to literal, unique static control paths and exact source labels
 - Chat, Markdown, editors, code, inputs, paths and editable ancestors are excluded at every ancestor depth
 - Original node identity and original/translated values are tracked. Restore only reverts still-owned values and preserves subsequent App/user changes
 - Reapply is idempotent, reinjection disposes the old controller, and DOM drift shuts it down
-- A 15-second lease restores changes if its owner disappears. A future backend must explicitly renew every 3 seconds; mutations and repeated apply do not renew it
+- A 15-second runtime lease schedules restoration if its owner disappears. The worker attempts renewal every 3 seconds; mutations and repeated apply do not renew it. Browser timer throttling means cleanup after a lost connection is best-effort, not a precise wall-clock guarantee
 - It does not click, submit, change permissions, read account storage, call the network or load remote scripts
 
 ## Tests
@@ -60,11 +74,15 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml --lib app_localization
 cargo test --locked --manifest-path src-tauri/Cargo.toml --lib client_localization
 ```
 
-The 27 runtime tests cover exact writes, all exclusion categories, original-value rollback, legitimate concurrent changes, reapply/reinjection, DOM drift, unknown versions, lease expiry and the source-derived Settings shape. Rust tests cover default-off migration, separation from Tools' language, safe package identity/version parsing, bounded malformed-ASAR handling and the server-side unsupported-version gate.
+The 44 runtime tests cover exact writes, all exclusion categories, original-value rollback, legitimate concurrent changes, reapply/reinjection, DOM drift, unknown versions, lease expiry and the source-derived Settings shape. Rust tests cover default-off migration, separation from Tools' language, safe package identity/version parsing, bounded malformed-ASAR handling and the server-side unsupported-version gate.
 
-## Constrained transport (dormant)
+## Existing-endpoint discovery and constrained transport
 
-`modules/localization_transport.rs` is not connected to any Tauri command. Its public-in-crate inputs require a complete OS observation of listener addresses/owner PID and independently verified App server origin; the platform evidence collector is still pending. The transport itself:
+`modules/localization_macos.rs` reads only bounded installation identity metadata, the known `Antigravity/DevToolsActivePort` file, and scoped process/listener metadata. It verifies the official App executable and its language-server child independently. A complete listener observation must show loopback-only binding with the expected owner. The collector does not scan arbitrary ports, read account storage, change startup flags or request extra system permissions.
+
+`modules/app_localization.rs` owns one in-memory session while Tools is running. Enabling saves the opt-in preference; if the App is closed, the worker waits for the user to open it normally. Every connection/reconnection repeats identity validation. It never selects the first available page as trusted. Disabling attempts owned-label restoration; an unconfirmed response keeps the cleanup handle and reports `restore_pending`, rather than claiming success. A destroyed verified process/page can no longer retain those in-memory changes. While cleanup is unresolved, no new translation is applied.
+
+`modules/localization_transport.rs`:
 
 - accepts only an observed 127.0.0.1 listener owned by the expected browser PID; rejects any non-loopback/mismatched binding in the observation
 - validates the two-line official active-port file, and creates a direct WebSocket connection with no proxy, discovery scan, redirect, wildcard Origin or TLS override
@@ -77,21 +95,20 @@ The 27 runtime tests cover exact writes, all exclusion categories, original-valu
 - detaches sessions after an operation; disconnect stops future lease renewal, allowing the runtime to restore its own changes
 - probes through the existing controller or a private host facade, preserving an active controller
 
-Pure validation tests cover URL aliases, redirection attempts, non-loopback and wrong-PID evidence, response IDs/errors, target scope and JavaScript interpolation. Three synthetic localhost WebSocket tests cover the complete constrained protocol, rejection before page access for a wrong PID, and a bounded timeout. These are not real-App E2E tests and do not enable the feature.
+Pure validation tests cover URL aliases, redirection attempts, non-loopback and wrong-PID evidence, response IDs/errors, target scope and JavaScript interpolation. Three synthetic localhost WebSocket tests cover the complete constrained protocol, rejection before page access for a wrong PID, and a bounded timeout. These are protocol tests, not a substitute for Mac Tools end-to-end acceptance.
 
 ## Candidate coverage beyond the first control
 
 The official 2.19.1 source has fixed global Settings navigation entries for General, Application (internal ID App), Appearance, Skin, Notifications, Models, Customizations, Developer, Tab and Editor, plus Shortcuts and Provide Feedback. Their labels are a reasonable next review batch, followed by individually identified static labels/tooltips inside those Settings screens.
 
-Do not blindly allow all `settings-nav-item-*` nodes: workspace and project names reuse the same component and identifier prefix. A user can name a project General or Models. Each future adapter must also verify the exact top-level global-navigation group, reject collisions and exclude Account's user-name/email content. The current test-only Settings-button fixture is a proof of the lifecycle and boundary, not a claim of full-App coverage.
+Do not blindly allow all `settings-nav-item-*` nodes: workspace and project names reuse the same component and identifier prefix. A user can name a project General or Models. Each future adapter must also verify the exact top-level global-navigation group, reject collisions and exclude Account's user-name/email content. The Settings-button fixture and its live check establish a narrow boundary, not full-App coverage.
 
-## Required before enabling/merging
+## Required before merging
 
-1. Obtain actual App DOM evidence in an authorized environment that supports normal Chromium sandbox and Unix sockets; retain the existing temporary-profile/no-account boundary until separate access is authorized
-2. Verify the minimal Settings-label adapter in real rendering, including duplicate/user-content lookalikes, navigation, label updates, shutdown and recovery
-3. Finish the platform evidence collector and wire the dormant reviewed transport only after verifying the App process, installation, exact release, target origin and complete loopback listener ownership; never blindly attach to all targets
-4. Verify lease renewal, cleanup on disconnect and disabling; an account switch must not fail because optional localization failed
-5. Run platform-specific integration tests. Add only validated versions/platforms to the production registry; unknown builds remain blocked
-6. Review the enabled feature and update the Settings notice only after real validation passes
+1. Keep the successful one-label Mac evidence above; do not expand it into a full-interface claim
+2. Run the fixed-hash candidate navigation probe/temporary apply/restore test on macOS 2.19.1, then enable only that exact validated adapter scope
+3. Build the updated Tools test copy in cloud CI. Verify its Settings switch against the official App: enable, status/count, repeated apply, normal App reload/reopen, disable/restore, reconnect and unknown-version rejection
+4. Verify failure status and restoration after a lost connection. An optional localization failure must never interfere with account switching
+5. Run final frontend, Rust and platform CI checks against the exact PR head, then review the enabled scope and status copy
 
-No launchd, startup daemon, ASAR mutation, third-party installer, broad DOM scanning or all-App coverage is part of this draft.
+No launchd, startup daemon, ASAR mutation, third-party installer, broad text replacement or full-App coverage is part of this feature.

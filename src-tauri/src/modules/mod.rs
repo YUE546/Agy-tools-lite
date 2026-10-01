@@ -12,6 +12,7 @@ pub mod integration;
 pub mod linux_credentials;
 #[cfg(target_os = "linux")]
 pub mod linux_paths;
+pub(crate) mod localization_macos;
 pub(crate) mod localization_transport;
 pub mod logger;
 pub mod migration;

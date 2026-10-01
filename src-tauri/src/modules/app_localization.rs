@@ -1,35 +1,60 @@
-//! Experimental App localization preflight. No live adapter is enabled in this
-//! build: source-derived selectors still require real-App validation. The three
-//! commands deliberately do not open sockets, start processes or inject scripts.
+//! Opt-in, macOS 2.19.1-only localization of reviewed static App controls.
+//! Attaches only to the App's existing, independently verified loopback CDP.
 
+use super::localization_macos::{self, Discovery, Installation};
+use super::localization_transport::{CdpTransport, PageTarget, RuntimeAction, TransportError};
+use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_json::Value;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
+use std::time::{Duration, Instant};
 
 const DICTIONARY: &str = include_str!("../../resources/app-localization/zh-CN.json");
 const MAX_ASAR_HEADER: usize = 4 * 1024 * 1024;
 const MAX_PACKAGE: usize = 16 * 1024;
-const UNVERIFIED: &str = "unverified_adapter";
+const SUPPORTED: &[&str] = &["2.19.1"];
+static ENABLED: AtomicBool = AtomicBool::new(false);
+static STARTED: AtomicBool = AtomicBool::new(false);
+static SESSION: Lazy<Mutex<Option<Session>>> = Lazy::new(|| Mutex::new(None));
+static SNAPSHOT: Lazy<Mutex<Option<LocalizationStatus>>> = Lazy::new(|| Mutex::new(None));
+static WORKER: Lazy<Mutex<Option<std::thread::Thread>>> = Lazy::new(|| Mutex::new(None));
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct LocalizationStatus {
     enabled: bool,
-    state: &'static str,
+    state: String,
     installed_version: Option<String>,
     dictionary_version: String,
     dictionary_entries: usize,
     supported_versions: Vec<String>,
+    supported: bool,
     can_apply: bool,
     active: bool,
-    detail: Option<&'static str>,
+    translated: u64,
+    detail: Option<String>,
+    #[serde(skip)]
+    observed_at: Instant,
+}
+struct Session {
+    discovery: Discovery,
+    transport: CdpTransport,
+    page: PageTarget,
+    version: String,
+    installation: Installation,
+    pending_restore: bool,
 }
 
-/// Empty until a release's actual DOM and lifecycle have passed live QA.
-/// A dictionary's claimed version is not evidence that its DOM adapter is safe.
+fn compatible(version: &str, platform: &str) -> bool {
+    platform == "macos" && SUPPORTED.contains(&version)
+}
 fn supported_versions() -> &'static [&'static str] {
-    &[]
+    SUPPORTED
 }
 
 fn package_version(package: &[u8]) -> Option<String> {
@@ -56,7 +81,7 @@ fn package_version(package: &[u8]) -> Option<String> {
 
 /// Read only the bounded package.json entry from an ASAR; no extraction or code
 /// execution. Reject links, unpacked entries, oversized values and bad offsets.
-fn read_asar_version(path: &Path) -> Option<String> {
+pub(crate) fn read_asar_version(path: &Path) -> Option<String> {
     let mut file = File::open(path).ok()?;
     let file_size = file.metadata().ok()?.len();
     let mut prefix = [0_u8; 16];
@@ -102,89 +127,476 @@ fn read_asar_version(path: &Path) -> Option<String> {
     package_version(&package)
 }
 
-fn installation_asar(executable: &Path) -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        let mut path = executable;
-        loop {
-            if path.extension().is_some_and(|ext| ext == "app") {
-                return Some(path.join("Contents/Resources/app.asar"));
-            }
-            path = path.parent()?;
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let executable = executable.canonicalize().ok()?;
-        Some(executable.parent()?.join("resources/app.asar"))
-    }
-}
-
-fn status_for_installation(enabled: bool, executable: Option<&Path>) -> LocalizationStatus {
+fn snapshot(
+    enabled: bool,
+    version: Option<String>,
+    state: &str,
+    detail: Option<&str>,
+) -> LocalizationStatus {
     let dictionary: Value = serde_json::from_str(DICTIONARY).expect("bundled dictionary is JSON");
-    let installed_version = executable
-        .and_then(installation_asar)
-        .and_then(|p| read_asar_version(&p));
+    let supported = version
+        .as_deref()
+        .is_some_and(|v| compatible(v, std::env::consts::OS));
     LocalizationStatus {
         enabled,
-        state: if executable.is_none() {
-            "not_installed"
-        } else {
-            "needs_verification"
-        },
-        detail: Some(if executable.is_some() && installed_version.is_none() {
-            "unknown_installation"
-        } else {
-            UNVERIFIED
-        }),
-        installed_version,
+        state: state.to_string(),
+        installed_version: version,
         dictionary_version: dictionary["version"]
             .as_str()
             .unwrap_or("unknown")
             .to_string(),
         dictionary_entries: dictionary["exact"].as_object().map_or(0, |d| d.len()),
-        supported_versions: supported_versions().iter().map(|v| v.to_string()).collect(),
-        can_apply: false,
+        supported_versions: SUPPORTED.iter().map(|s| s.to_string()).collect(),
+        supported,
+        can_apply: supported,
         active: false,
+        translated: 0,
+        detail: detail.map(str::to_string),
+        observed_at: Instant::now(),
+    }
+}
+fn preflight(enabled: bool) -> (LocalizationStatus, Option<Installation>) {
+    if !cfg!(target_os = "macos") {
+        return (
+            snapshot(enabled, None, "unsupported_platform", Some("macos_only")),
+            None,
+        );
+    }
+    let config = match super::config::load_app_config() {
+        Ok(c) => c,
+        Err(_) => {
+            return (
+                snapshot(enabled, None, "error", Some("config_unavailable")),
+                None,
+            )
+        }
+    };
+    match localization_macos::installed(config.antigravity_executable.as_deref()) {
+        Ok(Some(app)) if compatible(&app.version, "macos") => (
+            snapshot(
+                enabled,
+                Some(app.version.clone()),
+                if enabled { "ready" } else { "disabled" },
+                None,
+            ),
+            Some(app),
+        ),
+        Ok(Some(app)) => (
+            snapshot(
+                enabled,
+                Some(app.version),
+                "unsupported_version",
+                Some("version_changed"),
+            ),
+            None,
+        ),
+        Ok(None) => (
+            snapshot(enabled, None, "not_installed", Some("app_required")),
+            None,
+        ),
+        Err(code) => (snapshot(enabled, None, "error", Some(code)), None),
+    }
+}
+fn publish(value: LocalizationStatus) -> LocalizationStatus {
+    if let Ok(mut status) = SNAPSHOT.lock() {
+        *status = Some(value.clone());
+    }
+    value
+}
+fn transport_code(error: TransportError) -> &'static str {
+    match error {
+        TransportError::WrongProcess
+        | TransportError::WrongTarget
+        | TransportError::InvalidEndpoint
+        | TransportError::UnverifiedListener => "identity_mismatch",
+        TransportError::AmbiguousTargets => "multiple_windows",
+        TransportError::Timeout => "connection_timeout",
+        TransportError::Closed | TransportError::ConnectFailed => "connection_lost",
+        _ => "runtime_failed",
+    }
+}
+fn dispose(session: &mut Option<Session>) -> bool {
+    let Some(active) = session.as_mut() else {
+        return true;
+    };
+    active.pending_restore = true;
+    let pid = active.discovery.endpoint.browser_pid();
+    match localization_macos::known_process_exited(pid) {
+        Ok(true) => {
+            *session = None;
+            return true;
+        }
+        Ok(false) => {}
+        Err(_) => return false,
+    }
+    if active.transport.page_destroyed(&active.page) == Ok(true) {
+        *session = None;
+        return true;
+    }
+    let restored = |report: &super::localization_transport::RuntimeReport| {
+        report.status == "disposed" && !report.active
+    };
+    if active
+        .transport
+        .run(&active.page, &active.version, RuntimeAction::Dispose)
+        .is_ok_and(|report| restored(&report))
+    {
+        *session = None;
+        return true;
+    }
+    // A closed last window may also stop the App server. Endpoint-only
+    // revalidation is enough to prove target destruction, but never to inject.
+    if let Ok(endpoint) = localization_macos::rediscover_endpoint(&active.installation) {
+        if endpoint == active.discovery.endpoint {
+            if let Ok(mut connection) = CdpTransport::connect(endpoint) {
+                if connection.page_destroyed(&active.page) == Ok(true) {
+                    *session = None;
+                    return true;
+                }
+            }
+        }
+    }
+    // Reconnect only after independently re-verifying exactly the same process,
+    // endpoint and App server. Never forget a possibly applied runtime on error.
+    if let Ok(fresh) = localization_macos::discover(&active.installation) {
+        if fresh.endpoint == active.discovery.endpoint
+            && fresh.origins.contains(active.page.origin())
+        {
+            if let Ok(mut connection) = CdpTransport::connect(fresh.endpoint) {
+                let gone = connection.page_destroyed(&active.page) == Ok(true);
+                let clean = gone
+                    || connection
+                        .run(&active.page, &active.version, RuntimeAction::Dispose)
+                        .is_ok_and(|report| restored(&report));
+                if clean {
+                    *session = None;
+                    return true;
+                }
+                active.transport = connection;
+            }
+        }
+    }
+    false
+}
+fn stop_session(state: &mut LocalizationStatus, sessions: &mut Option<Session>) {
+    if !dispose(sessions) {
+        state.state = "restore_pending".into();
+        state.detail = Some("restore_pending".into());
+        state.can_apply = false;
+    }
+    state.active = false;
+    state.translated = 0;
+}
+
+fn tick(force: bool) -> LocalizationStatus {
+    let enabled = ENABLED.load(Ordering::SeqCst);
+    let (mut status, app) = preflight(enabled);
+    let Ok(mut sessions) = SESSION.lock() else {
+        status.state = "error".into();
+        status.detail = Some("worker_unavailable".into());
+        return publish(status);
+    };
+    if sessions.as_ref().is_some_and(|s| s.pending_restore) && !dispose(&mut sessions) {
+        status.state = "restore_pending".into();
+        status.detail = Some("restore_pending".into());
+        status.can_apply = false;
+        return publish(status);
+    }
+    if !enabled || app.is_none() {
+        stop_session(&mut status, &mut sessions);
+        return publish(status);
+    }
+    let app = app.unwrap();
+    let discovery = match localization_macos::discover(&app) {
+        Ok(d) => d,
+        Err(code) => {
+            stop_session(&mut status, &mut sessions);
+            if status.state != "restore_pending" {
+                status.state = if code == "not_running" {
+                    "not_running"
+                } else {
+                    "error"
+                }
+                .into();
+                status.detail = Some(code.into());
+            }
+            return publish(status);
+        }
+    };
+    if let Some(existing) = sessions.as_mut() {
+        if existing.discovery.endpoint == discovery.endpoint
+            && discovery.origins.contains(existing.page.origin())
+            && existing.version == app.version
+            && !force
+        {
+            match existing
+                .transport
+                .run(&existing.page, &existing.version, RuntimeAction::Renew)
+            {
+                Ok(report) if report.status == "applied" && report.active => {
+                    status.state = applied_state(report.translated, report.awaiting_scope).into();
+                    status.active = report.translated > 0;
+                    status.translated = report.translated;
+                    if !ENABLED.load(Ordering::SeqCst) {
+                        status.enabled = false;
+                        status.state = "disabled".into();
+                        stop_session(&mut status, &mut sessions);
+                    }
+                    return publish(status);
+                }
+                _ => {}
+            }
+        }
+        // A reload, changed process/origin/version, or explicit reapply must
+        // release the previous owned session before attaching a new one.
+        if !dispose(&mut sessions) {
+            status.state = "restore_pending".into();
+            status.detail = Some("restore_pending".into());
+            return publish(status);
+        }
+    }
+    if !ENABLED.load(Ordering::SeqCst) {
+        status.enabled = false;
+        status.state = "disabled".into();
+        return publish(status);
+    }
+    let mut connection = match CdpTransport::connect(discovery.endpoint.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+            status.state = "error".into();
+            status.detail = Some(transport_code(e).into());
+            return publish(status);
+        }
+    };
+    let pages = match connection.pages_for_origins(&discovery.origins) {
+        Ok(p) => p,
+        Err(e) => {
+            status.state = "error".into();
+            status.detail = Some(transport_code(e).into());
+            return publish(status);
+        }
+    };
+    let started = Instant::now();
+    let mut supported = Vec::new();
+    let mut waiting_for_controls = false;
+    for page in pages {
+        if !ENABLED.load(Ordering::SeqCst) {
+            break;
+        }
+        if started.elapsed() > Duration::from_secs(8) {
+            status.state = "error".into();
+            status.detail = Some("connection_timeout".into());
+            return publish(status);
+        }
+        match connection.run(&page, &app.version, RuntimeAction::Probe) {
+            Ok(report) if report.status == "supported" && report.label_count > 0 => {
+                supported.push(page)
+            }
+            Ok(report) if report.status == "supported" => waiting_for_controls = true,
+            Ok(_) => {}
+            Err(e) => {
+                status.state = "error".into();
+                status.detail = Some(transport_code(e).into());
+                return publish(status);
+            }
+        }
+    }
+    if !ENABLED.load(Ordering::SeqCst) {
+        status.enabled = false;
+        status.state = "disabled".into();
+        return publish(status);
+    }
+    if supported.is_empty() && waiting_for_controls {
+        status.state = "waiting_ui".into();
+        return publish(status);
+    }
+    if supported.len() != 1 {
+        status.state = "unsupported_dom".into();
+        status.detail = Some(
+            if supported.is_empty() {
+                "dom_changed"
+            } else {
+                "multiple_windows"
+            }
+            .into(),
+        );
+        return publish(status);
+    }
+    let page = supported.pop().unwrap();
+    // Retain the cleanup handle before the first write: a lost response may
+    // still mean the renderer applied changes successfully.
+    *sessions = Some(Session {
+        discovery,
+        transport: connection,
+        page,
+        version: app.version.clone(),
+        installation: app,
+        pending_restore: true,
+    });
+    let active = sessions.as_mut().unwrap();
+    match active
+        .transport
+        .run(&active.page, &active.version, RuntimeAction::Apply)
+    {
+        Ok(report) if report.status == "applied" && report.active => {
+            active.pending_restore = false;
+            status.state = applied_state(report.translated, report.awaiting_scope).into();
+            status.active = report.translated > 0;
+            status.translated = report.translated;
+            if !ENABLED.load(Ordering::SeqCst) {
+                status.enabled = false;
+                status.state = "disabled".into();
+                stop_session(&mut status, &mut sessions);
+            }
+        }
+        Ok(_) => {
+            status.state = "unsupported_dom".into();
+            status.detail = Some("dom_changed".into());
+            stop_session(&mut status, &mut sessions);
+        }
+        Err(e) => {
+            status.state = "error".into();
+            status.detail = Some(transport_code(e).into());
+            stop_session(&mut status, &mut sessions);
+        }
+    }
+    publish(status)
+}
+
+fn applied_state(translated: u64, awaiting_scope: bool) -> &'static str {
+    if translated == 0 || awaiting_scope {
+        "waiting_ui"
+    } else {
+        "applied"
     }
 }
 
-fn current_status() -> Result<LocalizationStatus, String> {
-    let config = super::config::load_app_config()?;
-    let executable = super::process::get_antigravity_executable_path(None);
-    Ok(status_for_installation(
-        config.app_localization.enabled,
-        executable.as_deref(),
-    ))
+/// Runs only inside Tools; no launchd/login item/service is installed.
+pub(crate) fn initialize() {
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    ENABLED.store(
+        super::config::load_app_config()
+            .map(|c| c.app_localization.enabled)
+            .unwrap_or(false),
+        Ordering::SeqCst,
+    );
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let worker = std::thread::Builder::new()
+        .name("app-localization".into())
+        .spawn(|| loop {
+            if ENABLED.load(Ordering::SeqCst)
+                || SESSION.lock().map(|s| s.is_some()).unwrap_or(false)
+            {
+                let _ = tick(false);
+            }
+            std::thread::park_timeout(Duration::from_secs(3));
+        });
+    match worker {
+        Ok(worker) => {
+            if let Ok(mut handle) = WORKER.lock() {
+                *handle = Some(worker.thread().clone());
+            }
+        }
+        Err(_) => {
+            ENABLED.store(false, Ordering::SeqCst);
+            STARTED.store(false, Ordering::SeqCst);
+            publish(snapshot(false, None, "error", Some("worker_unavailable")));
+        }
+    }
+}
+fn wake() {
+    if let Ok(handle) = WORKER.lock() {
+        if let Some(handle) = handle.as_ref() {
+            handle.unpark();
+        }
+    }
+}
+
+/// Best-effort cleanup before the host exits; runtime's lease is the fallback.
+pub(crate) fn shutdown() {
+    ENABLED.store(false, Ordering::SeqCst);
+    if let Ok(mut sessions) = SESSION.lock() {
+        let _ = dispose(&mut sessions);
+    }
 }
 
 #[tauri::command]
 pub async fn get_app_localization_status() -> Result<LocalizationStatus, String> {
-    tokio::task::spawn_blocking(current_status)
-        .await
-        .map_err(|e| e.to_string())?
+    initialize();
+    tokio::task::spawn_blocking(|| {
+        if let Ok(s) = SNAPSHOT.lock() {
+            if let Some(s) = s.as_ref() {
+                if ENABLED.load(Ordering::SeqCst) || s.state == "restore_pending" {
+                    let mut view = s.clone();
+                    if view.active && view.observed_at.elapsed() > Duration::from_secs(12) {
+                        view.active = false;
+                        view.translated = 0;
+                        view.state = "error".into();
+                        view.detail = Some("connection_timeout".into());
+                    }
+                    return view;
+                }
+            }
+        }
+        preflight(ENABLED.load(Ordering::SeqCst)).0
+    })
+    .await
+    .map_err(|_| "worker_unavailable".into())
 }
 
 #[tauri::command]
 pub async fn set_app_localization_enabled(enabled: bool) -> Result<LocalizationStatus, String> {
-    // Server-side guard, independent of disabled UI controls and saved values.
-    if enabled {
-        return Err(UNVERIFIED.to_string());
-    }
-    tokio::task::spawn_blocking(|| {
-        let mut config = super::config::load_app_config()?;
-        config.app_localization.enabled = false;
-        super::config::save_app_config(&config)?;
-        current_status()
+    initialize();
+    tokio::task::spawn_blocking(move || {
+        if enabled && !WORKER.lock().map(|w| w.is_some()).unwrap_or(false) {
+            return Err("worker_unavailable".to_string());
+        }
+        if enabled && !preflight(false).0.supported {
+            return Err("unsupported_version_or_platform".to_string());
+        }
+        // Stopping must work even when the preference file is unwritable.
+        // Report that persistence failed only after cancelling and cleaning up.
+        if !enabled {
+            ENABLED.store(false, Ordering::SeqCst);
+        }
+        let saved = super::config::load_app_config().and_then(|mut config| {
+            config.app_localization.enabled = enabled;
+            super::config::save_app_config(&config)
+        });
+        if enabled {
+            saved.map_err(|_| "config_unavailable".to_string())?;
+            ENABLED.store(true, Ordering::SeqCst);
+            let result = tick(true);
+            wake();
+            Ok(result)
+        } else {
+            let result = tick(false);
+            wake();
+            saved.map_err(|_| "disable_not_saved".to_string())?;
+            Ok(result)
+        }
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|_| "worker_unavailable".to_string())?
 }
 
 #[tauri::command]
 pub async fn apply_app_localization(launch: bool) -> Result<LocalizationStatus, String> {
-    let _ = launch;
-    Err(UNVERIFIED.to_string())
+    initialize();
+    // Never launch an App or add debugging flags. Kept for old UI compatibility.
+    if launch {
+        return Err("open_app_manually".to_string());
+    }
+    if !ENABLED.load(Ordering::SeqCst) {
+        return Err("feature_disabled".to_string());
+    }
+    tokio::task::spawn_blocking(|| Ok(tick(true)))
+        .await
+        .map_err(|_| "worker_unavailable".to_string())?
 }
 
 #[cfg(test)]
@@ -197,6 +609,14 @@ mod tests {
             "description":"Antigravity - Agentic Desktop Application", "version":version
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn absent_scopes_never_claim_visible_translation() {
+        assert_eq!(applied_state(0, false), "waiting_ui");
+        assert_eq!(applied_state(0, true), "waiting_ui");
+        assert_eq!(applied_state(1, true), "waiting_ui");
+        assert_eq!(applied_state(1, false), "applied");
     }
 
     #[test]
@@ -216,15 +636,26 @@ mod tests {
     }
 
     #[test]
-    fn wip_release_cannot_enable_or_apply_even_with_saved_opt_in() {
-        assert!(supported_versions().is_empty());
-        for enabled in [true, false] {
-            let status = status_for_installation(enabled, None);
-            assert!(!status.can_apply);
-            assert!(!status.active);
-            assert_eq!(status.state, "not_installed");
-            assert!(status.dictionary_entries > 0);
+    fn version_and_platform_gates_are_exact() {
+        assert_eq!(supported_versions(), &["2.19.1"]);
+        assert!(compatible("2.19.1", "macos"));
+        for (version, platform) in [
+            ("2.19.2", "macos"),
+            ("2.19.1-beta", "macos"),
+            ("2.19.1", "linux"),
+            ("2.19.1", "windows"),
+        ] {
+            assert!(!compatible(version, platform));
         }
+        let state = snapshot(
+            true,
+            Some("999.0.0".into()),
+            "unsupported_version",
+            Some("version_changed"),
+        );
+        assert!(!state.supported);
+        assert!(!state.can_apply);
+        assert!(!state.active);
     }
 
     #[test]

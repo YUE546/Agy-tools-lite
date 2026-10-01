@@ -1,3 +1,4 @@
+pub mod cli;
 mod commands;
 pub mod constants;
 pub mod error;
@@ -254,6 +255,7 @@ pub fn run() {
         .manage(AppRuntimeFlags { tray_enabled })
         .setup(|app| {
             info!("Setup starting...");
+            modules::app_localization::initialize();
 
             let runtime_flags = app.state::<AppRuntimeFlags>();
             if runtime_flags.tray_enabled {
@@ -325,6 +327,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app_handle, _event| {
+            if matches!(
+                _event,
+                tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
+            ) {
+                modules::app_localization::shutdown();
+            }
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
                 if let Some(window) = _app_handle.get_webview_window("main") {

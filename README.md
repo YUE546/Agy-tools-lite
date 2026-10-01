@@ -118,3 +118,9 @@ This project is a focused fork of [lbjlaq/Antigravity-Manager](https://github.co
 ## License
 
 Based on [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager) and distributed under the same [CC BY-NC-SA 4.0](./LICENSE) license. The license and the attribution requirements of the original project apply to any use, modification or redistribution
+
+## Command-line and Homebrew
+
+Tools Lite includes a local management CLI named `agy-lite`: list accounts, read the recorded current account and cached quota, and explicitly switch accounts using the same safe path as the GUI. It is separate from Google’s `agy`. See [CLI usage](docs/cli.md).
+
+[Homebrew packaging](docs/homebrew.md) generates an Apple Silicon macOS cask with the release ZIP’s real SHA-256 and installs both the app and `agy-lite`. This change does not create a public tap or publish a release; installation instructions become available after those artifacts are published and tested.
