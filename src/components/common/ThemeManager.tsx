@@ -10,16 +10,7 @@ export default function ThemeManager() {
 
     // Load config on mount
     useEffect(() => {
-        const init = async () => {
-            await loadConfig();
-            // Show window after a short delay to ensure React has painted
-            setTimeout(async () => {
-                if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
-                    await getCurrentWindow().show();
-                }
-            }, 100);
-        };
-        init();
+        void loadConfig();
     }, [loadConfig]);
 
     // Apply theme when config changes

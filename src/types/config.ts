@@ -1,3 +1,9 @@
+export interface DesktopPreferences {
+    launch_at_login: boolean;
+    hide_dock_icon: boolean;
+    start_minimized: boolean;
+}
+
 export interface QuotaProtectionConfig {
     enabled: boolean;
     threshold_percentage: number;
@@ -9,6 +15,7 @@ export interface PinnedQuotaModelsConfig {
 }
 
 export interface AppConfig {
+    desktop?: DesktopPreferences;
     language: string;
     theme: string;
     auto_refresh: boolean;

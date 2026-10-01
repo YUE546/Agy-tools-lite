@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "menubar",
+  "description": "Read events for the quick dashboard; window and account actions use bounded Rust commands",
+  "windows": ["menubar"],
+  "permissions": ["core:event:default", "core:window:allow-set-background-color"]
+}

@@ -1,0 +1,41 @@
+# Quick dashboard and startup preferences
+
+Click the menu-bar icon on macOS (or the tray icon on Windows) to toggle a compact dashboard. Linux desktops use the native tray menu's **Quick Dashboard** action because Tauri does not deliver tray-click events there. If a Linux tray is unavailable, the ordinary application window remains usable.
+
+The panel includes:
+- The active account, subscription tier and quota update age
+- Each **reported** quota pool and window, with remaining percentages and reset countdowns
+- Pinned model quotas when the server does not report grouped windows
+- Today's locally recorded tokens and requests, explicitly spanning all accounts on the device
+- Saved-account switching through the same backend as the full application
+- Refresh, account management, full dashboard, settings and quit actions
+
+Unknown quota is shown as a dash, not zero. Cached quota is marked stale. Independent quota pools are not averaged. Blocked/disabled accounts cannot be selected in the panel, and concurrent clicks are suppressed. Switching can restart Antigravity App, as the interface explains.
+
+## Settings
+
+**Startup & menu bar** contains three opt-in controls:
+- **Launch at login** registers this installed application with the OS. The setting reads the actual OS registration, rather than trusting a saved JSON flag. It is unavailable in development builds, to avoid registering a transient development executable
+- **Start in the background at login** only suppresses the main window for `--autostart` launches while a tray is available. Launching the application yourself still opens the main window
+- **Hide Dock icon** is macOS-only and preserves the preference when opening or closing windows
+
+None of these options is enabled by migrating an older configuration. The application never enables login startup when loading config. If the tray fails to initialize, the main window is shown and macOS uses a regular Dock presence. You can reopen the application through Applications/Spotlight even when its Dock icon is hidden. An explicit Quit exits the process; closing the main window keeps it in the tray when the tray is available.
+
+The panel closes on Escape, a second tray click, or loss of focus. Its position is clamped to the selected display's work area, including negative monitor origins and display scaling. Its geometry is excluded from main-window state restoration.
+
+## Verification
+
+- `npm run build`
+- `node scripts/test-menubar-logic.mjs`
+- `cargo check --locked --manifest-path src-tauri/Cargo.toml`
+- `cargo test --locked --manifest-path src-tauri/Cargo.toml --lib`
+
+Automated tests cover quota truthfulness, pinned-model fallback, account eligibility, stale data, startup safety and display-bound calculations. No test enables startup or modifies a real user's account.
+
+Before release, validate on an installed macOS build: menu-bar positioning on multiple Retina displays; outside-click/second-click dismissal; switching while the main window is hidden; Dock preference preservation; relaunch from Spotlight; actual login startup; System Settings changes to login/menu-bar visibility. Linux compilation is not a substitute for this native macOS validation.
+
+## Design references
+
+The information hierarchy was informed by [CodexBar](https://github.com/steipete/CodexBar) and [ClaudeBar](https://github.com/tddworks/ClaudeBar), using their published screenshots and documentation. The implementation, layout and copy here are original. No project logos, screenshots, or source code were copied into the application.
+
+Platform behavior follows the official Tauri [system-tray](https://v2.tauri.app/learn/system-tray/) and [autostart](https://v2.tauri.app/plugin/autostart/) APIs.

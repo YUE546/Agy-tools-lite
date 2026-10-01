@@ -2,316 +2,242 @@ use crate::modules;
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    Emitter, Listener, Manager,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Listener,
 };
 
-pub fn create_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
-    // 1. Load config to get language settings
+fn labels(language: &str) -> (&'static str, &'static str) {
+    if language.starts_with("zh") {
+        ("快速仪表盘", "设置…")
+    } else {
+        ("Quick Dashboard", "Settings…")
+    }
+}
+
+fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let config = modules::load_app_config().unwrap_or_default();
     let texts = modules::i18n::get_tray_texts(&config.language);
+    let (dashboard, settings) = labels(&config.language);
+    let current = modules::get_current_account_id()
+        .ok()
+        .flatten()
+        .and_then(|id| modules::load_account(&id).ok());
+    let user_text = format!(
+        "{}: {}",
+        texts.current,
+        current
+            .as_ref()
+            .map(|a| a.email.as_str())
+            .unwrap_or(&texts.no_account)
+    );
+    let mut quota_lines = Vec::new();
+    if let Some(account) = &current {
+        if let Some(quota) = &account.quota {
+            if quota.is_forbidden {
+                quota_lines.push(texts.forbidden.clone());
+            } else {
+                // Only display models actually reported; absent data is never 0%.
+                for model in quota.models.iter().take(4) {
+                    quota_lines.push(format!("{}: {}%", model.name, model.percentage));
+                }
+            }
+        }
+    }
+    if quota_lines.is_empty() {
+        quota_lines.push(format!("{}: {}", texts.quota, texts.unknown_quota));
+    }
+    let menu = Menu::new(app)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "dashboard",
+        dashboard,
+        true,
+        None::<&str>,
+    )?)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "info_user",
+        user_text,
+        false,
+        None::<&str>,
+    )?)?;
+    for (index, text) in quota_lines.iter().enumerate() {
+        menu.append(&MenuItem::with_id(
+            app,
+            format!("quota_{index}"),
+            text,
+            false,
+            None::<&str>,
+        )?)?;
+    }
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    let switchable = modules::list_accounts()
+        .unwrap_or_default()
+        .iter()
+        .filter(|account| !account.disabled && !account.validation_blocked)
+        .count();
+    menu.append(&MenuItem::with_id(
+        app,
+        "switch_next",
+        texts.switch_next,
+        switchable > 1,
+        None::<&str>,
+    )?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "refresh_curr",
+        texts.refresh_current,
+        current.is_some(),
+        None::<&str>,
+    )?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "show",
+        texts.show_window,
+        true,
+        None::<&str>,
+    )?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "settings",
+        settings,
+        true,
+        None::<&str>,
+    )?)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "quit",
+        texts.quit,
+        true,
+        None::<&str>,
+    )?)?;
+    Ok(menu)
+}
 
-    // 2. Load icon (macOS uses Template Image `tray-icon.png`, Windows/Linux uses full-color `icon.png`)
+pub fn create_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
     let icon_bytes: &[u8] = include_bytes!("../../icons/tray-icon.png");
     #[cfg(not(target_os = "macos"))]
     let icon_bytes: &[u8] = include_bytes!("../../icons/icon.png");
-
     let img = image::load_from_memory(icon_bytes)
-        .map_err(|e| {
-            tauri::Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string(),
-            ))
-        })?
+        .map_err(|e| tauri::Error::Io(std::io::Error::other(e.to_string())))?
         .to_rgba8();
-    let (width, height) = img.dimensions();
-    let icon = Image::new_owned(img.into_raw(), width, height);
-
-    // 3. Define menu items (using translated texts)
-    // Status area
-    let loading_text = format!("{}: ...", texts.current);
-    let quota_text = format!("{}: --", texts.quota);
-    let info_user = MenuItem::with_id(app, "info_user", &loading_text, false, None::<&str>)?;
-    let info_quota = MenuItem::with_id(app, "info_quota", &quota_text, false, None::<&str>)?;
-
-    // Quick actions area
-    let switch_next =
-        MenuItem::with_id(app, "switch_next", &texts.switch_next, true, None::<&str>)?;
-    let refresh_curr = MenuItem::with_id(
-        app,
-        "refresh_curr",
-        &texts.refresh_current,
-        true,
-        None::<&str>,
-    )?;
-
-    // System functions
-    let show_i = MenuItem::with_id(app, "show", &texts.show_window, true, None::<&str>)?;
-    let quit_i = MenuItem::with_id(app, "quit", &texts.quit, true, None::<&str>)?;
-
-    let sep1 = PredefinedMenuItem::separator(app)?;
-    let sep2 = PredefinedMenuItem::separator(app)?;
-    let sep3 = PredefinedMenuItem::separator(app)?;
-
-    // 4. Build menu
-    let menu = Menu::with_items(
-        app,
-        &[
-            &info_user,
-            &info_quota,
-            &sep1,
-            &switch_next,
-            &refresh_curr,
-            &sep2,
-            &show_i,
-            &sep3,
-            &quit_i,
-        ],
-    )?;
-
-    // 5. Build tray icon
-    let _ = TrayIconBuilder::with_id("main")
-        .menu(&menu)
-        .show_menu_on_left_click(false)
+    let icon = Image::new_owned(img.clone().into_raw(), img.width(), img.height());
+    TrayIconBuilder::with_id("main")
+        .menu(&build_menu(app)?)
+        // Linux does not deliver TrayIconEvent::Click, so retain its native menu.
+        .show_menu_on_left_click(cfg!(target_os = "linux"))
+        .tooltip("Antigravity Tools Lite")
         .icon(icon)
         .icon_as_template(cfg!(target_os = "macos"))
-        .on_menu_event(move |app, event| {
-            let app_handle = app.clone();
-            match event.id().as_ref() {
-                "show" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                        #[cfg(target_os = "macos")]
-                        app.set_activation_policy(tauri::ActivationPolicy::Regular)
-                            .unwrap_or(());
-                    }
-                }
-                "quit" => app.exit(0),
-                "refresh_curr" => {
-                    // Execute refresh asynchronously
-                    tauri::async_runtime::spawn(async move {
-                        if let Ok(Some(account_id)) = modules::get_current_account_id() {
-                            // Notify frontend to start
-                            let _ = app_handle.emit("tray://refresh-current", ());
-
-                            // Execute refresh logic
-                            if let Ok(mut account) = modules::load_account(&account_id) {
-                                // Use shared logic from modules::account
-                                match modules::account::fetch_quota_with_retry(&mut account).await {
-                                    Ok(quota) => {
-                                        // Save
-                                        let _ = modules::update_account_quota(&account.id, quota);
-                                        // Update tray display
-                                        update_tray_menus(&app_handle);
-                                    }
-                                    Err(e) => {
-                                        // Error handling, log only
-                                        modules::logger::log_error(&format!(
-                                            "Tray refresh failed: {}",
-                                            e
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    });
-                }
-                "switch_next" => {
-                    tauri::async_runtime::spawn(async move {
-                        // 1. Get all accounts
-                        if let Ok(accounts) = modules::list_accounts() {
-                            if accounts.is_empty() {
-                                return;
-                            }
-
-                            let current_id = modules::get_current_account_id().unwrap_or(None);
-                            let next_account = if let Some(curr) = current_id {
-                                let idx = accounts.iter().position(|a| a.id == curr).unwrap_or(0);
-                                let next_idx = (idx + 1) % accounts.len();
-                                &accounts[next_idx]
-                            } else {
-                                &accounts[0]
-                            };
-
-                            // 2. Switch
-                            let integration = crate::modules::integration::DesktopIntegration {
-                                app_handle: app_handle.clone(),
-                            };
-                            if let Ok(_) =
-                                modules::switch_account(&next_account.id, None, &integration).await
-                            {
-                                // 3. Notify frontend
-                                let _ = app_handle
-                                    .emit("tray://account-switched", next_account.id.clone());
-                                // 4. Update tray
-                                update_tray_menus(&app_handle);
-                            }
-                        }
-                    });
-                }
-                _ => {}
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "dashboard" => open_dashboard(app, None),
+            "show" => {
+                let _ = modules::desktop::show_main(app);
             }
+            "settings" => {
+                let _ = modules::desktop::open_app_page(app.clone(), "settings".into());
+            }
+            "quit" => app.exit(0),
+            "switch_next" => {
+                use std::sync::atomic::{AtomicBool, Ordering};
+                static BUSY: AtomicBool = AtomicBool::new(false);
+                if BUSY
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+                    .is_err()
+                {
+                    return;
+                }
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    struct Release;
+                    impl Drop for Release {
+                        fn drop(&mut self) {
+                            BUSY.store(false, Ordering::Release);
+                        }
+                    }
+                    let _release = Release;
+                    let accounts: Vec<_> = modules::list_accounts()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|account| !account.disabled && !account.validation_blocked)
+                        .collect();
+                    if accounts.len() < 2 {
+                        return;
+                    }
+                    let current = modules::get_current_account_id().ok().flatten();
+                    let next = current
+                        .and_then(|id| accounts.iter().position(|account| account.id == id))
+                        .map(|index| (index + 1) % accounts.len())
+                        .unwrap_or(0);
+                    match crate::commands::switch_account(
+                        app.clone(),
+                        accounts[next].id.clone(),
+                        None,
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            let _ = app.emit("tray://account-switched", accounts[next].id.clone());
+                        }
+                        Err(error) => {
+                            let _ = app.emit("menubar://error", error);
+                        }
+                    }
+                });
+            }
+            "refresh_curr" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(Some(id)) = modules::get_current_account_id() {
+                        if let Err(error) =
+                            crate::commands::fetch_account_quota(app.clone(), id).await
+                        {
+                            modules::logger::log_warn(&format!("Tray refresh failed: {error}"));
+                            let _ = app.emit("menubar://error", error.to_string());
+                        }
+                        let _ = app.emit("accounts://refreshed", ());
+                    }
+                });
+            }
+            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                rect,
                 ..
             } = event
             {
-                let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    #[cfg(target_os = "macos")]
-                    app.set_activation_policy(tauri::ActivationPolicy::Regular)
-                        .unwrap_or(());
-                }
+                open_dashboard(tray.app_handle(), Some(rect));
             }
         })
         .build(app)?;
-
-    // Update status once on initialization
     let handle = app.clone();
-    tauri::async_runtime::spawn(async move {
+    app.listen("config://updated", move |_| {
         update_tray_menus(&handle);
     });
-
-    // Listen for config update events
-    let handle = app.clone();
-    app.listen("config://updated", move |_event| {
-        modules::logger::log_info("Configuration updated, refreshing tray menu");
-        update_tray_menus(&handle);
-    });
-
     Ok(())
 }
 
-/// Helper function to update tray menu
+fn open_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) {
+    if let Err(error) = modules::desktop::toggle_dashboard(app, rect) {
+        modules::logger::log_warn(&format!("Quick dashboard unavailable: {error}"));
+        let _ = modules::desktop::show_main(app);
+    }
+}
+
 pub fn update_tray_menus(app: &tauri::AppHandle) {
-    let app_clone = app.clone();
-    tauri::async_runtime::spawn(async move {
-        // Read config to get language
-        let config = modules::load_app_config().unwrap_or_default();
-        let texts = modules::i18n::get_tray_texts(&config.language);
-
-        // Get current account info
-        let current = modules::get_current_account_id().unwrap_or(None);
-
-        let mut menu_lines = Vec::new();
-        let mut user_text = format!("{}: {}", texts.current, texts.no_account);
-
-        if let Some(id) = current {
-            if let Ok(account) = modules::load_account(&id) {
-                user_text = format!("{}: {}", texts.current, account.email);
-
-                if let Some(q) = account.quota {
-                    if q.is_forbidden {
-                        menu_lines.push(format!("🚫 {}", texts.forbidden));
-                    } else {
-                        // Extract the 3 specified models
-                        let mut gemini_high = 0;
-                        let mut gemini_image = 0;
-                        let mut claude = 0;
-
-                        // Use strict matching, consistent with frontend
-                        for m in q.models {
-                            let name = m.name.to_lowercase();
-                            if name == "gemini-3.1-pro-high" || name == "gemini-3-pro-high" {
-                                gemini_high = m.percentage;
-                            }
-                            if name == "gemini-3.1-flash-image" || name == "gemini-3-pro-image" {
-                                gemini_image = m.percentage;
-                            }
-                            if name == "claude-sonnet-4-6" || name == "claude-sonnet-4-5" {
-                                claude = m.percentage;
-                            }
-                        }
-
-                        menu_lines.push(format!("Gemini High: {}%", gemini_high));
-                        menu_lines.push(format!("Gemini Image: {}%", gemini_image));
-                        menu_lines.push(format!("Claude 4.5: {}%", claude));
-                    }
-                } else {
-                    menu_lines.push(texts.unknown_quota.clone());
-                }
-            } else {
-                user_text = format!("{}: Error", texts.current);
-                menu_lines.push(format!("{}: --", texts.quota));
-            }
-        } else {
-            menu_lines.push(texts.unknown_quota.clone());
-        };
-
-        // Rebuild menu items
-        let info_user = MenuItem::with_id(&app_clone, "info_user", &user_text, false, None::<&str>);
-
-        // Dynamically create quota items
-        let mut quota_items = Vec::new();
-        for (i, line) in menu_lines.iter().enumerate() {
-            let item = MenuItem::with_id(
-                &app_clone,
-                format!("info_quota_{}", i),
-                line,
-                false,
-                None::<&str>,
-            );
-            if let Ok(item) = item {
-                quota_items.push(item);
-            }
+    let app = app.clone();
+    let handle = app.clone();
+    let _ = handle.run_on_main_thread(move || {
+        if let (Some(tray), Ok(menu)) = (app.tray_by_id("main"), build_menu(&app)) {
+            let _ = tray.set_menu(Some(menu));
         }
-
-        let switch_next = MenuItem::with_id(
-            &app_clone,
-            "switch_next",
-            &texts.switch_next,
-            true,
-            None::<&str>,
-        );
-        let refresh_curr = MenuItem::with_id(
-            &app_clone,
-            "refresh_curr",
-            &texts.refresh_current,
-            true,
-            None::<&str>,
-        );
-
-        let show_i = MenuItem::with_id(&app_clone, "show", &texts.show_window, true, None::<&str>);
-        let quit_i = MenuItem::with_id(&app_clone, "quit", &texts.quit, true, None::<&str>);
-
-        if let (Ok(i_u), Ok(s_n), Ok(r_c), Ok(s), Ok(q)) =
-            (info_user, switch_next, refresh_curr, show_i, quit_i)
-        {
-            let sep1 = PredefinedMenuItem::separator(&app_clone).ok();
-            let sep2 = PredefinedMenuItem::separator(&app_clone).ok();
-            let sep3 = PredefinedMenuItem::separator(&app_clone).ok();
-
-            let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![&i_u];
-            // Add dynamic quota items
-            for item in &quota_items {
-                items.push(item);
-            }
-
-            if let Some(ref s) = sep1 {
-                items.push(s);
-            }
-            items.push(&s_n);
-            items.push(&r_c);
-            if let Some(ref s) = sep2 {
-                items.push(s);
-            }
-            items.push(&s);
-            if let Some(ref s) = sep3 {
-                items.push(s);
-            }
-            items.push(&q);
-
-            if let Ok(menu) = Menu::with_items(&app_clone, &items) {
-                if let Some(tray) = app_clone.tray_by_id("main") {
-                    let _ = tray.set_menu(Some(menu));
-                }
-            }
-        }
+        // One event updates both windows after add/delete/refresh/switch actions.
+        let _ = app.emit("menubar://data-updated", ());
     });
 }
