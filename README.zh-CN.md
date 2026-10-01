@@ -4,7 +4,9 @@
 
 面向 [Antigravity](https://antigravity.google) 的本地桌面应用。用于管理 Antigravity 应用与其 `agy` CLI 所使用的 Google 账号，查看各模型配额与重置倒计时，并基于本机记录统计 Token 用量与预估 API 费用。账号与用量记录保存在本机，用量汇总在本地完成。Google 授权、令牌刷新和配额查询需要联网并使用相应凭据；价格同步也需要联网
 
-![仪表盘](docs/screenshots/dashboard-zh.png)
+![仪表盘 — Linux 原生 WebKitGTK](docs/screenshots/4.7.7/linux-dashboard-light.png)
+
+Linux 真实 Tauri/WebKitGTK 视口，CI 调试构建 `6896ce61`，英文界面与合成示例数据，不含系统窗框。[截图来源与平台边界](docs/screenshots/4.7.7/README.md)
 
 ## 功能概览
 
@@ -37,9 +39,7 @@
 - **Refresh Token** —— 可粘贴单个 Token，也可粘贴 JSON 数组一次导入多个账号
 - **从本机导入** —— 扫描系统凭据存储、Antigravity 数据库、已安装插件、原生 agy 会话以及旧版 CLI 数据目录（`~/.antigravity-agent`），导入找到的全部账号
 
-![账号管理 —— 表格视图](docs/screenshots/accounts-list.png)
-
-![账号管理 —— 卡片视图](docs/screenshots/accounts-cards.png)
+![账号管理 — Linux 原生 WebKitGTK，合成示例数据](docs/screenshots/4.7.7/linux-accounts-light.png)
 
 每一行提供四个操作，均带悬浮说明
 
@@ -66,8 +66,6 @@
 
 仪表盘读取 Antigravity 本地的对话数据库（`conversation.db`、`token_usage_archive.db`）及其归档目录，在本机汇总已记录的用量。Tools Lite 不上传对话内容，也不推算未被记录的请求
 
-![深色模式](docs/screenshots/dashboard-dark-zh.png)
-
 - **统计范围** —— 今天、昨天、近 3 天、近 7 天或近 30 天；单日范围包含按小时的柱状图
 - **图表详情** —— 指向柱状条即显示该时段的输入、输出、缓存 Token 数、请求次数与预估费用
 - **汇总卡片** —— 总 Token、输入 Token、输出 Token、缓存命中率与预估 API 费用
@@ -77,13 +75,28 @@
 
 ## 快速仪表盘
 
-菜单栏／托盘面板支持总览及逐账号查看。选择账号只改变查看对象，点击**使用此账号**才执行真实换号，可能关闭并重启 Antigravity，请先保存工作。「当前账号」来自 Tools 本地记录，本机 Token 总量不按账号归属。
+| 总览 | 逐账号查看 |
+| --- | --- |
+| ![总览组件预览](docs/screenshots/4.7.7/menu-overview-preview-zh.png) | ![账号组件预览](docs/screenshots/4.7.7/menu-account-preview-zh.png) |
+
+以上为 `6896ce61` 的 Chromium 组件布局预览，380 × 480，使用合成 IPC 与示例数据，不是 macOS 原生菜单截图。[来源说明](docs/screenshots/4.7.7/README.md)明确区分浏览器预览和 Linux 原生截图。
+
+菜单栏／托盘面板支持总览及逐账号查看。选择账号只改变查看对象，点击**切换为此账号**才执行真实换号，可能关闭并重启 Antigravity，请先保存工作。「当前账号」来自 Tools 本地记录，本机 Token 总量不按账号归属。
 
 macOS、Windows 可点击图标打开，Linux 从托盘菜单选择**快速仪表盘**；没有托盘时仍可使用主窗口。原生定位、焦点、Dock 和登录启动行为仍待平台实机验收，浏览器预览不能代替这些检查。详见[面板行为与平台边界](docs/menu-bar-dashboard.md)。
 
 ## 设置
 
-![设置](docs/screenshots/settings-zh.png)
+![设置 — Linux 原生 WebKitGTK，浅色主题](docs/screenshots/4.7.7/linux-settings-light.png)
+
+<details>
+<summary>深色主题 — Linux 原生视口</summary>
+
+![设置 — Linux 原生 WebKitGTK，深色主题](docs/screenshots/4.7.7/linux-settings-dark.png)
+
+</details>
+
+以上为使用合成数据的 Linux 原生视口；设置页下方内容需要滚动查看，不是全页截图。
 
 - **外观与语言** —— 跟随系统，或选择浅色与深色；简体中文或英文
 - **后台任务** —— 账号配额的自动刷新频率，以及从本地 Antigravity 数据重新读取当前账号的频率

@@ -4,7 +4,9 @@
 
 A local desktop application for [Antigravity](https://antigravity.google). It manages the Google accounts used by the Antigravity app and its `agy` CLI, shows per-model quota with reset countdowns, and summarises locally recorded token usage together with an estimated API cost. Account and usage records are stored locally, and usage aggregation runs on the device. Google authorization, token refresh and quota queries use the network and the corresponding credentials; price synchronization also uses the network
 
-![Dashboard](docs/screenshots/dashboard-en.png)
+![Dashboard — Linux native WebKitGTK](docs/screenshots/4.7.7/linux-dashboard-light.png)
+
+Native Linux Tauri/WebKitGTK viewport, CI debug build `6896ce61`, English UI and synthetic example data; system window frame excluded. [Screenshot sources and platform limits](docs/screenshots/4.7.7/README.md)
 
 ## Overview
 
@@ -37,9 +39,7 @@ The **+** button offers three ways to add an account
 - **Refresh token** — paste a single token or a JSON array of tokens to import several accounts at once
 - **Import from this machine** — scans the system credential store, the Antigravity databases, installed plugins, the native agy session and the legacy CLI data directory (`~/.antigravity-agent`), then imports every account it finds
 
-![Accounts — table view](docs/screenshots/accounts-list.png)
-
-![Accounts — card view](docs/screenshots/accounts-cards.png)
+![Accounts — Linux native WebKitGTK, synthetic data](docs/screenshots/4.7.7/linux-accounts-light.png)
 
 Each row provides four actions, each with a tooltip
 
@@ -66,8 +66,6 @@ Session updates use atomic replacement and readback verification, with `0600` pe
 
 The dashboard reads Antigravity's local conversation databases (`conversation.db`, `token_usage_archive.db`) and its archive directory, then aggregates the recorded usage on the device. Tools Lite does not upload conversation content or estimate unrecorded requests
 
-![Dashboard in dark mode](docs/screenshots/dashboard-dark-en.png)
-
 - **Date range** — today, yesterday, the last 3, 7 or 30 days; single-day ranges include an hourly chart
 - **Chart details** — pointing at a bar shows that hour's input, output and cached tokens, request count and estimated cost
 - **Summary cards** — total tokens, input tokens, output tokens, cache hit rate and estimated API cost
@@ -77,13 +75,28 @@ Cost is estimated from Google's public Gemini pricing pages, which are fetched o
 
 ## Quick dashboard
 
+| Overview (English) | Account view (Chinese) |
+| --- | --- |
+| ![Overview component preview](docs/screenshots/4.7.7/menu-overview-preview-en.png) | ![Account component preview](docs/screenshots/4.7.7/menu-account-preview-zh.png) |
+
+Chromium layout previews at 380 × 480 with synthetic IPC/data, source `6896ce61`. These are not native macOS menu screenshots; [capture provenance](docs/screenshots/4.7.7/README.md) distinguishes them from the Linux native images.
+
 The menu-bar/tray panel offers Overview and per-account inspection. Selecting an account only changes the view; **Use this account** performs a real switch and may close and restart Antigravity, so save work first. The current-account indicator is Tools' local record, and device-wide token totals are not attributed to individual accounts.
 
 Open the panel from the icon on macOS/Windows, or **Quick Dashboard** in the Linux tray menu. The main window remains available when no tray is present. Native positioning, focus, Dock and login-startup acceptance is still pending; browser previews do not establish it. See [panel behavior and platform limits](docs/menu-bar-dashboard.md).
 
 ## Settings
 
-![Settings](docs/screenshots/settings-en.png)
+![Settings — Linux native WebKitGTK, light theme](docs/screenshots/4.7.7/linux-settings-light.png)
+
+<details>
+<summary>Dark theme — Linux native viewport</summary>
+
+![Settings — Linux native WebKitGTK, dark theme](docs/screenshots/4.7.7/linux-settings-dark.png)
+
+</details>
+
+These are native Linux viewports with synthetic data; Settings content below the captured area requires scrolling.
 
 - **Appearance and language** — follow the system, or choose light or dark; Simplified Chinese or English
 - **Background tasks** — how often account quotas refresh, and how often the active account is re-read from local Antigravity data
