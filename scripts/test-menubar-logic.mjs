@@ -365,4 +365,10 @@ test("recorded-current badges do not claim a live native app session", () => {
   );
   assert.match(ui, /Current account recorded by Tools/);
 });
+test("reopening a window cannot replay stale Dock preferences", () => {
+  const desktop = readFileSync(new URL("../src-tauri/src/modules/desktop.rs", import.meta.url), "utf8");
+  const show = desktop.slice(desktop.indexOf("pub fn show_main("), desktop.indexOf("pub fn open_app_page("));
+  assert.doesNotMatch(show, /load_app_config|apply_dock_preference|set_activation_policy/);
+  assert.match(desktop, /dock_error: std::sync::Mutex<Option<String>>/);
+});
 console.log(`${passed} tests passed`);

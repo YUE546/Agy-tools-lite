@@ -200,9 +200,9 @@ pub async fn load_config() -> Result<AppConfig, String> {
 
 /// 保存配置
 #[tauri::command]
-pub async fn save_config(app: tauri::AppHandle, mut config: AppConfig) -> Result<(), String> {
-    // Desktop preferences have their own OS-backed transactional command.
-    config.desktop = modules::load_app_config()?.desktop;
+pub async fn save_config(app: tauri::AppHandle, config: AppConfig) -> Result<(), String> {
+    // Ordinary saves preserve dedicated desktop/localization preferences under
+    // the same configuration lock, including stale snapshots from other windows.
     modules::save_app_config(&config)?;
     let _ = app.emit("config://updated", ());
     Ok(())

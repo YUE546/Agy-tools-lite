@@ -12,6 +12,7 @@ interface DesktopStatus {
   autostart_supported: boolean;
   launch_at_login: boolean | null;
   autostart_error?: string;
+  dock_error?: string;
   hide_dock_icon: boolean;
   start_minimized: boolean;
 }
@@ -25,17 +26,25 @@ export default function DesktopSettings() {
   const [busy, setBusy] = useState<Preference | null>(null);
   const [error, setError] = useState("");
   const lock = useRef(false);
+  const generation = useRef(0);
+  const live = useRef(true);
   const load = useCallback(async () => {
-    if (!isTauri()) return;
+    if (!isTauri() || lock.current || !live.current) return;
+    const requestId = ++generation.current;
     try {
-      setStatus(await request<DesktopStatus>("get_desktop_settings"));
-      setError("");
+      const next = await request<DesktopStatus>("get_desktop_settings");
+      if (live.current && generation.current === requestId) {
+        setStatus(next);
+        setError("");
+      }
     } catch (e) {
-      setError(String(e));
+      if (live.current && generation.current === requestId) setError(String(e));
     }
   }, []);
   useEffect(() => {
+    live.current = true;
     void load();
+    return () => { live.current = false; generation.current++; };
   }, [load]);
   useEffect(() => {
     // System Settings may have changed the login item while this app was inactive.
@@ -46,28 +55,33 @@ export default function DesktopSettings() {
     return () => window.removeEventListener("focus", focus);
   }, [load]);
   const update = async (key: Preference, value: boolean) => {
-    if (lock.current) return;
+    if (lock.current || !live.current) return;
     lock.current = true;
+    const requestId = ++generation.current;
     setBusy(key);
     setError("");
     try {
-      setStatus(
-        await request<DesktopStatus>("set_desktop_preferences", {
-          patch: { [key]: value },
-        }),
-      );
-      await loadConfig();
+      const next = await request<DesktopStatus>("set_desktop_preferences", {
+        patch: { [key]: value },
+      });
+      if (live.current && generation.current === requestId) {
+        setStatus(next);
+        await loadConfig();
+      }
     } catch (e) {
+      if (!live.current || generation.current !== requestId) return;
       setError(String(e));
-      // Reconcile actual OS state after failure without reporting a false success.
+      // Re-read login registration and saved preferences. A native Dock
+      // failure stays explicit in dock_error; disk state is not OS proof.
       try {
-        setStatus(await request<DesktopStatus>("get_desktop_settings"));
+        const next = await request<DesktopStatus>("get_desktop_settings");
+        if (live.current && generation.current === requestId) setStatus(next);
       } catch {
         /* Keep last known state. */
       }
     } finally {
       lock.current = false;
-      setBusy(null);
+      if (live.current && generation.current === requestId) setBusy(null);
     }
   };
   const rows: {
@@ -162,12 +176,14 @@ export default function DesktopSettings() {
             ? t.noTray
             : t.menuHint}
       </p>
-      {(error || status?.autostart_error) && (
+      {(error || status?.autostart_error || status?.dock_error) && (
         <div
           role="alert"
           className="mt-3 text-xs text-red-600 dark:text-red-400"
         >
-          <p>{error || `${t.launchUnknown}: ${status?.autostart_error}`}</p>
+          {error && <p>{error}</p>}
+          {status?.autostart_error && <p>{t.launchUnknown}: {status.autostart_error}</p>}
+          {status?.dock_error && <p>{t.dockUnknown}: {status.dock_error}</p>}
           <button
             type="button"
             onClick={() => void load()}

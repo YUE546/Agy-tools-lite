@@ -12,6 +12,7 @@ pub const DASHBOARD_LABEL: &str = "menubar";
 pub struct DesktopRuntime {
     tray_available: AtomicBool,
     preferences_lock: tokio::sync::Mutex<()>,
+    dock_error: std::sync::Mutex<Option<String>>,
     panel_transition: std::sync::Mutex<()>,
     #[cfg(target_os = "macos")]
     appearance_lock: std::sync::Mutex<()>,
@@ -119,6 +120,7 @@ pub struct DesktopStatus {
     autostart_supported: bool,
     launch_at_login: Option<bool>,
     autostart_error: Option<String>,
+    dock_error: Option<String>,
     hide_dock_icon: bool,
     start_minimized: bool,
 }
@@ -144,6 +146,12 @@ pub fn get_desktop_settings(app: tauri::AppHandle) -> Result<DesktopStatus, Stri
         autostart_supported: !cfg!(debug_assertions),
         launch_at_login,
         autostart_error,
+        dock_error: app
+            .state::<DesktopRuntime>()
+            .dock_error
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone(),
         hide_dock_icon: preferences.hide_dock_icon,
         start_minimized: preferences.start_minimized,
     })
@@ -156,8 +164,7 @@ pub async fn set_desktop_preferences(
 ) -> Result<DesktopStatus, String> {
     let state = app.state::<DesktopRuntime>();
     let _guard = state.preferences_lock.lock().await;
-    let mut config = modules::load_app_config()?;
-    let old = config.desktop.clone();
+    let old = modules::load_app_config()?.desktop;
     let mut next = old.clone();
     if let Some(value) = patch.hide_dock_icon {
         if !cfg!(target_os = "macos") {
@@ -184,39 +191,76 @@ pub async fn set_desktop_preferences(
             );
         }
         let actual = app.autolaunch().is_enabled().map_err(|e| e.to_string())?;
-        if value != actual {
-            if value {
-                app.autolaunch().enable()
-            } else {
-                app.autolaunch().disable()
-            }
-            .map_err(|e| e.to_string())?;
-        }
         next.launch_at_login = value;
         Some(actual)
     } else {
         None
     };
-    let result = apply_dock_preference(&app, &next).and_then(|_| {
-        config.desktop = next;
-        modules::save_app_config(&config)
-    });
-    if let Err(error) = result {
-        let _ = apply_dock_preference(&app, &old);
-        if let Some(was_enabled) = old_autostart {
-            let rollback = if was_enabled {
+    preference_transaction(
+        &old,
+        &next,
+        old_autostart,
+        |enabled| {
+            let result = if enabled {
                 app.autolaunch().enable()
             } else {
                 app.autolaunch().disable()
             };
-            if let Err(rollback_error) = rollback {
-                return Err(format!("{error}; login setting rollback failed: {rollback_error}. Reopen settings to inspect the actual state."));
-            }
-        }
-        return Err(error);
-    }
+            result.map_err(|error| error.to_string())
+        },
+        |preferences| apply_dock_preference(&app, preferences),
+        || modules::set_saved_desktop_preferences(&next),
+    )?;
     let _ = app.emit("config://updated", ());
     get_desktop_settings(app.clone())
+}
+
+/// OS writes can partially succeed before returning an error. Mark each stage
+/// before invoking it, then compensate every attempted stage using its snapshot.
+fn preference_transaction(
+    old: &DesktopPreferences,
+    next: &DesktopPreferences,
+    old_login: Option<bool>,
+    mut login: impl FnMut(bool) -> Result<(), String>,
+    mut dock: impl FnMut(&DesktopPreferences) -> Result<(), String>,
+    persist: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    let mut login_attempted = false;
+    let mut dock_attempted = false;
+    let result = (|| {
+        if old_login.is_some_and(|value| value != next.launch_at_login) {
+            login_attempted = true;
+            login(next.launch_at_login)?;
+        }
+        dock_attempted = true;
+        dock(next)?;
+        persist()
+    })();
+    if let Err(error) = result {
+        let dock_failure = if dock_attempted {
+            dock(old).err()
+        } else {
+            None
+        };
+        let login_failure = if login_attempted {
+            login(old_login.unwrap()).err()
+        } else {
+            None
+        };
+        return Err(rollback_failure(error, dock_failure, login_failure));
+    }
+    Ok(())
+}
+
+fn rollback_failure(error: String, dock: Option<String>, login: Option<String>) -> String {
+    let mut message = error;
+    if let Some(failure) = dock {
+        message.push_str(&format!("; Dock setting rollback failed: {failure}"));
+    }
+    if let Some(failure) = login {
+        message.push_str(&format!("; login setting rollback failed: {failure}"));
+    }
+    message
 }
 
 fn apply_dock_preference(
@@ -224,18 +268,26 @@ fn apply_dock_preference(
     preferences: &DesktopPreferences,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    {
+    let result = {
         let policy = if preferences.hide_dock_icon && tray_available(app) {
             tauri::ActivationPolicy::Accessory
         } else {
             tauri::ActivationPolicy::Regular
         };
-        app.set_activation_policy(policy)
-            .map_err(|e| e.to_string())?;
-    }
+        app.set_activation_policy(policy).map_err(|e| e.to_string())
+    };
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, preferences);
-    Ok(())
+    let result: Result<(), String> = {
+        let _ = preferences;
+        Ok(())
+    };
+    // A failed native rollback is not proof of the saved Dock preference.
+    // Preserve uncertainty through Settings reloads until an apply succeeds.
+    *app.state::<DesktopRuntime>()
+        .dock_error
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = result.as_ref().err().cloned();
+    result
 }
 
 pub fn initialize(app: &tauri::AppHandle) -> Result<(), String> {
@@ -257,8 +309,8 @@ fn start_hidden(autostart: bool, minimized: bool, available: bool) -> bool {
 }
 
 pub fn show_main(app: &tauri::AppHandle) -> Result<(), String> {
-    let preferences = modules::load_app_config().unwrap_or_default().desktop;
-    apply_dock_preference(app, &preferences)?;
+    // Initialization and the serialized preference setter own activation policy.
+    // Replaying a disk snapshot here could overwrite a newer in-flight change.
     if let Some(popover) = app.get_webview_window(DASHBOARD_LABEL) {
         let _ = popover.hide();
     }
@@ -437,7 +489,114 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
 
 #[cfg(test)]
 mod tests {
-    use super::{panel_bounds, start_hidden, use_native_material};
+    use super::{
+        panel_bounds, preference_transaction, rollback_failure, start_hidden, use_native_material,
+    };
+    use crate::models::config::DesktopPreferences;
+    use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn partially_failed_login_write_restores_actual_snapshot() {
+        let old = DesktopPreferences::default();
+        let next = DesktopPreferences {
+            launch_at_login: true,
+            ..old.clone()
+        };
+        let actual_login = Cell::new(false);
+        let calls = RefCell::new(Vec::new());
+        let result = preference_transaction(
+            &old,
+            &next,
+            Some(false),
+            |enabled| {
+                calls.borrow_mut().push(enabled);
+                actual_login.set(enabled); // model the first write succeeding
+                if enabled {
+                    Err("second login write failed".into())
+                } else {
+                    Ok(())
+                }
+            },
+            |_| panic!("Dock must not run after initial login failure"),
+            || panic!("Config must not persist"),
+        );
+        assert_eq!(result.unwrap_err(), "second login write failed");
+        assert!(!actual_login.get());
+        assert_eq!(*calls.borrow(), [true, false]);
+    }
+
+    #[test]
+    fn persistence_failure_rolls_back_both_os_settings_and_reports_both_failures() {
+        let old = DesktopPreferences::default();
+        let next = DesktopPreferences {
+            launch_at_login: true,
+            hide_dock_icon: true,
+            ..old.clone()
+        };
+        let login_calls = RefCell::new(Vec::new());
+        let dock_calls = RefCell::new(Vec::new());
+        let result = preference_transaction(
+            &old,
+            &next,
+            Some(false),
+            |enabled| {
+                login_calls.borrow_mut().push(enabled);
+                if enabled {
+                    Ok(())
+                } else {
+                    Err("login recovery denied".into())
+                }
+            },
+            |preferences| {
+                dock_calls.borrow_mut().push(preferences.hide_dock_icon);
+                if preferences.hide_dock_icon {
+                    Ok(())
+                } else {
+                    Err("dock recovery denied".into())
+                }
+            },
+            || Err("config save failed".into()),
+        );
+        let error = result.unwrap_err();
+        assert_eq!(*login_calls.borrow(), [true, false]);
+        assert_eq!(*dock_calls.borrow(), [true, false]);
+        assert!(error.contains("config save failed"));
+        assert!(error.contains("dock recovery denied"));
+        assert!(error.contains("login recovery denied"));
+    }
+
+    #[test]
+    fn unchanged_actual_login_is_not_written_or_compensated() {
+        let old = DesktopPreferences::default();
+        let next = DesktopPreferences {
+            launch_at_login: true,
+            ..old.clone()
+        };
+        assert!(preference_transaction(
+            &old,
+            &next,
+            Some(true),
+            |_| panic!("Actual login already matches"),
+            |_| Ok(()),
+            || Ok(())
+        )
+        .is_ok());
+    }
+    #[test]
+    fn rollback_failures_report_both_os_operations() {
+        assert_eq!(
+            rollback_failure("save failed".into(), None, None),
+            "save failed"
+        );
+        let message = rollback_failure(
+            "save failed".into(),
+            Some("dock failed".into()),
+            Some("login failed".into()),
+        );
+        assert!(message.contains("save failed"));
+        assert!(message.contains("Dock setting rollback failed: dock failed"));
+        assert!(message.contains("login setting rollback failed: login failed"));
+    }
     #[test]
     fn material_requires_macos_and_accessibility_opt_in() {
         assert!(use_native_material(true, false, false));

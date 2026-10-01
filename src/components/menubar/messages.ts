@@ -47,6 +47,7 @@ export const menuBarMessages = {
     login: "Launch at login",
     loginHint: "Start Antigravity Tools Lite when you sign in.",
     dock: "Hide Dock icon",
+    dockUnknown: "Dock state is uncertain; the saved preference is shown. Retry the toggle or quit and reopen",
     dockHint:
       "Keep the app in the menu bar. Reopen it from Applications or Spotlight at any time.",
     background: "Start in the background at login",
@@ -120,6 +121,7 @@ export const menuBarMessages = {
     login: "开机自启动",
     loginHint: "登录系统时自动启动 Antigravity Tools Lite。",
     dock: "隐藏 Dock 图标",
+    dockUnknown: "Dock 状态未确认；这里显示已保存的偏好。请重试开关或退出后重新打开",
     dockHint: "应用保留在菜单栏中，随时可从「应用程序」或 Spotlight 重新打开。",
     background: "登录启动时在后台运行",
     backgroundHint: "登录启动时只显示菜单栏；手动打开应用仍会显示主窗口。",

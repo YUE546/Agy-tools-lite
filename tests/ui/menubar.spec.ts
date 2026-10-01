@@ -15,7 +15,8 @@ test.beforeEach(async ({ page }) => {
     let holdSwitch = false;
     let releaseSwitch: (() => void) | null = null;
     const now = Math.floor(Date.now() / 1000);
-    const reset = new Date(Date.now() + 86400000).toISOString();
+    const reset = (window: string) =>
+      new Date(Date.now() + (window === "5h" ? 2 * 3600000 : 3 * 86400000)).toISOString();
     const account = (id: string, label: string, gemini = 80, claude = 70) => ({
       id,
       email: `${id.toLowerCase()}@example.invalid`,
@@ -40,7 +41,7 @@ test.beforeEach(async ({ page }) => {
               bucket_id: `g-${window}`,
               window,
               remaining_fraction: gemini / 100,
-              reset_time: reset,
+              reset_time: reset(window),
             })),
           },
           {
@@ -49,7 +50,7 @@ test.beforeEach(async ({ page }) => {
               bucket_id: `c-${window}`,
               window,
               remaining_fraction: claude / 100,
-              reset_time: reset,
+              reset_time: reset(window),
             })),
           },
         ],
@@ -338,6 +339,15 @@ test("switch completion preserves a newer inspected account and repeated activat
   await page.evaluate(() => (window as any).__menuFixture.holdSwitch());
   await page.getByRole("button", { name: "切换为此账号", exact: true }).click();
   await expect(page.locator(".mb-native-switch")).toBeDisabled();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__menuFixture.calls.filter(
+          (c: any) => c.cmd === "switch_account",
+        ).length,
+      ),
+    )
+    .toBe(1);
   await choose(page, "研究账号");
   await page.evaluate(() => (window as any).__menuFixture.releaseSwitch());
   await expect(
@@ -515,13 +525,15 @@ test("English and light fallback remain bounded, including the stop-first detail
   await page
     .getByRole("button", { name: "Show stop instructions", exact: true })
     .click();
-  expect(
-    await page.evaluate(() =>
-      (window as any).__menuFixture.calls
-        .filter((c: any) => c.cmd === "open_app_page")
-        .map((c: any) => c.args.page),
-    ),
-  ).toEqual(["settings"]);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__menuFixture.calls
+          .filter((c: any) => c.cmd === "open_app_page")
+          .map((c: any) => c.args.page),
+      ),
+    )
+    .toEqual(["settings"]);
   expect(
     await page.evaluate(() =>
       (window as any).__menuFixture.calls.some((c: any) =>
