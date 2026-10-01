@@ -290,14 +290,15 @@ pub async fn import_all_local_accounts(target_ide: Option<&str>) -> Result<Vec<A
     {
         credential_states.push(state);
     }
-    #[cfg(target_os = "linux")]
-    if let Ok(state) = integration::read_linux_cli_credentials() {
+    if let Ok(state) = integration::read_cli_credentials() {
         credential_states.push(state);
     }
     for oauth_state in credential_states {
         let refresh_token = oauth_state.refresh_token.clone();
         if !refresh_token.is_empty() && seen_refresh_tokens.insert(refresh_token.clone()) {
-            crate::modules::logger::log_info("Discovered OAuth state in System Keyring/Keychain");
+            crate::modules::logger::log_info(
+                "Discovered OAuth state in system credential store or native agy session",
+            );
             if let Ok(token_resp) = oauth::refresh_access_token(&refresh_token, None).await {
                 let email = match oauth::get_user_info(&token_resp.access_token).await {
                     Ok(info) => info.email,
@@ -513,12 +514,11 @@ fn extract_oauth_state_from_file(db_path: &PathBuf) -> Result<ImportedOAuthState
 
 /// Get current Refresh Token from System Keyring or candidate databases
 pub fn get_refresh_token_from_db(target_ide: Option<&str>) -> Result<String, String> {
-    #[cfg(target_os = "linux")]
     if target_ide == Some("agy")
         || (target_ide.is_none()
             && crate::modules::process::get_antigravity_executable_path(target_ide).is_none())
     {
-        if let Ok(state) = integration::read_linux_cli_credentials() {
+        if let Ok(state) = integration::read_cli_credentials() {
             return Ok(state.refresh_token);
         }
     }
