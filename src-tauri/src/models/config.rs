@@ -13,8 +13,16 @@ pub struct AppConfig {
     pub antigravity_executable: Option<String>,
     pub antigravity_ide_executable: Option<String>,
     pub antigravity_args: Option<Vec<String>>,
+    pub app_localization: AppLocalizationConfig,
     pub quota_protection: QuotaProtectionConfig,
     pub pinned_quota_models: PinnedQuotaModelsConfig,
+}
+
+/// Separate from the dashboard language. Never enabled by migration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppLocalizationConfig {
+    pub enabled: bool,
 }
 
 /// Quota protection configuration
@@ -99,6 +107,7 @@ impl AppConfig {
             antigravity_executable: None,
             antigravity_ide_executable: None,
             antigravity_args: None,
+            app_localization: AppLocalizationConfig::default(),
             quota_protection: QuotaProtectionConfig::default(),
             pinned_quota_models: PinnedQuotaModelsConfig::default(),
         }
@@ -114,6 +123,22 @@ impl Default for AppConfig {
 #[cfg(test)]
 mod tests {
     use super::AppConfig;
+
+    #[test]
+    fn client_localization_is_off_for_new_and_legacy_config() {
+        assert!(!AppConfig::new().app_localization.enabled);
+        let old: AppConfig = serde_json::from_str(r#"{"language":"zh"}"#).unwrap();
+        assert!(!old.app_localization.enabled);
+    }
+
+    #[test]
+    fn client_localization_does_not_follow_dashboard_language() {
+        let saved: AppConfig =
+            serde_json::from_str(r#"{"language":"en","app_localization":{"enabled":true}}"#)
+                .unwrap();
+        assert!(saved.app_localization.enabled);
+        assert_eq!(saved.language, "en");
+    }
 
     #[test]
     fn saved_language_is_preserved_when_loading_config() {

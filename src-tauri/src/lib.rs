@@ -256,6 +256,7 @@ pub fn run() {
         .manage(modules::auto_switch::Runtime::default())
         .setup(|app| {
             info!("Setup starting...");
+            modules::app_localization::initialize();
             modules::auto_switch::start(app.handle().clone());
 
             let runtime_flags = app.state::<AppRuntimeFlags>();
@@ -291,6 +292,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            modules::app_localization::get_app_localization_status,
+            modules::app_localization::set_app_localization_enabled,
+            modules::app_localization::apply_app_localization,
             modules::auto_switch::get_auto_switch_config,
             modules::auto_switch::set_auto_switch_config,
             modules::auto_switch::get_auto_switch_status,
@@ -330,6 +334,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app_handle, _event| {
+            if matches!(
+                _event,
+                tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
+            ) {
+                modules::app_localization::shutdown();
+            }
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
                 if let Some(window) = _app_handle.get_webview_window("main") {

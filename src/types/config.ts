@@ -18,6 +18,7 @@ export interface AppConfig {
     antigravity_executable?: string;
     antigravity_ide_executable?: string;
     antigravity_args?: string[];
+    app_localization?: { enabled: boolean };
     quota_protection: QuotaProtectionConfig;
     pinned_quota_models: PinnedQuotaModelsConfig;
 }
