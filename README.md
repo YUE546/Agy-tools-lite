@@ -40,7 +40,7 @@ The **+** button offers three ways to add an account
 
 - **OAuth** — opens the browser, the account is added after you approve access with Google
 - **Refresh token** — paste a single token or a JSON array of tokens to import several accounts at once
-- **Import from this machine** — scans the system credential store, the Antigravity databases, installed plugins and the CLI data directory (`~/.antigravity-agent`), then imports every account it finds
+- **Import from this machine** — scans the system credential store, the Antigravity databases, installed plugins, the native agy session and the legacy CLI data directory (`~/.antigravity-agent`), then imports every account it finds
 
 ![Accounts — table view](docs/screenshots/accounts-list.png)
 
@@ -50,7 +50,7 @@ Each row provides four actions, each with a tooltip
 
 | Action | Effect |
 | --- | --- |
-| **Switch to this account** | Makes this account the one Antigravity uses. A running Antigravity is closed first, the credentials are written to the credential store Antigravity reads (or to `state.vscdb` on builds older than 2.0), and the tray is updated. After reopening Antigravity you are signed in as this account. On Linux, the initialized agy session file is synchronized separately; its next CLI command uses the selected account |
+| **Switch to this account** | Makes this account the one Antigravity uses. A running Antigravity is closed first, the credentials are written to the credential store Antigravity reads (or to `state.vscdb` on builds older than 2.0), and the tray is updated. After reopening Antigravity you are signed in as this account. On macOS, Windows and Linux, the initialized native agy session is synchronized separately; start a new CLI command to use the selected account |
 | **Refresh quota** | Re-reads this account's per-model quota and reset times |
 | **Edit remark** | Stores a short label, up to 15 characters, to distinguish accounts |
 | **Delete** | Removes the account from this application |
@@ -59,9 +59,13 @@ Rows can be sorted by quota reset time or by last use, reordered by dragging, an
 
 ### Why the application is closed during a switch
 
-A single switch synchronizes the credential locations used by Antigravity and an initialized `agy` CLI. The application is closed during the switch because a running instance keeps the previous token in memory and writes it back when it refreshes, which would silently revert the switch. The CLI does not need a restart
+A single switch synchronizes the credential locations used by Antigravity and an initialized `agy` CLI. The application is closed during the switch because a running instance keeps the previous token in memory and writes it back when it refreshes, which would silently revert the switch. Start a new CLI command after switching; an already-running CLI command may retain its previous token
 
-On Antigravity builds older than 2.0 there is no credential entry to write; the application detects this and injects the token into the local `state.vscdb` database instead
+On Antigravity builds older than 2.0 there is no credential entry to write; the application detects this and injects the token into the local `state.vscdb` database instead, while still synchronizing an initialized native agy session. Separate IDE-targeted switches keep their own database-only behavior
+
+Native agy sessions use `~/.gemini/antigravity-cli/antigravity-oauth-token` on all three platforms. Only an existing `antigravity-cli` directory is used; initialize agy first. Explicit CLI-only switches update that session without changing the APP keyring. Generic Google Gemini CLI files (`~/.gemini/oauth_creds.json` and `~/.gemini/google_accounts.json`) are neither created, changed nor deleted
+
+Session updates use atomic replacement and readback verification, with `0600` permissions on Unix. Modern, keyring-backed Linux APP switches restore the previous keyring credentials if session synchronization fails. A legacy APP database update is not rolled back and is reported as a partial update on session failure. On macOS/Windows, a session failure after the keyring update is reported as a partial update; check both clients before retrying
 
 ## Usage dashboard
 
@@ -89,7 +93,7 @@ Cost is estimated from Google's public Gemini pricing pages, which are fetched o
 | | |
 | --- | --- |
 | Read | Antigravity's local conversation databases and archives, which contain token counts, model names and timestamps |
-| Written | `~/.antigravity_tools/` for accounts, configuration and cached pricing, and the operating system credential store when an account is switched |
+| Written | `~/.antigravity_tools/` for accounts, configuration and cached pricing, the operating system credential store, and the initialized native agy session when an account is switched |
 | Never | Conversation content and credentials are not uploaded; there is no proxy and no server component |
 
 ## Building from source

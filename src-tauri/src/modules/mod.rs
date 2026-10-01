@@ -2,6 +2,7 @@ pub mod account;
 pub mod account_service;
 pub mod api_pricing;
 pub mod app_localization;
+pub mod cli_credentials;
 pub mod config;
 pub mod db;
 pub mod device;

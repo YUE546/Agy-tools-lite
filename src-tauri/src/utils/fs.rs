@@ -110,7 +110,6 @@ pub fn write_atomic<P: AsRef<Path>>(target_path: P, content: &[u8]) -> Result<()
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 pub fn write_atomic_verified(target: &Path, content: &[u8]) -> Result<(), String> {
     let old = match std::fs::read(target) {
         Ok(old) => Some(old),
