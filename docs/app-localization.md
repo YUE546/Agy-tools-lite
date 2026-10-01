@@ -2,7 +2,7 @@
 
 The Settings subsection is an opt-in, default-off feature for **official Antigravity App 2.19.1 on macOS**. The verified layout covers **nine static labels**, not full-App translation: the Settings entry button, Settings heading, General, Application, Appearance, Models, Customizations, Shortcuts and Provide Feedback. It uses the App's existing local debugging endpoint; it does not launch the App or enable a new port. Linux, Windows and other App versions remain unsupported.
 
-**PR acceptance is still in progress.** The standalone Settings-button and nine-label Mac round trips passed. The integrated Tools switch and reconnection lifecycle still need the additional acceptance checks below. Keep the PR draft until those tests pass.
+**Remaining release acceptance:** The standalone Settings-button and nine-label Mac round trips passed. The final Tools package's integrated setting, reload/reconnection lifecycle and disable/restoration checks below have not yet completed native Mac acceptance.
 
 No new navigation tab is added. Tools' existing display language is independent. No installation files, account data, credentials, system startup entries, security settings or debugging flags are changed. No upstream installer is executed.
 
@@ -109,12 +109,12 @@ Do not blindly allow all `settings-nav-item-*` nodes: workspace and project name
 
 The official source also has fixed New Conversation and Conversation History entry labels with their own test IDs. These are potential separately scoped future tests, not part of this release. Labels inside Settings forms need individual structure/ownership review and live checks before expansion. Broad DOM text scans are not an acceptable way to increase coverage.
 
-## Required before merging
+## Remaining release acceptance
 
 1. Keep the one-label and nine-label Mac evidence above; do not expand it into a full-interface claim
 2. Validate the exact restricted production runtime in the final integrated test copy; the five skipped candidates remain outside its scope
 3. Build the updated Tools test copy in cloud CI. Verify its Settings switch against the official App: enable, status/count, repeated apply, normal App reload/reopen, disable/restore, reconnect and unknown-version rejection
 4. Verify failure status and restoration after a lost connection. An optional localization failure must never interfere with account switching
-5. Run final frontend, Rust and platform CI checks against the exact PR head, then review the enabled scope and status copy
+5. Run final frontend, Rust and platform CI checks against the exact integrated release commit, then review the enabled scope and status copy
 
 No launchd, startup daemon, ASAR mutation, third-party installer, broad text replacement or full-App coverage is part of this feature.

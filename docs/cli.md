@@ -22,7 +22,7 @@ cargo build --locked --manifest-path src-tauri/Cargo.toml
 ./src-tauri/target/debug/antigravity-tools accounts list
 ```
 
-On Linux, the installed `antigravity-tools` executable accepts these arguments too. CLI mode starts before Tauri/GTK initialization, so read-only commands do not need a display. This is the same executable as the desktop app and still depends on its installed platform libraries; it is not a standalone server binary.
+On Linux, the installed `antigravity-tools-lite` executable accepts these arguments too. CLI mode starts before Tauri/GTK initialization, so read-only commands do not need a display. This is the same executable as the desktop app and still depends on its installed platform libraries; it is not a standalone server binary.
 
 ### Windows shell invocation
 

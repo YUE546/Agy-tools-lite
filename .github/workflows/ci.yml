@@ -148,7 +148,7 @@ jobs:
 
       - name: Test Homebrew cask generation
         if: runner.os != 'Windows'
-        run: node --test scripts/test-homebrew-generator.mjs
+        run: node --test scripts/test-homebrew-generator.mjs scripts/test-release.mjs
 
       - name: Test safe low-quota switching on every platform
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib auto_switch::tests

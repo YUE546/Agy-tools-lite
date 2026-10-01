@@ -110,3 +110,9 @@ real IPC, theme persistence, 760px layout checks, app exit and cleanup. All six 
 were visually reviewed. Waiting for real paint resolved the capture race; no
 software-renderer workaround or production graphics setting change was needed.
 Windows native GUI remains blocked, separately from passing release CLI checks.
+
+## Integrated 4.7.7 test build
+
+The [integrated Build run](https://github.com/anglee0323/antigravity-tools-lite/actions/runs/36930452189) checked out `6896ce61ea25ac402a12db0098e631b0fe45462d`, including all product changes and version 4.7.7. Its Linux report records `passed: true`, six visually reviewed native Tauri/WebKitGTK captures, successful real IPC/theme/viewport checks, and completed app exit/cleanup. Normal viewports are 1024 × 700; narrow Settings viewports are 760 × 900, not full-page images.
+
+The Windows report at the same source/checkout SHA records `status: blocked`, `passed: false`, no app launch and no screenshots. macOS package/CLI checks passed, but no native Mac GUI acceptance is implied. Selected unchanged images and browser-preview labels are preserved with hashes in the [screenshot sources](screenshots/4.7.7/README.md).
