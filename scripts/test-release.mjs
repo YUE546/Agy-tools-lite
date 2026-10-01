@@ -1,0 +1,131 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, basename } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { packageNames, validateSource, verifyAssets, writeChecksum, writeManifest } from './release-assets.mjs';
+import { renderCask } from './generate-homebrew.mjs';
+import { publishRelease } from './publish-release.mjs';
+
+// Entirely synthetic packages and GitHub responses; no network or real release.
+const context = { tag: 'v4.7.7', commit: 'a'.repeat(40), repository: 'fixture/repository' };
+const template = readFileSync(new URL('../packaging/homebrew/antigravity-tools-lite.rb.in', import.meta.url), 'utf8');
+function fixture(fn) {
+  const root = mkdtempSync(join(tmpdir(), 'agy-release-test-'));
+  try {
+    const directory = join(root, 'assets'); mkdirSync(directory);
+    const source = join(root, 'source'); const bin = join(source, 'Antigravity Tools Lite.app/Contents/MacOS');
+    mkdirSync(bin, { recursive: true }); writeFileSync(join(bin, 'antigravity-tools'), 'synthetic app');
+    const names = packageNames('4.7.7');
+    const archive = join(directory, names[0]);
+    assert.equal(spawnSync('zip', ['-qr', archive, 'Antigravity Tools Lite.app'], { cwd: source }).status, 0);
+    for (const name of names.slice(1)) writeFileSync(join(directory, name), `synthetic ${name}`);
+    for (const name of names) writeChecksum(join(directory, name));
+    writeFileSync(join(directory, 'antigravity-tools-lite.rb'), renderCask({ archive, version: '4.7.7', template,
+      url: `https://github.com/${context.repository}/releases/download/${context.tag}/${names[0]}` }));
+    return fn(directory, names, root);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}
+
+function fakeGithub({ existing, failUpload = false, corruptDownload = false, remoteCommit = context.commit, newer = false } = {}) {
+  let release = existing ? { id: 123, ...existing, assets: [] } : null;
+  const files = new Map(existing?.files ?? []);
+  const calls = [];
+  const snapshot = () => ({ ...release, assets: [...files.keys()].map(name => ({ name })) });
+  const run = args => {
+    calls.push(args);
+    if (args[0] === 'api') {
+      if (args[1].includes('/commits/')) return JSON.stringify({ sha: remoteCommit });
+      if (args[1].endsWith('/releases')) return JSON.stringify([[...(release ? [snapshot()] : []), ...(newer ? [{ tag_name: 'v4.7.8', draft: false }] : [])]]);
+      if (args[1].includes('/releases/tags/')) {
+        if (!release || release.draft) throw new Error('HTTP 404: tag lookup only returns a published release');
+        return JSON.stringify(snapshot());
+      }
+      if (args[1].endsWith('/releases/123')) return JSON.stringify(snapshot());
+    }
+    if (args[0] === 'release') {
+      if (args[1] === 'create') { assert.ok(args.includes('--draft')); release = { id: 123, tag_name: context.tag, draft: true }; return ''; }
+      if (args[1] === 'upload') {
+        assert.ok(release.draft); assert.ok(!args.includes('--clobber'));
+        for (const file of args.slice(3, args.indexOf('--repo'))) { files.set(basename(file), readFileSync(file)); if (failUpload) throw new Error('Upload interrupted'); }
+        return '';
+      }
+      if (args[1] === 'download') {
+        const directory = args[args.indexOf('--dir') + 1]; mkdirSync(directory, { recursive: true });
+        for (const [name, bytes] of files) writeFileSync(join(directory, name), corruptDownload ? 'wrong bytes' : bytes);
+        return '';
+      }
+      if (args[1] === 'edit') { assert.ok(args.includes('--draft=false')); release.draft = false; return ''; }
+    }
+    throw new Error(`Unexpected mock invocation: ${args.join(' ')}`);
+  };
+  return { run, calls, files, isPublic: () => release?.draft === false };
+}
+
+test('source validation requires the tag to match all six version fields', () => fixture((_directory, _names, root) => {
+  mkdirSync(join(root, 'src-tauri'));
+  const write = () => {
+    writeFileSync(join(root, 'package.json'), '{"version":"4.7.7"}');
+    writeFileSync(join(root, 'package-lock.json'), '{"version":"4.7.7","packages":{"":{"version":"4.7.7"}}}');
+    writeFileSync(join(root, 'src-tauri/tauri.conf.json'), '{"version":"4.7.7"}');
+    writeFileSync(join(root, 'src-tauri/Cargo.toml'), '[package]\nname = "antigravity-tools"\nversion = "4.7.7"\n');
+    writeFileSync(join(root, 'src-tauri/Cargo.lock'), '[[package]]\nname = "antigravity-tools"\nversion = "4.7.7"\n');
+  };
+  write(); assert.equal(validateSource(root, context.tag), '4.7.7');
+  assert.throws(() => validateSource(root, 'v4.7.6'));
+  assert.throws(() => validateSource(root, 'main'));
+  for (const file of ['package.json', 'package-lock.json', 'src-tauri/tauri.conf.json', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock']) {
+    write(); const path = join(root, file); writeFileSync(path, readFileSync(path, 'utf8').replace('4.7.7', '4.7.6'));
+    assert.throws(() => validateSource(root, context.tag));
+  }
+  write(); writeFileSync(join(root, 'package-lock.json'), '{"version":"4.7.7","packages":{"":{"version":"4.7.6"}}}');
+  assert.throws(() => validateSource(root, context.tag));
+}));
+
+test('all packages, exact checksums and exact generated cask are required before network calls', () => {
+  for (const change of ['missing', 'checksum', 'cask', 'extra']) fixture((directory, names) => {
+    if (change === 'missing') unlinkSync(join(directory, names[2]));
+    if (change === 'checksum') writeFileSync(join(directory, names[1]), 'changed');
+    if (change === 'cask') writeFileSync(join(directory, 'antigravity-tools-lite.rb'), 'sha256 :no_check');
+    if (change === 'extra') writeFileSync(join(directory, 'old-package.zip'), 'old');
+    const api = fakeGithub(); assert.throws(() => publishRelease(directory, context, api.run)); assert.equal(api.calls.length, 0);
+  });
+});
+
+test('success stages a draft, checks downloaded bytes, and only then publishes', () => fixture(directory => {
+  assert.equal(verifyAssets(directory, context).length, 7);
+  const api = fakeGithub(); publishRelease(directory, context, api.run);
+  assert.ok(api.isPublic()); assert.equal(api.files.size, 8);
+  const manifest = JSON.parse(readFileSync(join(directory, 'release-manifest.json'), 'utf8'));
+  assert.equal(manifest.source_commit, context.commit); assert.equal(manifest.files.length, 7);
+  const edit = api.calls.findIndex(a => a[1] === 'edit');
+  assert.ok(edit > api.calls.findIndex(a => a[1] === 'download'));
+  assert.ok(api.calls.some(a => a[1]?.endsWith('/releases/123')));
+  assert.ok(!api.calls.some(a => a[1]?.includes('/releases/tags/')));
+}));
+
+test('public releases, moved tags and obsolete versions cannot be published', () => fixture(directory => {
+  for (const options of [{ existing: { tag_name: context.tag, draft: false } }, { remoteCommit: 'b'.repeat(40) }, { newer: true }]) {
+    const api = fakeGithub(options); assert.throws(() => publishRelease(directory, context, api.run));
+    assert.ok(!api.calls.some(a => a[0] === 'release'));
+  }
+}));
+
+test('failed upload or mismatching remote bytes leave the release unpublished', () => fixture(directory => {
+  for (const options of [{ failUpload: true }, { corruptDownload: true }]) {
+    const api = fakeGithub(options); assert.throws(() => publishRelease(directory, context, api.run));
+    assert.equal(api.isPublic(), false); assert.ok(!api.calls.some(a => a[1] === 'edit'));
+  }
+}));
+
+test('matching partial drafts resume without overwriting assets; conflicting drafts fail', () => fixture((directory, names) => {
+  writeManifest(directory, context);
+  const name = names[0];
+  const matching = fakeGithub({ existing: { tag_name: context.tag, draft: true, files: [[name, readFileSync(join(directory, name))]] } });
+  publishRelease(directory, context, matching.run); assert.ok(matching.isPublic());
+  assert.ok(!matching.calls.find(a => a[1] === 'upload').includes(join(directory, name)));
+  const conflicting = fakeGithub({ existing: { tag_name: context.tag, draft: true, files: [[name, Buffer.from('different')]] } });
+  assert.throws(() => publishRelease(directory, context, conflicting.run));
+  assert.ok(!conflicting.calls.some(a => ['upload', 'edit'].includes(a[1])));
+}));

@@ -25,14 +25,7 @@ A local desktop application for [Antigravity](https://antigravity.google). It ma
 | Windows (x64) | `Antigravity-Tools-Lite-<version>-windows-x64-setup.exe` | NSIS installer, per-user installation |
 | Linux (x64) | `Antigravity-Tools-Lite-<version>-linux-amd64.deb` | `sudo apt install ./package.deb` |
 
-macOS and Windows builds are unsigned, so the first launch triggers the usual operating system warnings
-
-```bash
-# macOS: right-click the app in Applications → Open → Open, or
-xattr -dr com.apple.quarantine "/Applications/Antigravity Tools Lite.app"
-```
-
-On Windows, SmartScreen may report "Windows protected your PC" — choose **More info → Run anyway**
+The release workflow does not configure Developer ID signing/notarization or Windows Authenticode signing. macOS or Windows may therefore warn about or block a downloaded package. Check its release source and checksum, and make any required trust decision yourself through the operating system's normal review flow. See [Apple's guidance](https://support.apple.com/en-gb/102445) and [Microsoft's app-reputation guidance](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation). Homebrew does not remove these platform checks
 
 ## Account management
 
@@ -63,7 +56,7 @@ A single switch synchronizes the credential locations used by Antigravity and an
 
 On Antigravity builds older than 2.0 there is no credential entry to write; the application detects this and injects the token into the local `state.vscdb` database instead, while still synchronizing an initialized native agy session. Separate IDE-targeted switches keep their own database-only behavior
 
-Native agy sessions use `~/.gemini/antigravity-cli/antigravity-oauth-token` on all three platforms. Only an existing `antigravity-cli` directory is used; initialize agy first. Explicit CLI-only switches update that session without changing the APP keyring. Generic Google Gemini CLI files (`~/.gemini/oauth_creds.json` and `~/.gemini/google_accounts.json`) are neither created, changed nor deleted
+Native agy sessions use `~/.gemini/antigravity-cli/antigravity-oauth-token` on all three platforms. Only an existing `antigravity-cli` directory is used; normal APP synchronization can create its first token file if needed. The APP and agy may share a system credential store, so a file-only update does not establish which account a new agy process will use. Use normal APP synchronization and verify the active identity in the client. Generic Google Gemini CLI files (`~/.gemini/oauth_creds.json` and `~/.gemini/google_accounts.json`) are neither created, changed nor deleted
 
 Session updates use atomic replacement and readback verification, with `0600` permissions on Unix. Modern, keyring-backed Linux APP switches restore the previous keyring credentials if session synchronization fails. A legacy APP database update is not rolled back and is reported as a partial update on session failure. On macOS/Windows, a session failure after the keyring update is reported as a partial update; check both clients before retrying
 
@@ -127,4 +120,6 @@ Based on [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Mana
 
 Tools Lite includes a local management CLI named `agy-lite`: list accounts, read the recorded current account and cached quota, and explicitly switch accounts using the same safe path as the GUI. It is separate from Google’s `agy`. See [CLI usage](docs/cli.md).
 
-[Homebrew packaging](docs/homebrew.md) generates an Apple Silicon macOS cask with the release ZIP’s real SHA-256 and installs both the app and `agy-lite`. This change does not create a public tap or publish a release; installation instructions become available after those artifacts are published and tested.
+The older v4.7.6 release does not include this management CLI.
+
+[Homebrew packaging](docs/homebrew.md) generates an Apple Silicon macOS cask with the release ZIP’s real SHA-256 and installs both the app and `agy-lite`. The verified cask will live under this repository's root `Casks/` directory, using Homebrew's explicit-URL tap form. That entry and its installation must be published and tested before the installation commands are advertised as available; see the [release checklist](docs/release-checklist.md).

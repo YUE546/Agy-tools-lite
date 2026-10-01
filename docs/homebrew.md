@@ -50,3 +50,27 @@ Review any Homebrew trust prompt yourself. `brew uninstall` retains saved accoun
 ## Signing and Gatekeeper
 
 The existing release workflow does not configure Developer ID signing/notarization. This change does not claim notarized binaries or disable quarantine/Gatekeeper. Homebrew installation does not remove that limitation. A distributable release needs appropriate signing/notarization or clearly documented user review of the unsigned app; do not add quarantine-removal commands to the cask. Confirm Apple trust behavior on a clean Mac before promoting installation instructions.
+
+## Publish the cask in this repository
+
+A separate `homebrew-*` repository is optional. Homebrew's [two-argument tap form](https://docs.brew.sh/Taps) supports this existing Git repository. After the final release ZIP is published and its generated cask is tested, open a small PR that copies the exact generated `antigravity-tools-lite.rb` into `Casks/antigravity-tools-lite.rb` at the repository root. Keep the real immutable release URL and SHA-256 from that archive. A release attachment alone is not a tap entry.
+
+Only after that PR is merged and the following installation has been verified should the README advertise these commands:
+
+```sh
+brew tap anglee0323/antigravity-tools-lite https://github.com/anglee0323/antigravity-tools-lite.git
+brew install --cask anglee0323/antigravity-tools-lite/antigravity-tools-lite
+agy-lite --version
+agy-lite --help
+```
+
+The explicit Git URL matters: the one-argument `brew tap` form would look for a different, `homebrew-`-prefixed repository. The cask's `app` artifact installs the app, and its `binary` artifact links the bundled executable as `$(brew --prefix)/bin/agy-lite`, following a custom `--appdir`. It neither installs nor replaces Google's `agy`.
+
+For later versions, publish the new ZIP first, generate and test the matching cask, then update the same root-level cask through a PR. Users can then run:
+
+```sh
+brew update
+brew upgrade --cask anglee0323/antigravity-tools-lite/antigravity-tools-lite
+```
+
+Use the [release checklist](release-checklist.md) to keep the source commit, version, assets and installation evidence aligned.

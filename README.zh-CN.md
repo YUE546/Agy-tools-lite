@@ -25,14 +25,7 @@
 | Windows（x64） | `Antigravity-Tools-Lite-<版本>-windows-x64-setup.exe` | NSIS 安装程序，按用户安装 |
 | Linux（x64） | `Antigravity-Tools-Lite-<版本>-linux-amd64.deb` | `sudo apt install ./安装包.deb` |
 
-macOS 与 Windows 均为未签名构建，首次启动会出现系统提示
-
-```bash
-# macOS：在「应用程序」中右键点图标 → 打开 → 再点「打开」，或执行
-xattr -dr com.apple.quarantine "/Applications/Antigravity Tools Lite.app"
-```
-
-Windows 上 SmartScreen 可能提示「Windows 已保护你的电脑」，选择 **更多信息 → 仍要运行**
+当前发布流程没有配置 Developer ID 签名/公证或 Windows Authenticode 签名，系统可能提示或阻止运行下载的安装包。请先核对发布来源和校验值，再通过系统正常的审核流程自行决定是否信任。参见 [Apple 官方说明](https://support.apple.com/en-gb/102445)和 [Microsoft 应用信誉说明](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)。Homebrew 安装不会取消这些系统检查
 
 ## 账号管理
 
@@ -63,7 +56,7 @@ Windows 上 SmartScreen 可能提示「Windows 已保护你的电脑」，选择
 
 对于 2.0 以前的 Antigravity 版本，没有凭据项可写，应用会自动改为把 Token 注入该版本本地的 `state.vscdb` 数据库，同时同步已初始化的原生 agy 会话。单独针对 IDE 的切换仍只处理该 IDE 的数据库
 
-三个平台的原生 agy 会话路径均为 `~/.gemini/antigravity-cli/antigravity-oauth-token`。仅使用已有的 `antigravity-cli` 目录，请先初始化 agy。显式的 CLI-only 切换只更新该会话，不修改 APP 的系统凭据。通用 Google Gemini CLI 的 `~/.gemini/oauth_creds.json` 和 `~/.gemini/google_accounts.json` 均不会被创建、修改或删除
+三个平台的原生 agy 会话路径均为 `~/.gemini/antigravity-cli/antigravity-oauth-token`。仅使用已有的 `antigravity-cli` 目录，正常 APP 同步可在需要时创建其中的首个 Token 文件。APP 与 agy 可能共享系统凭据，因此只更新会话文件不能确定新 agy 进程实际使用的账号。请使用正常 APP 同步，并在客户端确认当前身份。通用 Google Gemini CLI 的 `~/.gemini/oauth_creds.json` 和 `~/.gemini/google_accounts.json` 均不会被创建、修改或删除
 
 会话采用原子替换与写后校验，Unix 文件权限为 `0600`。Linux 新版 APP 使用系统凭据切换时，若会话同步失败，会恢复之前的系统凭据。旧版 APP 的数据库更新不会回滚，会话失败时会报告部分更新。macOS/Windows 在系统凭据已更新后若会话同步失败，会明确报告部分更新，请确认两个客户端的状态后再重试
 
@@ -127,4 +120,6 @@ npm run tauri build     # macOS .app 或 Windows 安装包
 
 Tools Lite 自带管理命令 `agy-lite`，支持列出账号、查看本地记录的当前账号和缓存配额，以及复用 GUI 安全流程显式切换账号。它与 Google 的 `agy` 命令不同，详见 [CLI 使用说明](docs/cli.md)。
 
-[Homebrew 分发说明](docs/homebrew.md) 提供 Apple Silicon macOS cask 生成工具，从真实 release ZIP 计算 SHA-256，同时安装 APP 与 `agy-lite`。本改动不会创建公开 tap 或发布 release；发布并验证这些文件后才能提供公开安装命令。
+旧版 v4.7.6 发布包不包含这个管理命令。
+
+[Homebrew 分发说明](docs/homebrew.md) 提供 Apple Silicon macOS cask 生成工具，从真实 release ZIP 计算 SHA-256，同时安装 APP 与 `agy-lite`。验证后的 cask 将放在本仓库根目录 `Casks/`，通过指定仓库 URL 的 tap 方式安装。该条目发布并完成安装验证后，才会提供可用的安装命令；详见[发布清单](docs/release-checklist.md)。
