@@ -299,7 +299,7 @@
     }
   },
   "app_localization": {
-    "title": "Antigravity 客户端汉化（实验性）",
+    "title": "App 设置导航汉化（实验性）",
     "subtitle": "可选汉化官方 App 的固定控件，默认关闭，与本工具语言独立",
     "enable": "启用 Antigravity 客户端汉化",
     "notice": "实验功能：仅支持 macOS 上的官方 Antigravity App 2.19.1。请先正常打开 App；仅连接其已有且归属验证通过的本机端点。未知版本或界面结构变化时停止汉化。",
@@ -307,7 +307,7 @@
     "refresh": "检查状态",
     "apply": "重新应用",
     "restore": "停用并恢复英文",
-    "coverage": "当前已实测范围：Settings 入口按钮。更完整的设置导航仍待实机验证。不会汉化聊天、代码、终端、路径、输入值、账号姓名、项目或系统原生菜单。",
+    "coverage": "有限范围：已验布局共9个固定标签，包括Settings入口、设置标题、通用、应用、外观、模型、自定义、快捷键和反馈。其他页面、聊天、代码、路径、输入值、账号、项目及系统菜单保持原样。",
     "source": "词库 {{version}} · 已审阅的固定词条 · 来源：",
     "stop_notice": "关闭时只尝试恢复本功能修改的标签。断连后的自动清理不能保证即时完成；若无法确认恢复，请正常退出并重新打开 App。官方 App 自行管理其调试接口。",
     "states": {
@@ -352,7 +352,8 @@
       "open_app_manually": "请先正常打开 Antigravity App。",
       "disable_not_saved": "本次已停止续期汉化，但关闭偏好无法保存。请检查恢复状态，并在重启本工具前重试关闭。",
       "non_loopback_or_wrong_owner": "端口完整归属检查失败，已拒绝连接。",
-      "multiple_instances": "找到多个匹配的 App 进程，请关闭多余实例后重试。"
+      "multiple_instances": "找到多个匹配的 App 进程，请关闭多余实例后重试。",
+      "operation_superseded": "较新的设置操作已替代本次请求，请查看当前状态。"
     },
     "translated": "当前已汉化 {{count}} 个固定标签"
   }

@@ -1,27 +1,30 @@
 // Source-derived fixture. No App is started and no network/port is used.
 // Official 2.19.1-6046815158665216 main bundle SHA-256:
 // 47f36abaabd34f7d54a95df40d942b609c02db9f5c04d56b124a048571b9f16d
-// Settings button was separately verified on the real macOS 2.19.1 App.
-// Navigation and tail controls remain candidates until real-App QA succeeds.
+// The Settings button and eight navigation labels were verified on the real
+// macOS 2.19.1 App. Five additional source-known controls remain untranslated.
 import { createFixtureHost } from './fake-dom.mjs';
 
-export const candidateFlag = 'const ENABLE_SOURCE_DERIVED_NAVIGATION = false; // ENABLE_ONLY_AFTER_LIVE_NAVIGATION_QA';
-export const candidateManifest = Object.freeze({
+export const verifiedNavLabels = ['General', 'App', 'Appearance', 'Models', 'Customizations'];
+export const unverifiedNavLabels = ['Skin', 'Notifications', 'Developer', 'Tab', 'Editor'];
+export const verifiedNavSources = ['Settings', 'General', 'Application', 'Appearance', 'Models', 'Customizations', 'Shortcuts', 'Provide Feedback'];
+export const productionManifest = Object.freeze({
   appVersion: '2.19.1',
   registryKey: '__ANTIGRAVITY_TOOLS_LOCALIZATION__',
   sourceSha256: '47f36abaabd34f7d54a95df40d942b609c02db9f5c04d56b124a048571b9f16d',
-  candidateEnable: 'Replace the single literal candidateFlag from false to true in a test-only runtime copy',
   controller: ['describe()', 'probe()', 'apply()', 'getStatus()', 'renewLease()', 'dispose()'],
   leaseMs: 15000,
   renewEveryMs: 3000,
   scopes: [
     { id: 'settings-button', verification: 'live-verified', selector: '[data-testid="settings-button"]', maxLabels: 1 },
-    { id: 'settings-navigation', verification: 'pending-live-qa', selector: 'div[class="h-full w-full flex flex-col bg-sidebar"]', maxLabels: 13 },
+    { id: 'settings-navigation', verification: 'live-verified', selector: 'div[class="h-full w-full flex flex-col bg-sidebar"]', maxLabels: 8,
+      sources: verifiedNavSources, untranslatedSources: unverifiedNavLabels },
   ],
   checks: [
     'Read-only probe: exact 2.19.1, each present scope unique; absent route scopes are normal',
     'Settings heading and global nav are the first two direct children of the literal scroll wrapper',
-    'General/App→Application/Appearance/Skin/Notifications/Models/Customizations/Developer/Tab/Editor only',
+    'Translate only General/App→Application/Appearance/Models/Customizations in global navigation',
+    'Validate but never translate Skin/Notifications/Developer/Tab/Editor or internal screens',
     'Shortcuts/Provide Feedback only as direct scroll children after its unique flex-1 spacer',
     'Both active and inactive button/span class pairs; dark/light use the same classes',
     'Workspace/project names General, Models, Shortcuts and Provide Feedback remain unchanged',
@@ -57,7 +60,7 @@ export function navButton(host, key, active = false, text = key === 'App' ? 'App
   return button;
 }
 
-export function makeSourceDerivedFixture({ navigation = false, buttonPresent = true, active = 'General', dark = false, internal = false } = {}) {
+export function makeSourceDerivedFixture({ navigation = false, buttonPresent = true, active = 'General', dark = false, internal = false, verifiedOnly = false } = {}) {
   const host = createFixtureHost();
   if (dark) host.document.documentElement.setAttribute('class', 'dark');
   const mount = host.document.body.appendChild(host.element('div', 'offline-route-mount'));
@@ -84,7 +87,7 @@ export function makeSourceDerivedFixture({ navigation = false, buttonPresent = t
     const heading = headingWrap.appendChild(el('h1', navClasses.heading, 'Settings'));
     const global = scroll.appendChild(el('div', navClasses.group));
     const controls = new Map();
-    for (const name of [...navLabels, ...(internal ? ['Jetski Chat', 'Regroup Google3 Chats'] : [])]) {
+    for (const name of [...(verifiedOnly ? verifiedNavLabels : navLabels), ...(internal ? ['Jetski Chat', 'Regroup Google3 Chats'] : [])]) {
       controls.set(name, global.appendChild(navButton(host, name, active === name)));
     }
     const names = ['General', 'Models', 'Shortcuts', 'Provide Feedback'];

@@ -1,8 +1,8 @@
 # Antigravity App localization (experimental)
 
-The Settings subsection is an opt-in, default-off feature for **official Antigravity App 2.19.1 on macOS**. The initial verified scope is the static Settings entry button, not full-App translation. It uses the App's existing local debugging endpoint; it does not launch the App or enable a new port. Linux, Windows and other App versions remain unsupported.
+The Settings subsection is an opt-in, default-off feature for **official Antigravity App 2.19.1 on macOS**. The verified layout covers **nine static labels**, not full-App translation: the Settings entry button, Settings heading, General, Application, Appearance, Models, Customizations, Shortcuts and Provide Feedback. It uses the App's existing local debugging endpoint; it does not launch the App or enable a new port. Linux, Windows and other App versions remain unsupported.
 
-**PR acceptance is still in progress.** The standalone one-label Mac round trip passed; the newly integrated Tools switch, reconnection lifecycle and candidate global Settings navigation need the additional acceptance checks below. Keep the PR draft until those tests pass.
+**PR acceptance is still in progress.** The standalone Settings-button and nine-label Mac round trips passed. The integrated Tools switch and reconnection lifecycle still need the additional acceptance checks below. Keep the PR draft until those tests pass.
 
 No new navigation tab is added. Tools' existing display language is independent. No installation files, account data, credentials, system startup entries, security settings or debugging flags are changed. No upstream installer is executed.
 
@@ -47,16 +47,20 @@ The official Antigravity App 2.19.1 was checked using its existing active-port f
 - Read-only probe: `ok=true`, `shape_verified=true`, `changed=false`
 - One Settings TextNode flip for two seconds: `ok=true`, `changed=true`, `restored=true`, `english_postcheck=true`
 - The test detached, the App exited, and temporary test files were cleaned; the account was unchanged
-- This validates **only the Settings entry button**. It does not establish the broader navigation scope, automatic reconnect or Tools UI end-to-end behavior
+- This first check validates **only the Settings entry button**. It does not establish automatic reconnect or Tools UI end-to-end behavior
 
-The reusable bounded acceptance scripts are `scripts/test-installed-app-label.mjs` and `scripts/test-installed-app-controls.mjs`. The latter explicitly enables the source-derived navigation candidate only in its in-memory QA copy after checking exact source hashes. It neither changes the distributed runtime nor creates a port.
+A second authorized official-App check used the fixed-hash controls package and verified **nine actual labels**, of which eight were in Settings navigation: Settings, General, Application, Appearance, Models, Customizations, Shortcuts and Provide Feedback. The other label was the independent Settings entry button. The two-second temporary translation returned `restored=true` and `english_postcheck=true`; the App exited normally and temporary files were cleaned. Five other source-known labels were not displayed and were **not** accepted by this result.
+
+Production is now restricted to exactly that observed eight-plus-one set. Skin, Notifications, Developer, Tab and Editor are structurally checked when present but never translated. `SOURCE.json` records the historical tested-runtime/dictionary hashes and distinguishes that live test from the subsequently restricted runtime's offline regression tests.
+
+The reusable bounded acceptance scripts are `scripts/test-installed-app-label.mjs` and `scripts/test-installed-app-controls.mjs`. The current controls runner pins the restricted production runtime and dictionary hashes and executes those bytes unchanged. The original candidate test package remains the evidence for the recorded Mac result; the current script's existence is not a claim that its newer hash or the Tools integration has already been live-tested. Neither script launches the App or creates a port.
 
 ## Runtime contract
 
 `runtime.js` evaluates to a factory `(window, JSON config) => controller` with `probe`, `apply`, `dispose`, `renewLease` and `getStatus`. The configuration supplies only an exact App version, `zh-CN`, and dictionary data. It cannot provide adapters or selectors.
 
 - The production registry accepts exactly 2.19.1; the platform collector additionally permits only macOS
-- The global Settings-navigation candidate is separately gated until its real-App QA succeeds
+- Only the eight recorded Settings-navigation labels are enabled; five other known labels stay untranslated even if present
 - Offline tests cover production and test-only synthetic/source-derived adapters separately
 - Writes are limited to literal, unique static control paths and exact source labels
 - Chat, Markdown, editors, code, inputs, paths and editable ancestors are excluded at every ancestor depth
@@ -74,13 +78,13 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml --lib app_localization
 cargo test --locked --manifest-path src-tauri/Cargo.toml --lib client_localization
 ```
 
-The 44 runtime tests cover exact writes, all exclusion categories, original-value rollback, legitimate concurrent changes, reapply/reinjection, DOM drift, unknown versions, lease expiry and the source-derived Settings shape. Rust tests cover default-off migration, separation from Tools' language, safe package identity/version parsing, bounded malformed-ASAR handling and the server-side unsupported-version gate.
+The 49 runtime tests cover exact writes, all exclusion categories, original-value rollback, legitimate concurrent changes, reapply/reinjection, DOM drift, unknown versions, lease expiry and the source-derived Settings shape. Rust tests cover default-off migration, separation from Tools' language, safe package identity/version parsing, bounded malformed-ASAR handling and the server-side unsupported-version gate.
 
 ## Existing-endpoint discovery and constrained transport
 
 `modules/localization_macos.rs` reads only bounded installation identity metadata, the known `Antigravity/DevToolsActivePort` file, and scoped process/listener metadata. It verifies the official App executable and its language-server child independently. A complete listener observation must show loopback-only binding with the expected owner. The collector does not scan arbitrary ports, read account storage, change startup flags or request extra system permissions.
 
-`modules/app_localization.rs` owns one in-memory session while Tools is running. Enabling saves the opt-in preference; if the App is closed, the worker waits for the user to open it normally. Every connection/reconnection repeats identity validation. It never selects the first available page as trusted. The dedicated preference change and ordinary Settings saves share a lock, so stale theme/language forms cannot silently re-enable localization. Failed off persistence still cancels this session and leaves a retry action visible. Disabling attempts owned-label restoration; an unconfirmed response keeps the cleanup handle and reports `restore_pending`, rather than claiming success. A destroyed verified process/page can no longer retain those in-memory changes. While cleanup is unresolved, no new translation is applied.
+`modules/app_localization.rs` owns one in-memory session while Tools is running. Enabling saves the opt-in preference; if the App is closed, the worker waits for the user to open it normally. Every connection/reconnection repeats identity validation. It never selects the first available page as trusted. IPC intents receive an entry-time generation and serialize the complete persistence/runtime transition; a delayed older enable cannot revive localization after a newer disable. The dedicated preference change and ordinary Settings saves share a configuration lock, so stale theme/language forms cannot silently re-enable localization. Failed off persistence still cancels this session and leaves a retry action visible. Disabling attempts owned-label restoration; an unconfirmed response keeps the cleanup handle and reports `restore_pending`, rather than claiming success. A destroyed verified process/page can no longer retain those in-memory changes. While cleanup is unresolved, no new translation is applied.
 
 `modules/localization_transport.rs`:
 
@@ -97,16 +101,18 @@ The 44 runtime tests cover exact writes, all exclusion categories, original-valu
 
 Pure validation tests cover URL aliases, redirection attempts, non-loopback and wrong-PID evidence, response IDs/errors, target scope and JavaScript interpolation. Three synthetic localhost WebSocket tests cover the complete constrained protocol, rejection before page access for a wrong PID, and a bounded timeout. These are protocol tests, not a substitute for Mac Tools end-to-end acceptance.
 
-## Candidate coverage beyond the first control
+## Coverage limits and future candidates
 
-The official 2.19.1 source has fixed global Settings navigation entries for General, Application (internal ID App), Appearance, Skin, Notifications, Models, Customizations, Developer, Tab and Editor, plus Shortcuts and Provide Feedback. Their labels are a reasonable next review batch, followed by individually identified static labels/tooltips inside those Settings screens.
+Nine labels are enabled on the verified layout. The following source-known Settings entries remain untranslated pending their own live evidence: Skin, Notifications, Developer, Tab and Editor. The 71 dictionary entries are reviewed source data, **not a count of translated controls**. The Settings UI shows the actual applied label count.
 
-Do not blindly allow all `settings-nav-item-*` nodes: workspace and project names reuse the same component and identifier prefix. A user can name a project General or Models. Each future adapter must also verify the exact top-level global-navigation group, reject collisions and exclude Account's user-name/email content. The Settings-button fixture and its live check establish a narrow boundary, not full-App coverage.
+Do not blindly allow all `settings-nav-item-*` nodes: workspace and project names reuse the component and identifier prefix. Only the source-verified first global group and fixed tail are eligible; Account and user groups are excluded. Unknown global entries or changed known structures fail closed.
+
+The official source also has fixed New Conversation and Conversation History entry labels with their own test IDs. These are potential separately scoped future tests, not part of this release. Labels inside Settings forms need individual structure/ownership review and live checks before expansion. Broad DOM text scans are not an acceptable way to increase coverage.
 
 ## Required before merging
 
-1. Keep the successful one-label Mac evidence above; do not expand it into a full-interface claim
-2. Run the fixed-hash candidate navigation probe/temporary apply/restore test on macOS 2.19.1, then enable only that exact validated adapter scope
+1. Keep the one-label and nine-label Mac evidence above; do not expand it into a full-interface claim
+2. Validate the exact restricted production runtime in the final integrated test copy; the five skipped candidates remain outside its scope
 3. Build the updated Tools test copy in cloud CI. Verify its Settings switch against the official App: enable, status/count, repeated apply, normal App reload/reopen, disable/restore, reconnect and unknown-version rejection
 4. Verify failure status and restoration after a lost connection. An optional localization failure must never interfere with account switching
 5. Run final frontend, Rust and platform CI checks against the exact PR head, then review the enabled scope and status copy

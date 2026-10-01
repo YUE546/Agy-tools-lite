@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { makeFixture, syntheticAdapter } from './fixtures/app-localization/fake-dom.mjs';
-import { makeSourceDerivedFixture, sourceDerivedAdapter, candidateFlag, candidateManifest, navButton, navClasses, navLabels } from './fixtures/app-localization/app-2.19.1-source.mjs';
+import { makeSourceDerivedFixture, sourceDerivedAdapter, productionManifest, navButton, navClasses, navLabels, verifiedNavLabels, unverifiedNavLabels, verifiedNavSources } from './fixtures/app-localization/app-2.19.1-source.mjs';
 
 const path = new URL('../src-tauri/resources/app-localization/runtime.js', import.meta.url);
 const source = await readFile(path, 'utf8');
+const provenance = JSON.parse(await readFile(new URL('../src-tauri/resources/app-localization/SOURCE.json', import.meta.url), 'utf8'));
 const registry = source.slice(source.indexOf('  const VERIFIED_ADAPTERS ='), source.indexOf('// PRODUCTION_ADAPTERS_END') + '// PRODUCTION_ADAPTERS_END'.length).trim();
 assert.equal(source.split(registry).length, 2, 'The production adapter registry must remain explicit');
 // Deliberately transform a COPY, never the shipped runtime or runtime config.
@@ -440,21 +441,6 @@ test('source-derived Settings label inside user content is never translated', ()
   assert.equal(f.host.metrics.writes, 0);
 });
 
-test('production 2.19.1 supports only the separately live-verified Settings button', () => {
-  const f = makeSourceDerivedFixture({ navigation: true });
-  const api = createProduction(f.host, f.config);
-  assert.equal(api.describe().navigationCandidateEnabled, false);
-  assert.equal(api.apply().translated, 1);
-  assert.equal(f.label.firstChild.data, '设置');
-  assert.equal(f.heading.firstChild.data, 'Settings');
-  assert.equal(f.controls.get('General').firstChild.firstChild.data, 'General');
-  assert.equal(api.dispose().restored, 1);
-});
-
-
-assert.equal(source.split(candidateFlag).length, 2, 'Candidate gate is a single code-owned literal');
-const candidateSource = source.replace(candidateFlag, candidateFlag.replace('= false;', '= true;'));
-const createCandidate = runInNewContext(candidateSource, {});
 const labelOf = button => button.children[0].firstChild;
 
 function assertUserNamesUntouched(f) {
@@ -466,32 +452,55 @@ function assertUserNamesUntouched(f) {
   assert.equal(f.chat.firstChild.data, 'Settings');
 }
 
-test('candidate manifest and read-only probe expose exact scopes without external content', () => {
+test('production manifest and read-only probe expose exact scopes without external content', () => {
   const f = makeSourceDerivedFixture({ navigation: true });
-  const api = createCandidate(f.host, f.config);
-  assert.equal(candidateManifest.appVersion, '2.19.1');
-  assert.equal(api.describe().navigationCandidateEnabled, true);
+  const api = createProduction(f.host, f.config);
+  assert.equal(productionManifest.appVersion, '2.19.1');
+  assert.equal(api.describe().navigationCandidateEnabled, false);
   assert.deepEqual([...api.describe().scopes.map(s => s.id)], ['settings-button', 'settings-navigation']);
-  assert.equal(api.probe().labelCount, 14);
-  assert.equal(api.probe().scopes[1].verification, 'source-derived-candidate');
+  assert.deepEqual([...api.describe().scopes[1].sources], verifiedNavSources);
+  assert.deepEqual([...api.describe().scopes[1].untranslatedSources], unverifiedNavLabels);
+  assert.deepEqual(productionManifest.scopes[1].sources, verifiedNavSources);
+  assert.equal(productionManifest.scopes[1].maxLabels, 8);
+  assert.equal(api.probe().labelCount, 9);
+  assert.equal(api.probe().scopes[1].labelCount, 8);
+  assert.equal(api.probe().scopes[1].verification, 'live-verified');
   assert.equal(f.host.metrics.writes, 0);
   assert.equal(f.host.activeObservers, 0);
   assert.equal(f.host.pendingTimers, 0);
   assert.equal(JSON.stringify(api.probe()).includes('example.test'), false);
 });
 
-test('candidate translates the global group and fixed tail, never homonymous projects or account', () => {
+test('recorded acceptance and production manifests agree on the exact eight-plus-one scope', () => {
+  assert.deepEqual(provenance.production_supported_app_versions, ['2.19.1']);
+  assert.deepEqual(provenance.production_verified_navigation_labels, verifiedNavSources);
+  assert.deepEqual(provenance.production_untranslated_navigation_labels, unverifiedNavLabels);
+  assert.deepEqual(provenance.candidate_scope.labels, unverifiedNavLabels);
+  assert.deepEqual(provenance.macos_navigation_acceptance.navigation_labels, verifiedNavSources);
+  assert.equal(provenance.macos_navigation_acceptance.app_version, '2.19.1');
+  assert.equal(provenance.macos_navigation_acceptance.independent_settings_button, true);
+  assert.equal(provenance.macos_navigation_acceptance.label_count, 9);
+  assert.equal(provenance.macos_navigation_acceptance.navigation_label_count, 8);
+  assert.equal(provenance.macos_navigation_acceptance.duration_ms, 2000);
+  assert.equal(provenance.macos_navigation_acceptance.changed, true);
+  assert.equal(provenance.macos_navigation_acceptance.restored, true);
+  assert.equal(provenance.macos_navigation_acceptance.english_postcheck, true);
+});
+
+test('production translates the global group and fixed tail, never homonymous projects or account', () => {
   const f = makeSourceDerivedFixture({ navigation: true, internal: true });
-  const api = createCandidate(f.host, f.config);
-  assert.equal(api.apply().translated, 14);
+  const api = createProduction(f.host, f.config);
+  assert.equal(api.apply().translated, 9);
   assert.equal(f.heading.firstChild.data, '设置');
-  for (const key of navLabels) assert.equal(labelOf(f.controls.get(key)).data, f.config.dictionary.exact[key === 'App' ? 'Application' : key]);
+  for (const key of verifiedNavLabels) assert.equal(labelOf(f.controls.get(key)).data, f.config.dictionary.exact[key === 'App' ? 'Application' : key]);
   assert.equal(labelOf(f.shortcuts).data, '快捷键');
   assert.equal(labelOf(f.feedback).data, '提供反馈');
   assert.equal(labelOf(f.controls.get('Jetski Chat')).data, 'Jetski Chat');
   assert.equal(labelOf(f.controls.get('Regroup Google3 Chats')).data, 'Regroup Google3 Chats');
+  for (const key of unverifiedNavLabels) assert.equal(labelOf(f.controls.get(key)).data, key);
+  assert.equal(f.host.metrics.writes, 9, 'The full source fixture must still write only nine verified labels');
   assertUserNamesUntouched(f);
-  assert.equal(api.dispose().restored, 14);
+  assert.equal(api.dispose().restored, 9);
   assert.equal(f.heading.firstChild.data, 'Settings');
   for (const key of navLabels) assert.equal(labelOf(f.controls.get(key)).data, key === 'App' ? 'Application' : key);
   assertUserNamesUntouched(f);
@@ -499,22 +508,108 @@ test('candidate translates the global group and fixed tail, never homonymous pro
   assert.equal(f.host.activeObservers, 0);
 });
 
+test('the exact observed macOS navigation subset translates eight labels plus the independent button', () => {
+  const f = makeSourceDerivedFixture({ navigation: true, verifiedOnly: true });
+  const api = createProduction(f.host, f.config);
+  assert.equal(api.probe().labelCount, 9);
+  assert.equal(api.apply().translated, 9);
+  assert.equal(api.getStatus().scopes[1].labelCount, 8);
+  assertUserNamesUntouched(f);
+  assert.equal(api.dispose().restored, 9);
+  assert.equal(f.heading.firstChild.data, 'Settings');
+  for (const key of verifiedNavLabels) assert.equal(labelOf(f.controls.get(key)).data, key === 'App' ? 'Application' : key);
+  assertUserNamesUntouched(f);
+});
+
+test('unverified dictionaries and config candidate flags cannot expand production scope', () => {
+  for (const withAccessors of [false, true]) {
+    const f = makeSourceDerivedFixture({ navigation: true });
+    for (const key of unverifiedNavLabels) {
+      delete f.config.dictionary.exact[key];
+      if (withAccessors) Object.defineProperty(f.config.dictionary.exact, key, {
+        get() { throw new Error('Unverified dictionary entry must never be read'); },
+      });
+    }
+    Object.assign(f.config, { navigationCandidateEnabled: true, ENABLE_SOURCE_DERIVED_NAVIGATION: true,
+      verifiedNavSources: navLabels, adapters: [sourceDerivedAdapter] });
+    const api = createProduction(f.host, f.config);
+    assert.equal(api.apply().translated, 9);
+    for (const key of unverifiedNavLabels) assert.equal(labelOf(f.controls.get(key)).data, key);
+    assert.equal(api.dispose().restored, 9);
+    assertUserNamesUntouched(f);
+  }
+});
+
+test('known unverified controls still require exact static labels and structure before any write', () => {
+  const mutations = [
+    (f, key) => { labelOf(f.controls.get(key)).data = key + ' project'; },
+    (f, key) => { f.controls.get(key).setAttribute('type', 'submit'); },
+    (f, key) => { f.controls.get(key).children[0].appendChild(f.host.element('span', null, key)); },
+    (f, key) => { f.controls.get(key).setAttribute('data-user-content', ''); },
+    (f, key) => { f.global.appendChild(navButton(f.host, key)); },
+  ];
+  for (const key of unverifiedNavLabels) for (const mutate of mutations) {
+    const f = makeSourceDerivedFixture({ navigation: true });
+    mutate(f, key);
+    f.host.metrics.writes = 0;
+    const api = createProduction(f.host, f.config);
+    assert.equal(api.apply().status, 'unsupported_dom');
+    assert.equal(f.host.metrics.writes, 0);
+    assert.equal(f.host.activeObservers, 0);
+    assertUserNamesUntouched(f);
+  }
+});
+
+test('unverified label drift stops production and restores nine still-owned labels', () => {
+  for (const key of unverifiedNavLabels) {
+    const f = makeSourceDerivedFixture({ navigation: true });
+    const api = createProduction(f.host, f.config);
+    assert.equal(api.apply().translated, 9);
+    labelOf(f.controls.get(key)).data = key + ' changed by App';
+    f.host.flush();
+    assert.equal(api.getStatus().status, 'unsupported_dom');
+    assert.equal(api.getStatus().active, false);
+    assert.equal(api.getStatus().translated, 0);
+    assert.equal(labelOf(f.controls.get(key)).data, key + ' changed by App');
+    assert.equal(f.label.firstChild.data, 'Settings');
+    assert.equal(f.heading.firstChild.data, 'Settings');
+    for (const verified of verifiedNavLabels) assert.equal(labelOf(f.controls.get(verified)).data, verified === 'App' ? 'Application' : verified);
+    assert.equal(labelOf(f.shortcuts).data, 'Shortcuts');
+    assert.equal(labelOf(f.feedback).data, 'Provide Feedback');
+    assert.equal(f.host.pendingTimers, 0);
+    assert.equal(f.host.activeObservers, 0);
+    assertUserNamesUntouched(f);
+  }
+});
+
+test('production navigation stays disabled for every non-exact release spelling', () => {
+  for (const appVersion of ['2.19.2', '2.19.0', '2.19.1-beta', '2.19.1+build', '2.19.1 ', 'v2.19.1']) {
+    const f = makeSourceDerivedFixture({ navigation: true });
+    const api = createProduction(f.host, { ...f.config, appVersion });
+    assert.equal(api.probe().status, 'unsupported_version');
+    assert.equal(api.apply().status, 'unsupported_version');
+    assert.equal(f.host.metrics.writes, 0);
+    assert.equal(f.host.metrics.queries.length, 0);
+    assertUserNamesUntouched(f);
+  }
+});
+
 test('dark/light and every active nav class variant are accepted without changing classes', () => {
   for (const dark of [false, true]) for (const active of [...navLabels, 'Shortcuts', 'Provide Feedback', 'none']) {
     const f = makeSourceDerivedFixture({ navigation: true, buttonPresent: false, active, dark });
-    const api = createCandidate(f.host, f.config);
+    const api = createProduction(f.host, f.config);
     const controls = [...f.controls.values(), f.shortcuts, f.feedback];
     const classes = controls.map(control => [control.getAttribute('class'), control.children[0].getAttribute('class')]);
-    assert.equal(api.apply().translated, 13);
+    assert.equal(api.apply().translated, 8);
     assert.deepEqual(controls.map(control => [control.getAttribute('class'), control.children[0].getAttribute('class')]), classes);
-    assert.equal(api.dispose().restored, 13);
+    assert.equal(api.dispose().restored, 8);
   }
 });
 
 test('main screen and settings screen are independent optional scopes; absent route can wait', () => {
-  for (const [navigation, buttonPresent, count] of [[false, true, 1], [true, false, 13], [true, true, 14], [false, false, 0]]) {
+  for (const [navigation, buttonPresent, count] of [[false, true, 1], [true, false, 8], [true, true, 9], [false, false, 0]]) {
     const f = makeSourceDerivedFixture({ navigation, buttonPresent });
-    const api = createCandidate(f.host, f.config);
+    const api = createProduction(f.host, f.config);
     assert.equal(api.probe().status, 'supported');
     assert.equal(api.apply().translated, count);
     assert.equal(api.getStatus().awaitingScope, count === 0);
@@ -523,23 +618,23 @@ test('main screen and settings screen are independent optional scopes; absent ro
   }
 });
 
-test('candidate supports conditional screen and tail omissions without using other groups', () => {
+test('production supports conditional screen and tail omissions without using other groups', () => {
   const f = makeSourceDerivedFixture({ navigation: true });
   f.global.removeChild(f.controls.get('Developer'));
   f.scroll.removeChild(f.shortcuts);
   f.scroll.removeChild(f.feedback);
-  const api = createCandidate(f.host, f.config);
-  assert.equal(api.apply().translated, 11);
+  const api = createProduction(f.host, f.config);
+  assert.equal(api.apply().translated, 7);
   assertUserNamesUntouched(f);
-  assert.equal(api.dispose().restored, 11);
+  assert.equal(api.dispose().restored, 7);
 });
 
-test('candidate repeated apply, same-label official re-render and active-tab changes are idempotent', () => {
+test('production repeated apply, same-label official re-render and active-tab changes are idempotent', () => {
   const f = makeSourceDerivedFixture({ navigation: true });
-  const api = createCandidate(f.host, f.config);
+  const api = createProduction(f.host, f.config);
   api.apply();
   const writes = f.host.metrics.writes;
-  for (let i = 0; i < 3; i += 1) assert.equal(api.apply().translated, 14);
+  for (let i = 0; i < 3; i += 1) assert.equal(api.apply().translated, 9);
   assert.equal(f.host.metrics.writes, writes);
   const general = f.controls.get('General');
   general.setAttribute('class', navClasses.button + ' hover:bg-sidebar-muted');
@@ -549,32 +644,32 @@ test('candidate repeated apply, same-label official re-render and active-tab cha
   models.children[0].setAttribute('class', navClasses.label + ' text-foreground');
   labelOf(models).data = 'Models';
   f.host.flush();
-  assert.equal(api.getStatus().translated, 14);
+  assert.equal(api.getStatus().translated, 9);
   assert.equal(labelOf(models).data, '模型配置');
-  assert.equal(api.dispose().restored, 14);
+  assert.equal(api.dispose().restored, 9);
   assert.equal(labelOf(models).data, 'Models');
   assert.equal(f.host.pendingTimers, 0);
 });
 
-test('candidate reinjection and disable restore all owned labels with one observer and lease', () => {
+test('production reinjection and disable restore all owned labels with one observer and lease', () => {
   const f = makeSourceDerivedFixture({ navigation: true });
-  const first = createCandidate(f.host, f.config);
+  const first = createProduction(f.host, f.config);
   first.apply();
-  const second = createCandidate(f.host, f.config);
+  const second = createProduction(f.host, f.config);
   assert.equal(first.getStatus().status, 'disposed');
   assert.equal(labelOf(f.controls.get('Models')).data, 'Models');
-  assert.equal(second.apply().translated, 14);
+  assert.equal(second.apply().translated, 9);
   assert.equal(f.host.activeObservers, 1);
   assert.equal(f.host.pendingTimers, 1);
   first.dispose();
   assert.equal(f.host[registryKey], second);
-  assert.equal(second.dispose().restored, 14);
+  assert.equal(second.dispose().restored, 9);
   assert.equal(f.host.activeObservers, 0);
 });
 
-test('candidate label drift stops and rolls back unaffected ownership while preserving external writes', () => {
+test('production label drift stops and rolls back unaffected ownership while preserving external writes', () => {
   const f = makeSourceDerivedFixture({ navigation: true });
-  const api = createCandidate(f.host, f.config);
+  const api = createProduction(f.host, f.config);
   api.apply();
   labelOf(f.controls.get('Models')).data = 'Official Models replacement';
   // Same-value writes also belong to the App, never our restore operation.
@@ -592,11 +687,14 @@ test('candidate label drift stops and rolls back unaffected ownership while pres
   assert.equal(f.host.pendingTimers, 0);
 });
 
-test('candidate unknown, duplicate, moved and user-content nav shapes fail before any write', () => {
+test('production unknown, duplicate, moved and user-content nav shapes fail before any write', () => {
   const mutations = [
     f => f.global.appendChild(navButton(f.host, 'General')),
     f => f.global.appendChild(navButton(f.host, 'Account')),
     f => f.global.appendChild(navButton(f.host, 'New Future Tab')),
+    f => f.global.appendChild(navButton(f.host, 'toString')),
+    f => f.global.appendChild(navButton(f.host, 'constructor')),
+    f => f.global.appendChild(navButton(f.host, '__proto__')),
     f => f.global.appendChild(f.host.element('input', null, 'Models')),
     f => { f.controls.get('General').setAttribute('type', 'submit'); },
     f => { f.controls.get('General').children[0].setAttribute('class', navClasses.label + ' text-foreground extra'); },
@@ -614,7 +712,7 @@ test('candidate unknown, duplicate, moved and user-content nav shapes fail befor
   for (const mutate of mutations) {
     const f = makeSourceDerivedFixture({ navigation: true });
     mutate(f); f.host.metrics.writes = 0;
-    const result = createCandidate(f.host, f.config).apply();
+    const result = createProduction(f.host, f.config).apply();
     assert.equal(result.status, 'unsupported_dom');
     assert.equal(f.host.metrics.writes, 0);
     assert.equal(f.label.firstChild.data, 'Settings');
@@ -622,18 +720,18 @@ test('candidate unknown, duplicate, moved and user-content nav shapes fail befor
   }
 });
 
-test('candidate navigation selectors never authorize homonymous groups without the exact header', () => {
+test('production navigation selectors never authorize homonymous groups without the exact header', () => {
   const f = makeSourceDerivedFixture({ navigation: true, buttonPresent: false });
   f.heading.firstChild.data = 'Workspaces';
   f.host.metrics.writes = 0;
-  assert.equal(createCandidate(f.host, f.config).apply().status, 'unsupported_dom');
+  assert.equal(createProduction(f.host, f.config).apply().status, 'unsupported_dom');
   assert.equal(f.host.metrics.writes, 0);
   assertUserNamesUntouched(f);
 });
 
-test('candidate route replacement drops detached ownership and revalidates newly mounted roots', () => {
+test('production route replacement drops detached ownership and revalidates newly mounted roots', () => {
   const f = makeSourceDerivedFixture({ navigation: true, buttonPresent: false });
-  const api = createCandidate(f.host, f.config);
+  const api = createProduction(f.host, f.config);
   api.apply();
   const oldNav = f.nav;
   f.mount.removeChild(oldNav);
@@ -655,9 +753,9 @@ test('candidate route replacement drops detached ownership and revalidates newly
   assert.equal(f.host.pendingTimers, 0);
 });
 
-test('candidate awaiting route discovers nested inserted controls without global text reads', () => {
+test('production awaiting route discovers nested inserted controls without global text reads', () => {
   const f = makeSourceDerivedFixture({ buttonPresent: false });
-  const api = createCandidate(f.host, f.config);
+  const api = createProduction(f.host, f.config);
   api.apply();
   const wrapper = f.host.element('div');
   wrapper.appendChild(f.button);
@@ -668,9 +766,9 @@ test('candidate awaiting route discovers nested inserted controls without global
   assert.equal(api.dispose().restored, 1);
 });
 
-test('candidate renew rechecks version-bound scopes without extending on ordinary apply', () => {
+test('production renew rechecks version-bound scopes without extending on ordinary apply', () => {
   const f = makeSourceDerivedFixture({ navigation: true });
-  const api = createCandidate(f.host, f.config);
+  const api = createProduction(f.host, f.config);
   api.apply();
   for (let i = 0; i < 4; i += 1) { f.host.advanceTime(3000); assert.equal(api.renewLease().leaseMs, 15000); }
   f.host.advanceTime(12000);
@@ -688,9 +786,9 @@ test('candidate renew rechecks version-bound scopes without extending on ordinar
   assertUserNamesUntouched(f);
 });
 
-test('candidate protected reparenting prevents rollback into user content', () => {
+test('production protected reparenting prevents rollback into user content', () => {
   const f = makeSourceDerivedFixture({ navigation: true });
-  const api = createCandidate(f.host, f.config);
+  const api = createProduction(f.host, f.config);
   api.apply();
   f.chat.appendChild(f.nav);
   assert.equal(api.dispose().restored, 1, 'Only the safe main-screen button may be restored');
@@ -699,16 +797,16 @@ test('candidate protected reparenting prevents rollback into user content', () =
   assert.equal(f.host.pendingTimers, 0);
 });
 
-test('candidate ignores account, workspace and chat streaming mutations', () => {
+test('production ignores account, workspace and chat streaming mutations', () => {
   const f = makeSourceDerivedFixture({ navigation: true });
-  const api = createCandidate(f.host, f.config);
+  const api = createProduction(f.host, f.config);
   api.apply();
   f.accountName.firstChild.data = 'Models';
   labelOf(f.homonyms[0]).data = 'Models';
   f.chat.firstChild.data = 'General';
   f.host.flushObservers();
   assert.equal(f.host.pendingMutationTimers, 0);
-  assert.equal(api.dispose().restored, 14);
+  assert.equal(api.dispose().restored, 9);
   assert.equal(f.accountName.firstChild.data, 'Models');
   assert.equal(labelOf(f.homonyms[0]).data, 'Models');
   assert.equal(f.chat.firstChild.data, 'General');
@@ -720,7 +818,7 @@ test('optional scope identity drift fails closed rather than being treated as a 
     f => f.button.removeAttribute('data-testid'),
   ]) {
     const f = makeSourceDerivedFixture({ navigation: true });
-    const api = createCandidate(f.host, f.config);
+    const api = createProduction(f.host, f.config);
     api.apply(); mutate(f); f.host.flush();
     assert.equal(api.getStatus().status, 'unsupported_dom');
     assert.equal(api.getStatus().active, false);
@@ -735,7 +833,7 @@ test('connected root moves and protected document ancestors stop without touchin
     f => f.host.document.documentElement.setAttribute('contenteditable', 'true'),
   ]) {
     const f = makeSourceDerivedFixture({ navigation: true });
-    const api = createCandidate(f.host, f.config);
+    const api = createProduction(f.host, f.config);
     api.apply(); mutate(f); f.host.flush();
     assert.equal(api.getStatus().status, 'unsupported_dom');
     assert.equal(api.getStatus().active, false);
@@ -745,4 +843,4 @@ test('connected root moves and protected document ancestors stop without touchin
   }
 });
 
-console.log(`\n${passed} offline runtime tests passed. Navigation remains pending live-App QA.`);
+console.log(`\n${passed} offline runtime tests passed. Production is restricted to the separately live-verified Settings button and eight navigation labels.`);

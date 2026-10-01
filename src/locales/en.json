@@ -299,7 +299,7 @@
     }
   },
   "app_localization": {
-    "title": "Antigravity App localization (experimental)",
+    "title": "App Settings navigation in Chinese (experimental)",
     "subtitle": "Optional static controls in the official App. Off by default; separate from Tools’ language.",
     "enable": "Enable Antigravity App localization",
     "notice": "Experimental: macOS and official Antigravity App 2.19.1 only. Open the App normally first. Tools connects only to its existing verified local endpoint; unknown versions or changed layouts are blocked.",
@@ -307,7 +307,7 @@
     "refresh": "Check status",
     "apply": "Reapply",
     "restore": "Disable and restore English",
-    "coverage": "Current verified scope: the Settings entry button. The broader Settings navigation is awaiting live validation. Chat, code, terminals, paths, input values, account names, projects and native system menus are excluded.",
+    "coverage": "Limited scope: 9 static labels on the verified layout — Settings entry, Settings heading, General, Application, Appearance, Models, Customizations, Shortcuts and Provide Feedback. Other pages, chat, code, paths, input values, accounts, projects and native menus stay unchanged.",
     "source": "Dictionary {{version}} · Reviewed exact phrases · Source:",
     "stop_notice": "Disabling attempts to restore only this tool’s labels. If the connection is lost, automatic cleanup is best-effort; restart the App if restoration cannot be confirmed. The official App manages its own debugging interface.",
     "states": {
@@ -352,7 +352,8 @@
       "open_app_manually": "Open Antigravity App normally first.",
       "disable_not_saved": "This session has stopped renewing localization, but the off preference could not be saved. Check restoration status and disable again before restarting Tools.",
       "non_loopback_or_wrong_owner": "The complete listener ownership check failed. Connection refused.",
-      "multiple_instances": "More than one matching App process was found. Close extra instances and retry."
+      "multiple_instances": "More than one matching App process was found. Close extra instances and retry.",
+      "operation_superseded": "A newer setting replaced this request. Check the current status."
     },
     "translated": "{{count}} static labels currently translated"
   }

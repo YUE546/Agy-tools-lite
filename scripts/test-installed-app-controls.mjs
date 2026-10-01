@@ -53,7 +53,7 @@ export function labelExpression(origin, apply) {
     const fresh=()=>(${candidateRuntime})({document:window.document,MutationObserver:window.MutationObserver,setTimeout:window.setTimeout.bind(window),clearTimeout:window.clearTimeout.bind(window)},config);
     const before=fresh().probe();
     const nav=before.scopes?.find(s=>s.id==='settings-navigation');
-    if(before.status!=='supported'||!nav?.present||nav.labelCount<2) return {ok:false,code:'navigation_not_verified'};
+    if(before.status!=='supported'||!nav?.present||nav.verification!=='live-verified'||nav.labelCount<2||nav.labelCount>8||before.labelCount>9) return {ok:false,code:'navigation_not_verified'};
     if(!${JSON.stringify(apply)})return {ok:true,shape_verified:true,english:true,label_count:before.labelCount,navigation_labels:nav.labelCount};
     const controller=(${candidateRuntime})(window,config);
     let applied=null, observed=null, restored=null;
@@ -123,11 +123,10 @@ export async function main(argv) {
   must(args['--mode']==='probe'||args['--mode']==='approved-flip-once','explicit_mode_required');
   const runtime=fs.readFileSync(args['--runtime']||'');
   const dictionary=fs.readFileSync(args['--dictionary']||'');
-  must(createHash('sha256').update(runtime).digest('hex')==='cb291288529848f1b104339917870028bbb230b500c978bd3c61bd10492cbe86','runtime_hash_mismatch');
+  must(createHash('sha256').update(runtime).digest('hex')==='ba8e7888c43afea3908ffa9b85ff91e6029ecaff5f007c771c5520bb27b5a0b4','runtime_hash_mismatch');
   must(createHash('sha256').update(dictionary).digest('hex')==='4e8e7833c206996ec0d2aaaab1b4c535e72ec94cd988abf7abf1d3ce5e496312','dictionary_hash_mismatch');
-  const marker='const ENABLE_SOURCE_DERIVED_NAVIGATION = false; // ENABLE_ONLY_AFTER_LIVE_NAVIGATION_QA';
-  const text=runtime.toString('utf8');must(text.split(marker).length===2,'candidate_marker_invalid');
-  candidateRuntime=text.replace(marker,'const ENABLE_SOURCE_DERIVED_NAVIGATION = true; // APPROVED_TEMPORARY_QA_ONLY');
+  // Execute the exact reviewed production bytes; no candidate-gate rewriting.
+  candidateRuntime=runtime.toString('utf8');
   candidateDictionary=JSON.parse(dictionary.toString('utf8'));
   const app=fs.realpathSync(args['--app']||'');
   const pid=Number(args['--pid']); must(Number.isInteger(pid)&&pid>0,'app_pid_required');

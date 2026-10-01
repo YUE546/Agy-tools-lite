@@ -791,7 +791,7 @@ mod tests {
             code.contains("id: 'settings-button', optional: true, verification: 'live-verified'")
         );
         assert!(code.contains("appVersion: '2.19.1'"));
-        assert!(code.contains("const ENABLE_SOURCE_DERIVED_NAVIGATION = false;"));
+        assert!(code.contains("const VERIFIED_NAV_KEYS = new Set(['General', 'App', 'Appearance', 'Models', 'Customizations'])"));
         assert!(code.len() < MAX_MESSAGE);
     }
 
@@ -933,7 +933,7 @@ mod tests {
                         assert!(script.contains(
                             "id: 'settings-button', optional: true, verification: 'live-verified'"
                         ));
-                        assert!(script.contains("const ENABLE_SOURCE_DERIVED_NAVIGATION = false;"));
+                        assert!(script.contains("const VERIFIED_NAV_KEYS = new Set(['General', 'App', 'Appearance', 'Models', 'Customizations'])"));
                         json!({"result":{"value":{"status":"applied","active":true,"translated":1,"awaitingScope":false}}})
                     }
                     "Target.detachFromTarget" => json!({}),

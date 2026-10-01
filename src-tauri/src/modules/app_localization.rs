@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Mutex,
 };
 use std::time::{Duration, Instant};
@@ -20,6 +20,10 @@ const MAX_ASAR_HEADER: usize = 4 * 1024 * 1024;
 const MAX_PACKAGE: usize = 16 * 1024;
 const SUPPORTED: &[&str] = &["2.19.1"];
 static ENABLED: AtomicBool = AtomicBool::new(false);
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+static CONTROL_LOCK: Mutex<()> = Mutex::new(());
+static INTENT_LOCK: Mutex<()> = Mutex::new(());
+static INTENT_GENERATION: AtomicU64 = AtomicU64::new(0);
 static STARTED: AtomicBool = AtomicBool::new(false);
 static SESSION: Lazy<Mutex<Option<Session>>> = Lazy::new(|| Mutex::new(None));
 static SNAPSHOT: Lazy<Mutex<Option<LocalizationStatus>>> = Lazy::new(|| Mutex::new(None));
@@ -289,13 +293,18 @@ fn stop_session(state: &mut LocalizationStatus, sessions: &mut Option<Session>) 
 }
 
 fn tick(force: bool) -> LocalizationStatus {
+    // Capture intent only inside the session sequence: an old background tick
+    // must not wait behind a newer apply and then dispose it using stale `off`.
+    let Ok(mut sessions) = SESSION.lock() else {
+        return publish(snapshot(
+            ENABLED.load(Ordering::SeqCst),
+            None,
+            "error",
+            Some("worker_unavailable"),
+        ));
+    };
     let enabled = ENABLED.load(Ordering::SeqCst);
     let (mut status, app) = preflight(enabled);
-    let Ok(mut sessions) = SESSION.lock() else {
-        status.state = "error".into();
-        status.detail = Some("worker_unavailable".into());
-        return publish(status);
-    };
     if sessions.as_ref().is_some_and(|s| s.pending_restore) && !dispose(&mut sessions) {
         status.state = "restore_pending".into();
         status.detail = Some("restore_pending".into());
@@ -471,23 +480,77 @@ fn applied_state(translated: u64, awaiting_scope: bool) -> &'static str {
     }
 }
 
+fn ensure_current(generation: u64) -> Result<(), String> {
+    if SHUTTING_DOWN.load(Ordering::SeqCst) {
+        return Err("feature_disabled".into());
+    }
+    if INTENT_GENERATION.load(Ordering::SeqCst) != generation {
+        return Err("operation_superseded".into());
+    }
+    Ok(())
+}
+
+// Allocate the intent in the IPC entry point, before spawn_blocking can reorder
+// execution. The short lock also makes a later disable atomic with any older
+// enable's runtime commit; a generation check followed by a bare store is racy.
+fn new_intent(enabled: bool) -> Result<u64, String> {
+    let _guard = INTENT_LOCK
+        .lock()
+        .map_err(|_| "worker_unavailable".to_string())?;
+    if SHUTTING_DOWN.load(Ordering::SeqCst) {
+        return Err("feature_disabled".into());
+    }
+    let generation = INTENT_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    if !enabled {
+        ENABLED.store(false, Ordering::SeqCst);
+    }
+    Ok(generation)
+}
+
+fn commit_enabled(generation: u64) -> Result<(), String> {
+    let _guard = INTENT_LOCK
+        .lock()
+        .map_err(|_| "worker_unavailable".to_string())?;
+    ensure_current(generation)?;
+    ENABLED.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+fn coordinated<T>(
+    generation: u64,
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let _guard = CONTROL_LOCK
+        .lock()
+        .map_err(|_| "worker_unavailable".to_string())?;
+    ensure_current(generation)?;
+    let result = operation();
+    ensure_current(generation)?;
+    result
+}
+
 /// Runs only inside Tools; no launchd/login item/service is installed.
 pub(crate) fn initialize() {
     if STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
-    ENABLED.store(
-        super::config::load_app_config()
-            .map(|c| c.app_localization.enabled)
-            .unwrap_or(false),
-        Ordering::SeqCst,
-    );
+    let saved_enabled = super::config::load_app_config()
+        .map(|c| c.app_localization.enabled)
+        .unwrap_or(false);
+    if let Ok(_intent) = INTENT_LOCK.lock() {
+        if INTENT_GENERATION.load(Ordering::SeqCst) == 0 && !SHUTTING_DOWN.load(Ordering::SeqCst) {
+            ENABLED.store(saved_enabled, Ordering::SeqCst);
+        }
+    }
     if !cfg!(target_os = "macos") {
         return;
     }
     let worker = std::thread::Builder::new()
         .name("app-localization".into())
         .spawn(|| loop {
+            if SHUTTING_DOWN.load(Ordering::SeqCst) {
+                break;
+            }
             if ENABLED.load(Ordering::SeqCst)
                 || SESSION.lock().map(|s| s.is_some()).unwrap_or(false)
             {
@@ -518,6 +581,16 @@ fn wake() {
 
 /// Best-effort cleanup before the host exits; runtime's lease is the fallback.
 pub(crate) fn shutdown() {
+    {
+        let _intent = INTENT_LOCK.lock();
+        SHUTTING_DOWN.store(true, Ordering::SeqCst);
+        INTENT_GENERATION.fetch_add(1, Ordering::SeqCst);
+        ENABLED.store(false, Ordering::SeqCst);
+    }
+    wake();
+    // Wait for an earlier IPC transaction before the final stop, and reject
+    // queued/new commands. Otherwise an older enable could restart the lease.
+    let _control = CONTROL_LOCK.lock();
     ENABLED.store(false, Ordering::SeqCst);
     if let Ok(mut sessions) = SESSION.lock() {
         let _ = dispose(&mut sessions);
@@ -551,31 +624,38 @@ pub async fn get_app_localization_status() -> Result<LocalizationStatus, String>
 #[tauri::command]
 pub async fn set_app_localization_enabled(enabled: bool) -> Result<LocalizationStatus, String> {
     initialize();
+    let generation = new_intent(enabled)?;
+    if !enabled {
+        wake();
+    }
     tokio::task::spawn_blocking(move || {
-        if enabled && !WORKER.lock().map(|w| w.is_some()).unwrap_or(false) {
-            return Err("worker_unavailable".to_string());
-        }
-        if enabled && !preflight(false).0.supported {
-            return Err("unsupported_version_or_platform".to_string());
-        }
-        // Stopping must work even when the preference file is unwritable.
-        // Report that persistence failed only after cancelling and cleaning up.
-        if !enabled {
-            ENABLED.store(false, Ordering::SeqCst);
-        }
-        let saved = super::config::set_app_localization_enabled(enabled);
-        if enabled {
-            saved.map_err(|_| "config_unavailable".to_string())?;
-            ENABLED.store(true, Ordering::SeqCst);
-            let result = tick(true);
-            wake();
-            Ok(result)
-        } else {
-            let result = tick(false);
-            wake();
-            saved.map_err(|_| "disable_not_saved".to_string())?;
-            Ok(result)
-        }
+        coordinated(generation, || {
+            if enabled && !WORKER.lock().map(|w| w.is_some()).unwrap_or(false) {
+                return Err("worker_unavailable".to_string());
+            }
+            if enabled && !preflight(false).0.supported {
+                return Err("unsupported_version_or_platform".to_string());
+            }
+            // Stopping must work even when the preference file is unwritable.
+            // Report that persistence failed only after cancelling and cleaning up.
+            if !enabled {
+                ENABLED.store(false, Ordering::SeqCst);
+            }
+            ensure_current(generation)?;
+            let saved = super::config::set_app_localization_enabled(enabled);
+            if enabled {
+                saved.map_err(|_| "config_unavailable".to_string())?;
+                commit_enabled(generation)?;
+                let result = tick(true);
+                wake();
+                Ok(result)
+            } else {
+                let result = tick(false);
+                wake();
+                saved.map_err(|_| "disable_not_saved".to_string())?;
+                Ok(result)
+            }
+        })
     })
     .await
     .map_err(|_| "worker_unavailable".to_string())?
@@ -588,12 +668,17 @@ pub async fn apply_app_localization(launch: bool) -> Result<LocalizationStatus, 
     if launch {
         return Err("open_app_manually".to_string());
     }
-    if !ENABLED.load(Ordering::SeqCst) {
-        return Err("feature_disabled".to_string());
-    }
-    tokio::task::spawn_blocking(|| Ok(tick(true)))
-        .await
-        .map_err(|_| "worker_unavailable".to_string())?
+    let generation = INTENT_GENERATION.load(Ordering::SeqCst);
+    tokio::task::spawn_blocking(move || {
+        coordinated(generation, || {
+            if !ENABLED.load(Ordering::SeqCst) {
+                return Err("feature_disabled".to_string());
+            }
+            Ok(tick(true))
+        })
+    })
+    .await
+    .map_err(|_| "worker_unavailable".to_string())?
 }
 
 #[cfg(test)]
@@ -606,6 +691,62 @@ mod tests {
             "description":"Antigravity - Agentic Desktop Application", "version":version
         }))
         .unwrap()
+    }
+
+    static INTENT_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn delayed_old_enable_cannot_run_after_new_disable_completed() {
+        let _test = INTENT_TEST_LOCK.lock().unwrap();
+        let old = new_intent(true).unwrap();
+        let latest = new_intent(false).unwrap();
+        coordinated(latest, || Ok(())).unwrap();
+        let mut ran = false;
+        assert_eq!(
+            coordinated(old, || {
+                ran = true;
+                commit_enabled(old)
+            }),
+            Err("operation_superseded".into())
+        );
+        assert!(!ran);
+        assert!(!ENABLED.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn disable_arriving_during_old_enable_write_prevents_runtime_revival() {
+        use std::sync::{mpsc, Arc};
+        let _test = INTENT_TEST_LOCK.lock().unwrap();
+        let persisted = Arc::new(AtomicBool::new(false));
+        let (written_tx, written_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let old = new_intent(true).unwrap();
+        std::thread::scope(|scope| {
+            let disk = persisted.clone();
+            let enable = scope.spawn(move || {
+                coordinated(old, || {
+                    disk.store(true, Ordering::SeqCst);
+                    written_tx.send(()).unwrap();
+                    resume_rx.recv().unwrap();
+                    commit_enabled(old)
+                })
+            });
+            written_rx.recv().unwrap();
+            assert!(CONTROL_LOCK.try_lock().is_err());
+            let latest = new_intent(false).unwrap();
+            let disk = persisted.clone();
+            let disable = scope.spawn(move || {
+                coordinated(latest, || {
+                    disk.store(false, Ordering::SeqCst);
+                    Ok(())
+                })
+            });
+            resume_tx.send(()).unwrap();
+            assert_eq!(enable.join().unwrap(), Err("operation_superseded".into()));
+            disable.join().unwrap().unwrap();
+        });
+        assert!(!persisted.load(Ordering::SeqCst));
+        assert!(!ENABLED.load(Ordering::SeqCst));
     }
 
     #[test]

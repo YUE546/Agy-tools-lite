@@ -12,7 +12,10 @@
     "2.19.1"
   ],
   "production_verified_scope": [
-    "settings-button > span.truncate.text-sm single Settings TextNode"
+    "settings-button > span.truncate.text-sm single Settings TextNode",
+    "settings-navigation exact source-literal root/scroll/header: Settings heading",
+    "settings-navigation first header-adjacent global group: General, Application, Appearance, Models, Customizations",
+    "settings-navigation fixed direct-child tail after the unique flex-1 spacer: Shortcuts, Provide Feedback"
   ],
   "manually_authored_entries": [
     "Application",
@@ -24,7 +27,7 @@
     "Provide Feedback"
   ],
   "candidate_scope": {
-    "status": "pending-real-App-QA; disabled by literal build-time constant",
+    "status": "Known source-derived labels excluded from production translation until separate real-App verification; exact static structure and text remain validated for drift.",
     "source_sha256": "47f36abaabd34f7d54a95df40d942b609c02db9f5c04d56b124a048571b9f16d",
     "component_names": [
       "hOb",
@@ -32,19 +35,51 @@
       "s6a"
     ],
     "labels": [
+      "Skin",
+      "Notifications",
+      "Developer",
+      "Tab",
+      "Editor"
+    ]
+  },
+  "production_verified_navigation_labels": [
+    "Settings",
+    "General",
+    "Application",
+    "Appearance",
+    "Models",
+    "Customizations",
+    "Shortcuts",
+    "Provide Feedback"
+  ],
+  "production_untranslated_navigation_labels": [
+    "Skin",
+    "Notifications",
+    "Developer",
+    "Tab",
+    "Editor"
+  ],
+  "macos_navigation_acceptance": {
+    "app_version": "2.19.1",
+    "evidence": "Accepted one-time test of the official macOS App. The packaged source-derived candidate runtime was enabled only in memory for that test; this records the scope observed there, not an assertion that the newly restricted production runtime hash was live-tested.",
+    "packaged_runtime_sha256": "cb291288529848f1b104339917870028bbb230b500c978bd3c61bd10492cbe86",
+    "dictionary_sha256": "4e8e7833c206996ec0d2aaaab1b4c535e72ec94cd988abf7abf1d3ce5e496312",
+    "navigation_labels": [
       "Settings",
       "General",
       "Application",
       "Appearance",
-      "Skin",
-      "Notifications",
       "Models",
       "Customizations",
-      "Developer",
-      "Tab",
-      "Editor",
       "Shortcuts",
       "Provide Feedback"
-    ]
+    ],
+    "independent_settings_button": true,
+    "label_count": 9,
+    "navigation_label_count": 8,
+    "duration_ms": 2000,
+    "changed": true,
+    "restored": true,
+    "english_postcheck": true
   }
 }

@@ -7,28 +7,34 @@
  * verifying its exact release, static-label ownership and DOM paths against an
  * official App build. A dictionary match alone is never permission to translate.
  *
- * The 2.19.1 Settings button is live-verified. Broader navigation selectors
- * remain a build-time candidate until separately verified in the real App.
+ * The 2.19.1 Settings button and eight Settings navigation labels are
+ * live-verified. Other source-known navigation labels are validated for drift
+ * but never translated. They require separate real-App verification.
  */
 (function createAppLocalization(host, config) {
   'use strict';
 
   const REGISTRY_KEY = '__ANTIGRAVITY_TOOLS_LOCALIZATION__';
   const BRAND = 'antigravity-tools-scoped-localization-v1';
-  const ENABLE_SOURCE_DERIVED_NAVIGATION = false; // ENABLE_ONLY_AFTER_LIVE_NAVIGATION_QA
   const NAV_ROOT_CLASS = 'h-full w-full flex flex-col bg-sidebar';
   const SCROLL_CLASS = 'flex-1 flex flex-col gap-1 py-3 overflow-y-auto';
   const HEADER_CLASS = 'm-0 text-xs font-medium text-muted-foreground select-none';
   const GROUP_CLASS = 'flex flex-col gap-0.5';
   const BUTTON_CLASS = 'flex items-center gap-1.5 group mx-2 px-2 py-1 rounded-lg cursor-pointer border-none text-left transition-all outline-none';
   const LABEL_CLASS = 'text-sm transition-colors select-none truncate flex-1';
-  const NAV_LABELS = Object.freeze({
+  const KNOWN_NAV_LABELS = Object.freeze({
     General: 'General', App: 'Application', Appearance: 'Appearance', Skin: 'Skin',
     Notifications: 'Notifications', Models: 'Models', Customizations: 'Customizations',
     Developer: 'Developer', Tab: 'Tab', Editor: 'Editor',
   });
+  // Actual macOS 2.19.1 acceptance covered only this global-navigation subset.
+  // The heading and fixed tail below complete the eight verified nav labels.
+  const VERIFIED_NAV_KEYS = new Set(['General', 'App', 'Appearance', 'Models', 'Customizations']);
   const INTERNAL_SCREENS = new Set(['Jetski Chat', 'Regroup Google3 Chats']);
   const TAIL_LABELS = ['Shortcuts', 'Provide Feedback'];
+  const VERIFIED_NAV_SOURCES = Object.freeze([
+    'Settings', ...[...VERIFIED_NAV_KEYS].map((key) => KNOWN_NAV_LABELS[key]), ...TAIL_LABELS,
+  ]);
   const SETTINGS_BUTTON_SCOPE = {
     id: 'settings-button', optional: true, verification: 'live-verified',
     root: { testId: 'settings-button', tagName: 'BUTTON' },
@@ -36,12 +42,12 @@
   };
   const NAVIGATION_SCOPE = {
     id: 'settings-navigation', optional: true, kind: 'settings-navigation',
-    verification: 'source-derived-candidate',
+    verification: 'live-verified',
     root: { tagName: 'DIV', attributes: { class: NAV_ROOT_CLASS } },
   };
   const VERIFIED_ADAPTERS = Object.freeze([{
     id: 'antigravity-2.19.1-limited-ui', appVersion: '2.19.1',
-    scopes: [SETTINGS_BUTTON_SCOPE, ...(ENABLE_SOURCE_DERIVED_NAVIGATION ? [NAVIGATION_SCOPE] : [])],
+    scopes: [SETTINGS_BUTTON_SCOPE, NAVIGATION_SCOPE],
   }]); // PRODUCTION_ADAPTERS_END
   const LEASE_MS = 15000; // Tools must explicitly renew every 3000 ms.
   const TEXT = 'text';
@@ -119,7 +125,7 @@
     const dictionary = ownData(config, 'dictionary');
     const inputExact = ownData(dictionary, 'exact');
     const sources = new Set(scopes.flatMap((scope) => scope.kind === 'settings-navigation'
-      ? ['Settings', ...Object.values(NAV_LABELS), ...TAIL_LABELS]
+      ? VERIFIED_NAV_SOURCES
       : scope.fields.map((field) => field.source)));
     for (const source of sources) {
       const value = ownData(inputExact, source);
@@ -180,13 +186,14 @@
         ![activeClass, inactiveClass].includes(buttonClass) || button.children.length !== 1) return null;
     const labelClass = LABEL_CLASS + (buttonClass === activeClass
       ? ' text-foreground' : ' text-secondary-foreground group-hover:text-foreground');
-    const source = prefix === 'global' ? NAV_LABELS[key] : TAIL_LABELS.includes(key) ? key : null;
+    const source = prefix === 'global' ? ownData(KNOWN_NAV_LABELS, key) : TAIL_LABELS.includes(key) ? key : null;
     if (!source && !(prefix === 'global' && INTERNAL_SCREENS.has(key))) return null;
     const label = button.children[0];
     if (!matches(label, classAnchor('SPAN', labelClass)) || label.childNodes.length !== 1 ||
         label.firstChild.nodeType !== 3 || !safeElement(label)) return null;
     return {
-      id: prefix + ':' + key, source: source || key, skip: !source, kind: TEXT,
+      id: prefix + ':' + key, source: source || key,
+      skip: !source || (prefix === 'global' && !VERIFIED_NAV_KEYS.has(key)), kind: TEXT,
       path: [...path, { tagName: 'BUTTON', testId, index,
         attributes: { type: 'button', class: buttonClass } }, classAnchor('SPAN', labelClass, 0)],
     };
@@ -520,11 +527,15 @@
     brand: BRAND, probe, apply, dispose, renewLease,
     describe: () => ({
       appVersion, adapterId: adapter ? adapter.id : null, leaseMs: LEASE_MS, renewEveryMs: 3000,
-      navigationCandidateEnabled: ENABLE_SOURCE_DERIVED_NAVIGATION,
+      navigationCandidateEnabled: false,
       scopes: scopes.map((scope) => ({ id: scope.id, selector: rootSelector(scope),
         verification: scope.verification || 'offline-fixture', optional: !!scope.optional,
-        sources: scope.kind === 'settings-navigation' ? ['Settings', ...Object.values(NAV_LABELS), ...TAIL_LABELS]
-          : scope.fields.map((field) => field.source) })),
+        sources: scope.kind === 'settings-navigation' ? [...VERIFIED_NAV_SOURCES]
+          : scope.fields.map((field) => field.source),
+        ...(scope.kind === 'settings-navigation' ? {
+          untranslatedSources: Object.keys(KNOWN_NAV_LABELS)
+            .filter((key) => !VERIFIED_NAV_KEYS.has(key)).map((key) => KNOWN_NAV_LABELS[key]),
+        } : {}) })),
     }),
     getStatus: () => disposed ? status('disposed', disposedReason) : lastFailure
       ? status(lastFailure.code, lastFailure.reason) : status(active ? 'applied' : 'inactive'),
