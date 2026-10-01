@@ -44,7 +44,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function enable(page: any, stop = false) {
-    await page.getByLabel('启用低额度换号（保存后生效）').check();
+    if (!await page.getByLabel('启用低额度换号（保存后生效）').isChecked()) await page.getByText('启用低额度换号（保存后生效）', { exact: true }).click();
     await page.getByLabel('监测模型', { exact: true }).selectOption('gemini-test');
     await page.getByLabel('backup@example.invalid', { exact: true }).check();
     if (stop) await page.getByRole('radio').nth(1).check();
@@ -55,7 +55,7 @@ async function enable(page: any, stop = false) {
 
 test('default off, explicit configuration, real command contract, cancellation', async ({ page }, testInfo) => {
     await expect(page.getByLabel('启用低额度换号（保存后生效）')).not.toBeChecked();
-    await page.getByLabel('启用低额度换号（保存后生效）').check();
+    if (!await page.getByLabel('启用低额度换号（保存后生效）').isChecked()) await page.getByText('启用低额度换号（保存后生效）', { exact: true }).click();
     await expect(page.getByRole('button', { name: '保存设置', exact: true })).toBeDisabled();
     await enable(page);
     await expect(page.getByText('当前账号剩余 8%').first()).toBeVisible();

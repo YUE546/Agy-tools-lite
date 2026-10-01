@@ -7,6 +7,10 @@ import * as service from '../../services/autoSwitchService';
 import { listAccounts, getCurrentAccount } from '../../services/accountService';
 import { isTauri } from '../../utils/env';
 
+const PRIMARY_BUTTON = 'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-blue-600 bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:border-slate-700 dark:disabled:bg-slate-800 dark:disabled:text-slate-500';
+const SECONDARY_BUTTON = 'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800';
+const FIELD = 'h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100';
+
 function useStatus() {
     const [status, setStatus] = useState<AutoSwitchStatus | null>(null);
     const [error, setError] = useState('');
@@ -52,9 +56,9 @@ function StatusBody({ status, compact = false }: { status: AutoSwitchStatus; com
                 {status.phase === 'completed' && <p className="text-xs text-slate-500 dark:text-slate-400">{t('auto_switch.manual_continue')}</p>}
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
-                {status.mode === 'stop' && status.reason === 'clients_running' && <button ref={guideTrigger} onClick={() => setGuide(true)} className="btn btn-sm btn-outline">{t('auto_switch.stop_guide')}</button>}
-                {status.pending_id && <button disabled={busy || status.phase === 'switching'} onClick={() => action(true)} className="btn btn-sm btn-ghost">{t('auto_switch.cancel')}</button>}
-                <button disabled={busy || status.phase === 'switching'} onClick={() => action(false)} className="btn btn-sm btn-ghost"><RefreshCw size={14} className={busy ? 'animate-spin' : ''} />{t('auto_switch.check_now')}</button>
+                {status.mode === 'stop' && status.reason === 'clients_running' && <button ref={guideTrigger} onClick={() => setGuide(true)} className={SECONDARY_BUTTON}>{t('auto_switch.stop_guide')}</button>}
+                {status.pending_id && <button disabled={busy || status.phase === 'switching'} onClick={() => action(true)} className={SECONDARY_BUTTON}>{t('auto_switch.cancel')}</button>}
+                <button disabled={busy || status.phase === 'switching'} onClick={() => action(false)} className={SECONDARY_BUTTON}><RefreshCw size={14} className={busy ? 'animate-spin' : ''} />{t('auto_switch.check_now')}</button>
             </div>
         </div>
         {error && <p role="alert" className="mt-2 text-xs text-red-600">{error}</p>}
@@ -69,7 +73,7 @@ function StatusBody({ status, compact = false }: { status: AutoSwitchStatus; com
                     <li>{t('auto_switch.stop_step_1')}</li><li>{t('auto_switch.stop_step_2')}</li><li>{t('auto_switch.stop_step_3')}</li>
                 </ol>
                 <p className="mb-4 text-xs text-amber-700 dark:text-amber-300">{t('auto_switch.stop_warning')}</p>
-                <button ref={close} onClick={dismiss} className="btn btn-primary w-full">{t('auto_switch.understood')}</button>
+                <button ref={close} onClick={dismiss} className={`${PRIMARY_BUTTON} w-full`}>{t('auto_switch.understood')}</button>
             </section>
         </div>}
     </div>;
@@ -97,7 +101,7 @@ export function AutoSwitchSettings() {
     const patch = (p: Partial<AutoSwitchConfig>) => { setDraft(d => d && ({ ...d, ...p })); setSaved(false); };
     const save = async () => {
         if (!draft) return; setBusy(true); setError(''); setSaved(false);
-        try { setDraft(await service.setAutoSwitchConfig(draft)); setSaved(true); }
+        try { setDraft(await service.setAutoSwitchConfig({ ...draft, candidate_account_ids: accounts.map(a => a.id).filter(id => draft.candidate_account_ids.includes(id)) })); setSaved(true); }
         catch (e) { setError(t('auto_switch.save_failed', { error: String(e) })); }
         finally { setBusy(false); }
     };
@@ -106,26 +110,26 @@ export function AutoSwitchSettings() {
     return <section className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="flex items-start gap-3"><span className="rounded-xl bg-amber-50 p-2.5 text-amber-600 dark:bg-amber-400/10"><ArrowLeftRight size={20} /></span><div><h2 className="font-semibold">{t('auto_switch.title')}</h2><p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-500 dark:text-slate-400">{t('auto_switch.description')}</p></div></div>
         {error && <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>}
-        {!draft ? <button disabled={busy} onClick={reload} className="btn btn-sm mt-4">{t(busy ? 'auto_switch.loading' : 'auto_switch.retry')}</button> : <>
-            <label className="my-5 flex cursor-pointer items-center gap-3 text-sm font-medium"><input type="checkbox" className="toggle toggle-primary toggle-sm" checked={draft.enabled} disabled={busy} onChange={e => patch({ enabled: e.target.checked })} />{t('auto_switch.enable')}</label>
+        {!draft ? <button disabled={busy} onClick={reload} className={`${SECONDARY_BUTTON} mt-4`}>{t(busy ? 'auto_switch.loading' : 'auto_switch.retry')}</button> : <>
+            <label className="my-5 flex cursor-pointer items-center gap-3 text-sm font-medium"><input type="checkbox" className="peer sr-only" checked={draft.enabled} disabled={busy} onChange={e => patch({ enabled: e.target.checked })} /><span aria-hidden="true" className="relative inline-block h-6 w-11 shrink-0 rounded-full bg-slate-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-sm after:transition-transform after:content-[''] peer-checked:bg-blue-600 peer-checked:after:translate-x-5 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-focus-visible:ring-offset-2 peer-disabled:opacity-50 dark:bg-slate-600" />{t('auto_switch.enable')}</label>
             <div className="grid gap-3 md:grid-cols-2" role="group" aria-label={t('auto_switch.mode')}>
                 {(['wait', 'stop'] as const).map(mode => <label key={mode} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 ${draft.mode === mode ? 'border-blue-400 bg-blue-50/60 dark:bg-blue-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
-                    <input type="radio" name="auto-switch-mode" checked={draft.mode === mode} disabled={busy} onChange={() => patch({ mode })} className="radio radio-primary radio-sm mt-0.5" />
+                    <input type="radio" name="auto-switch-mode" checked={draft.mode === mode} disabled={busy} onChange={() => patch({ mode })} className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600" />
                     <span><span className="block text-sm font-medium">{t(`auto_switch.mode_${mode}`)}</span><span className="mt-1 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">{t(`auto_switch.${mode}_instructions`)}</span></span>
                 </label>)}
             </div>
             <div className="my-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.target')}</span><select className="select select-bordered select-sm w-full" disabled={busy} value={draft.target} onChange={e => patch({ target: e.target.value as 'app' })}><option value="app">Antigravity APP + agy</option></select></label>
-                <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.model')}</span><select className="select select-bordered select-sm w-full" disabled={busy} value={draft.monitored_model} onChange={e => patch({ monitored_model: e.target.value })}><option value="">{t('auto_switch.select_model')}</option>{draft.monitored_model && !models.some(([id]) => id === draft.monitored_model) && <option value={draft.monitored_model}>{draft.monitored_model}</option>}{models.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
-                <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.reserve')}</span><input className="input input-bordered input-sm w-full" type="number" min={1} max={98} step={1} disabled={busy} value={draft.reserve_percentage} onChange={e => patch({ reserve_percentage: Number(e.target.value) })} /></label>
-                <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.candidate_min')}</span><input className="input input-bordered input-sm w-full" type="number" min={draft.reserve_percentage + 1} max={100} step={1} disabled={busy} value={draft.candidate_min_percentage} onChange={e => patch({ candidate_min_percentage: Number(e.target.value) })} /></label>
+                <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.target')}</span><select aria-label={t('auto_switch.target')} className={FIELD} disabled={busy} value={draft.target} onChange={e => patch({ target: e.target.value as 'app' })}><option value="app">Antigravity APP + agy</option></select></label>
+                <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.model')}</span><select aria-label={t('auto_switch.model')} className={FIELD} disabled={busy} value={draft.monitored_model} onChange={e => patch({ monitored_model: e.target.value })}><option value="">{t('auto_switch.select_model')}</option>{draft.monitored_model && !models.some(([id]) => id === draft.monitored_model) && <option value={draft.monitored_model}>{draft.monitored_model}</option>}{models.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+                <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.reserve')}</span><input aria-label={t('auto_switch.reserve')} className={FIELD} type="number" min={1} max={98} step={1} disabled={busy} value={draft.reserve_percentage} onChange={e => patch({ reserve_percentage: Number(e.target.value) })} /></label>
+                <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.candidate_min')}</span><input aria-label={t('auto_switch.candidate_min')} className={FIELD} type="number" min={draft.reserve_percentage + 1} max={100} step={1} disabled={busy} value={draft.candidate_min_percentage} onChange={e => patch({ candidate_min_percentage: Number(e.target.value) })} /></label>
             </div>
             <fieldset className="space-y-2"><legend className="mb-2 text-sm font-medium">{t('auto_switch.accounts')}</legend><p className="mb-3 text-xs text-slate-500">{t('auto_switch.accounts_hint')}</p>
                 {!accounts.length && <p className="text-xs text-amber-700">{t('auto_switch.no_accounts')}</p>}
-                <div className="grid max-h-52 gap-2 overflow-y-auto sm:grid-cols-2">{accounts.map(a => <label key={a.id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700"><input type="checkbox" className="checkbox checkbox-primary checkbox-sm mt-0.5" disabled={busy} checked={draft.candidate_account_ids.includes(a.id)} onChange={e => patch({ candidate_account_ids: e.target.checked ? [...draft.candidate_account_ids, a.id] : draft.candidate_account_ids.filter(id => id !== a.id) })} /><span className="min-w-0 break-all">{a.email}{a.id === currentId && <span className="ml-2 text-xs text-blue-500">{t('auto_switch.current')}</span>}</span></label>)}</div>
+                <div className="grid max-h-52 gap-2 overflow-y-auto sm:grid-cols-2">{accounts.map(a => <label key={a.id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700"><input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 rounded accent-blue-600" disabled={busy} checked={draft.candidate_account_ids.includes(a.id)} onChange={e => patch({ candidate_account_ids: e.target.checked ? [...draft.candidate_account_ids, a.id] : draft.candidate_account_ids.filter(id => id !== a.id) })} /><span className="min-w-0 break-all">{a.email}{a.id === currentId && <span className="ml-2 text-xs text-blue-500">{t('auto_switch.current')}</span>}</span></label>)}</div>
             </fieldset>
             <p className="mt-4 text-xs leading-relaxed text-amber-700 dark:text-amber-300">{t('auto_switch.safety_note')}</p>
-            <div className="my-4 flex items-center gap-3"><button className="btn btn-primary btn-sm" disabled={busy || invalid} onClick={save}>{t(busy ? 'auto_switch.saving' : 'auto_switch.save')}</button>{saved && <span role="status" className="text-xs text-emerald-600">{t('auto_switch.saved')}</span>}</div>
+            <div className="my-4 flex items-center gap-3"><button className={PRIMARY_BUTTON} disabled={busy || invalid} onClick={save}>{t(busy ? 'auto_switch.saving' : 'auto_switch.save')}</button>{saved && <span role="status" className="text-xs text-emerald-600">{t('auto_switch.saved')}</span>}</div>
             {statusError && <p role="alert" className="text-xs text-red-600">{t(`auto_switch.${statusError}`)}</p>}
             {status && status.phase !== 'disabled' && <StatusBody status={status} />}
         </>}

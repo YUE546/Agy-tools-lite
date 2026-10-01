@@ -32,7 +32,7 @@ agy-lite current --json
 agy-lite quota                       # current account's cached quota
 agy-lite quota user@example.com --json
 agy-lite switch ACCOUNT_ID
-agy-lite switch user@example.com --target cli --json
+agy-lite switch user@example.com --target app --json
 agy-lite switch ACCOUNT_ID --target ide
 ```
 
@@ -47,7 +47,9 @@ agy-lite switch ACCOUNT_ID --target ide
 
 ## Switching and safety
 
-Switching is an explicit mutating command. It reuses the GUI's token validation/refresh, credential synchronization, process handling and account-index update. The default `--target app` follows the GUI behavior: it may close and restart Antigravity and synchronize an initialized native `agy` session. On Linux without an installed APP, the same GUI fallback can select an initialized `agy` installation. `--target cli` updates only an already-initialized native `agy` session; `--target ide` retains the independent IDE database path.
+There is no `--target cli` mode. The APP and Google’s `agy` may share a system credential store; writing only a session file cannot guarantee that a new `agy` process uses that account. Use the normal APP+agy synchronization path and verify the active identity in the client. This CLI does not install `agy` or create a missing native CLI data directory. If that directory already exists, normal synchronization can create its first native token file. A valid system token profile may also let `agy` sign in locally without a browser, as described in the [official authentication guide](https://antigravity.google/docs/cli/install/#local-silent-keyring-sign-in).
+
+Switching is an explicit mutating command. It reuses the GUI's token validation/refresh, credential synchronization, process handling and account-index update. The default `--target app` follows the GUI behavior: it may close and restart Antigravity and synchronize an initialized native `agy` session. The CLI requires a discoverable APP for this target and rejects a file-only fallback; the GUI’s existing fallback behavior is unchanged. `--target ide` retains the independent IDE database path.
 
 When the CLI relaunches an APP or IDE, child stdin/stdout/stderr are detached so the command returns promptly and JSON output stays machine-readable. GUI launches preserve their existing I/O behavior.
 

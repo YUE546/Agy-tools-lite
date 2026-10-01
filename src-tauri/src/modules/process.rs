@@ -784,13 +784,47 @@ pub fn start_antigravity_detached(target_ide: Option<&str>) -> Result<(), String
     start_antigravity_with_stdio(target_ide, true)
 }
 
-fn prepare_launch_stdio(command: &mut Command, detached: bool) {
+fn prepare_launch_stdio(command: &mut Command, detached: bool) -> Result<(), String> {
     if detached {
         command
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        prevent_cli_pipe_inheritance()?;
     }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn prevent_cli_pipe_inheritance() -> Result<(), String> {
+    use std::ffi::c_void;
+    #[link(name = "Kernel32")]
+    extern "system" {
+        fn GetStdHandle(kind: u32) -> *mut c_void;
+        fn GetFileType(handle: *mut c_void) -> u32;
+        fn SetHandleInformation(handle: *mut c_void, mask: u32, flags: u32) -> i32;
+    }
+    // Stable Rust's Command inherits other inheritable process handles even
+    // when its own stdio is NUL. A Node/PowerShell capture pipe can therefore
+    // stay open in the APP. Clear only this CLI process's pipe inheritance;
+    // the handles remain open/usable by the CLI and GUI launches never run this.
+    // Console handles are deliberately untouched (SetHandleInformation is not
+    // supported for all console handle types).
+    for kind in [-10_i32, -11_i32, -12_i32] {
+        unsafe {
+            let handle = GetStdHandle(kind as u32);
+            if !handle.is_null() && handle as isize != -1 && GetFileType(handle) == 3 {
+                if SetHandleInformation(handle, 1, 0) == 0 {
+                    return Err(format!(
+                        "Cannot isolate CLI capture pipe: {}",
+                        std::io::Error::last_os_error()
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[allow(unused_mut)]
@@ -840,7 +874,7 @@ fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Res
                 // macOS: if .app directory, use open
                 if path_str.ends_with(".app") || path.is_dir() {
                     let mut cmd = Command::new("open");
-                    prepare_launch_stdio(&mut cmd, detached);
+                    prepare_launch_stdio(&mut cmd, detached)?;
                     cmd.arg("-a").arg(&path_str);
 
                     // Add startup arguments
@@ -854,7 +888,7 @@ fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Res
                         .map_err(|e| format!("Startup failed (open): {}", e))?;
                 } else {
                     let mut cmd = Command::new(&path_str);
-                    prepare_launch_stdio(&mut cmd, detached);
+                    prepare_launch_stdio(&mut cmd, detached)?;
 
                     // Add startup arguments
                     if let Some(ref args) = args {
@@ -871,7 +905,7 @@ fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Res
             #[cfg(not(target_os = "macos"))]
             {
                 let mut cmd = Command::new(&path_str);
-                prepare_launch_stdio(&mut cmd, detached);
+                prepare_launch_stdio(&mut cmd, detached)?;
 
                 // Add startup arguments
                 if let Some(ref args) = args {
@@ -906,7 +940,7 @@ fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Res
     {
         // Improvement: Use output() to wait for open command completion and capture "app not found" error
         let mut cmd = Command::new("open");
-        prepare_launch_stdio(&mut cmd, detached);
+        prepare_launch_stdio(&mut cmd, detached)?;
         let app_name = if target_ide == Some("ide") {
             "Antigravity IDE"
         } else {
@@ -938,7 +972,7 @@ fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Res
         // Windows/Linux Auto-detection and Startup
         if let Some(detected_path) = get_antigravity_executable_path(target_ide) {
             let mut cmd = Command::new(&detected_path);
-            prepare_launch_stdio(&mut cmd, detached);
+            prepare_launch_stdio(&mut cmd, detached)?;
 
             // Add startup arguments
             if let Some(ref args) = args {

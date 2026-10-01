@@ -25,6 +25,8 @@ try {
   assert.deepEqual(readdirSync(root), []); // Not even a log/data directory is created.
   run(['current'], 3);
   run(['quota', '--refresh'], 2);
+  run(['switch', 'unused', '--target', 'cli', '--json'], 2);
+  assert.deepEqual(readdirSync(root), []); // Unsupported target must fail before any state access.
   assert.equal(JSON.parse(run(['--unknown', '--json'], 2).stderr).error.code, 2);
   mkdirSync(join(data, 'accounts'), { recursive: true });
   const index = JSON.stringify({ accounts: [{ id: 'test-1' }], current_account_id: 'test-1', current_target_ide: 'agy' });

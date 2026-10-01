@@ -5,7 +5,8 @@ mod switch_lock;
 use output::{AccountView, Snapshot};
 use std::path::{Path, PathBuf};
 
-const HELP: &str = "agy-lite - Antigravity Tools Lite CLI\n\nUsage:\n  agy-lite accounts list [--json]\n  agy-lite current [--json]\n  agy-lite quota [ACCOUNT_ID|EMAIL] [--json]\n  agy-lite switch ACCOUNT_ID|EMAIL [--target app|cli|ide] [--json]\n  agy-lite --help\n  agy-lite --version\n\nRead commands use local cached data only and never open the GUI or refresh tokens.\n'current' is Tools Lite's recorded account, not a live credential-store check.\n'switch' may refresh tokens, close/restart Antigravity, and update credentials.\nDefault target 'app' follows the GUI switch behavior; 'cli' updates initialized agy only.\nQuit older Tools Lite versions before switching; they do not share the switch lock.\nAccounts must first be added through the GUI. ABV_DATA_DIR overrides the data directory.\n";
+const HELP: &str = "agy-lite - Antigravity Tools Lite CLI\n\nUsage:\n  agy-lite accounts list [--json]\n  agy-lite current [--json]\n  agy-lite quota [ACCOUNT_ID|EMAIL] [--json]\n  agy-lite switch ACCOUNT_ID|EMAIL [--target app|ide] [--json]\n  agy-lite --help\n  agy-lite --version\n\nRead commands use local cached data only and never open the GUI or refresh tokens.\n'current' is Tools Lite's recorded account, not a live credential-store check.\n'switch' may refresh tokens, close/restart Antigravity, and update credentials.\nDefault target 'app' synchronizes APP credentials and an initialized agy session.
+There is no CLI-only target: APP and agy may share the same credential store.\nQuit older Tools Lite versions before switching; they do not share the switch lock.\nAccounts must first be added through the GUI. ABV_DATA_DIR overrides the data directory.\n";
 
 #[derive(Debug, PartialEq)]
 enum Command {
@@ -73,7 +74,7 @@ fn parse(args: &[String]) -> Result<(Command, bool)> {
             target: "app".into(),
         },
         ["switch", selector, "--target", target]
-            if !selector.starts_with('-') && matches!(*target, "app" | "cli" | "ide") =>
+            if !selector.starts_with('-') && matches!(*target, "app" | "ide") =>
         {
             Command::Switch {
                 selector: (*selector).into(),
@@ -215,7 +216,6 @@ fn execute(command: Command, json: bool) -> Result<String> {
             let runtime = tokio::runtime::Runtime::new()
                 .map_err(|_| CliError::data("Could not start the account-switch runtime."))?;
             let target_ide = match target.as_str() {
-                "cli" => Some("agy"),
                 "ide" => Some("ide"),
                 _ => None,
             };
@@ -242,6 +242,9 @@ fn execute(command: Command, json: bool) -> Result<String> {
 
 // Never forward server responses, credentials, or untrusted filenames to the terminal.
 fn switch_error(error: &str) -> CliError {
+    if error.contains("cli_app_installation_required") {
+        return CliError::data("Cannot find Antigravity APP. Set its executable path in Settings; CLI-only file synchronization is not supported.");
+    }
     if error.contains("another_account_switch_in_progress") {
         return CliError {
             code: 5,
@@ -262,6 +265,16 @@ fn switch_error(error: &str) -> CliError {
     CliError::data("Account switch failed; credentials may be partially updated. Check Antigravity and agy. Use the Tools Lite GUI to diagnose or sign in again.")
 }
 
+fn ensure_cli_switch_target(
+    target: Option<&str>,
+    app_available: bool,
+) -> std::result::Result<(), String> {
+    if target.is_none() && !app_available {
+        return Err("cli_app_installation_required".into());
+    }
+    Ok(())
+}
+
 struct HeadlessIntegration;
 impl crate::modules::integration::SystemIntegration for HeadlessIntegration {
     async fn on_account_switch(
@@ -272,6 +285,9 @@ impl crate::modules::integration::SystemIntegration for HeadlessIntegration {
         let account = account.clone();
         let target = target_ide.map(str::to_owned);
         tokio::task::spawn_blocking(move || {
+            let app_available = target.is_some()
+                || crate::modules::process::get_antigravity_executable_path(None).is_some();
+            ensure_cli_switch_target(target.as_deref(), app_available)?;
             crate::modules::integration::DesktopIntegration::switch_sync(
                 &HeadlessIntegration,
                 &account,
@@ -311,11 +327,11 @@ mod tests {
             (Command::Quota(Some("a@example.invalid".into())), false)
         );
         assert_eq!(
-            parse(&args(&["switch", "abc", "--target", "cli"])).unwrap(),
+            parse(&args(&["switch", "abc", "--target", "ide"])).unwrap(),
             (
                 Command::Switch {
                     selector: "abc".into(),
-                    target: "cli".into()
+                    target: "ide".into()
                 },
                 false
             )
@@ -326,6 +342,7 @@ mod tests {
         for input in [
             &["switch"][..],
             &["switch", "a", "--target", "unknown"],
+            &["switch", "a", "--target", "cli"],
             &["quota", "--refresh"],
             &["export"],
             &["list", "--json", "--json"],
@@ -334,6 +351,12 @@ mod tests {
         ] {
             assert_eq!(parse(&args(input)).unwrap_err().code, 2);
         }
+    }
+    #[test]
+    fn missing_app_cannot_fall_back_to_file_only_switch() {
+        assert!(ensure_cli_switch_target(None, false).is_err());
+        assert!(ensure_cli_switch_target(None, true).is_ok());
+        assert!(ensure_cli_switch_target(Some("ide"), false).is_ok());
     }
     #[test]
     fn errors_do_not_echo_secrets() {

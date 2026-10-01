@@ -315,21 +315,68 @@ fn clients() -> ProcessState {
         if pid.as_u32() == own {
             continue;
         }
-        let name = proc.name().to_string_lossy().to_ascii_lowercase();
-        if name.starts_with("antigravity-tools") || name.starts_with("antigravity_tools") {
-            continue;
-        }
-        let named = name.contains("antigravity") || name == "agy" || name == "agy.exe";
-        let configured = proc.exe().is_some_and(|p| {
-            paths
-                .iter()
-                .any(|configured| p == configured || p.starts_with(configured))
-        });
-        if named || configured {
+        if is_client_process(&proc.name().to_string_lossy(), proc.exe(), &paths) {
             return ProcessState::Running;
         }
     }
     ProcessState::Closed
+}
+
+fn is_client_process(
+    name: &str,
+    executable: Option<&std::path::Path>,
+    configured_paths: &[std::path::PathBuf],
+) -> bool {
+    let name = name.to_ascii_lowercase();
+    if name.starts_with("antigravity-tools") || name.starts_with("antigravity_tools") {
+        return false;
+    }
+    if name.contains("antigravity") || name == "agy" || name == "agy.exe" {
+        return true;
+    }
+    executable.is_some_and(|path| {
+        let normalized = path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .to_ascii_lowercase();
+        // Some background executors have generic process names but still live in
+        // the client's installation/data tree after its visible window closes.
+        normalized.contains("/antigravity.app/")
+            || normalized.contains("/antigravity ide.app/")
+            || normalized.contains("/antigravity-ide/")
+            || normalized.contains("/antigravity/")
+            || normalized.contains("/antigravity-cli/")
+            || configured_paths
+                .iter()
+                .any(|configured| configured_client_path(path, configured))
+    })
+}
+
+fn configured_client_path(path: &std::path::Path, configured: &std::path::Path) -> bool {
+    if path == configured || path.starts_with(configured) {
+        return true;
+    }
+    let normalized = configured.to_string_lossy().replace('\\', "/");
+    if let Some(end) = normalized.to_ascii_lowercase().find(".app/") {
+        return path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .starts_with(&normalized[..end + 5]);
+    }
+    let Some(root) = configured.parent() else {
+        return false;
+    };
+    if matches!(
+        root.to_str(),
+        Some("/" | "/bin" | "/usr/bin" | "/usr/local/bin")
+    ) {
+        return false;
+    }
+    // Only the configured executable's resource/framework children, not arbitrary
+    // sibling executables, belong to this installation.
+    path.starts_with(root.join("resources"))
+        || path.starts_with(root.join("Resources"))
+        || path.starts_with(root.join("Frameworks"))
 }
 
 /// Compare credentials privately. No token or raw authentication error is exposed
@@ -477,6 +524,43 @@ fn commit_guard(
     }
 }
 
+/// Only the external environment is injectable. Production and isolated tests
+/// run the same coordinator, account switch locks, journal and index updates.
+trait Environment: Clone + Send + Sync + 'static {
+    fn now(&self) -> i64;
+    fn clients(&self) -> ProcessState;
+    fn fetch_quota<'a>(
+        &'a self,
+        account: &'a mut Account,
+    ) -> impl std::future::Future<Output = Result<QuotaData, String>> + Send + 'a;
+    fn save_quota(&self, id: &str, quota: QuotaData) -> Result<(), String> {
+        account::update_account_quota(id, quota)
+    }
+    fn verify_source(&self, source: &Account, target: Target) -> Result<(), &'static str>;
+    fn write_credentials(&self, target: &Account) -> Result<(), String>;
+}
+#[derive(Clone)]
+struct NativeEnvironment;
+impl Environment for NativeEnvironment {
+    fn now(&self) -> i64 {
+        chrono::Utc::now().timestamp()
+    }
+    fn clients(&self) -> ProcessState {
+        clients()
+    }
+    async fn fetch_quota(&self, account: &mut Account) -> Result<QuotaData, String> {
+        account::fetch_quota_with_retry(account)
+            .await
+            .map_err(|_| "no_quota".into())
+    }
+    fn verify_source(&self, source: &Account, target: Target) -> Result<(), &'static str> {
+        verify_source(source, target)
+    }
+    fn write_credentials(&self, target: &Account) -> Result<(), String> {
+        integration::write_to_system_keyring(target, false)
+    }
+}
+
 pub fn start(app: tauri::AppHandle) {
     let runtime = app.state::<Runtime>();
     if let Ok(mut d) = runtime.data.lock() {
@@ -581,6 +665,9 @@ pub fn get_auto_switch_status(app: tauri::AppHandle) -> Result<Status, String> {
 #[tauri::command]
 pub fn cancel_auto_switch(app: tauri::AppHandle, pending_id: String) -> Result<Status, String> {
     let runtime = app.state::<Runtime>();
+    cancel_pending(&runtime, &pending_id)
+}
+fn cancel_pending(runtime: &Runtime, pending_id: &str) -> Result<Status, String> {
     let mut d = runtime
         .data
         .lock()
@@ -609,9 +696,13 @@ pub async fn check_auto_switch_now(app: tauri::AppHandle) -> Result<Status, Stri
     get_auto_switch_status(app)
 }
 
-async fn refresh(app: &tauri::AppHandle, id: &str, force: bool) -> Result<Account, &'static str> {
-    let now = chrono::Utc::now().timestamp();
-    let runtime = app.state::<Runtime>();
+async fn refresh<E: Environment>(
+    runtime: &Runtime,
+    environment: &E,
+    id: &str,
+    force: bool,
+) -> Result<Account, &'static str> {
+    let now = environment.now();
     let should_refresh = {
         let mut d = runtime.data.lock().map_err(|_| "no_quota")?;
         let after = d.refresh_after.get(id).copied().unwrap_or(0);
@@ -625,28 +716,26 @@ async fn refresh(app: &tauri::AppHandle, id: &str, force: bool) -> Result<Accoun
     };
     let mut a = account::load_account(id).map_err(|_| "account_unavailable")?;
     if should_refresh {
-        let quota = match account::fetch_quota_with_retry(&mut a).await {
-            Ok(q) => {
-                runtime
-                    .data
-                    .lock()
-                    .map_err(|_| "no_quota")?
-                    .refresh_failed
-                    .remove(id);
-                q
-            }
-            Err(_) => {
-                runtime
-                    .data
-                    .lock()
-                    .map_err(|_| "no_quota")?
-                    .refresh_failed
-                    .insert(id.into());
-                return Err("no_quota");
-            }
-        };
-        account::update_account_quota(id, quota).map_err(|_| "no_quota")?;
+        // Leave a failure marker through fetch, persistence AND reread. Otherwise
+        // a throttled next tick could reuse an obsolete high-quota snapshot.
+        runtime
+            .data
+            .lock()
+            .map_err(|_| "no_quota")?
+            .refresh_failed
+            .insert(id.into());
+        let quota = environment
+            .fetch_quota(&mut a)
+            .await
+            .map_err(|_| "no_quota")?;
+        environment.save_quota(id, quota).map_err(|_| "no_quota")?;
         a = account::load_account(id).map_err(|_| "account_unavailable")?;
+        runtime
+            .data
+            .lock()
+            .map_err(|_| "no_quota")?
+            .refresh_failed
+            .remove(id);
     }
     if runtime
         .data
@@ -659,18 +748,32 @@ async fn refresh(app: &tauri::AppHandle, id: &str, force: bool) -> Result<Accoun
     }
     Ok(a)
 }
-fn update_status(app: &tauri::AppHandle, revision: u64, status: Status) {
-    if let Ok(mut d) = app.state::<Runtime>().data.lock() {
+fn update_status(runtime: &Runtime, revision: u64, status: Status) {
+    if let Ok(mut d) = runtime.data.lock() {
         if d.revision == revision {
+            if status.phase == "blocked" {
+                d.pending = None;
+            }
             d.status = status;
         }
     }
 }
 
 async fn evaluate(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
-    let runtime = app.state::<Runtime>();
+    if evaluate_core(&app.state::<Runtime>(), NativeEnvironment, force).await? {
+        let _ = app.emit("tray://account-switched", ());
+        crate::modules::tray::update_tray_menus(app);
+    }
+    Ok(())
+}
+
+async fn evaluate_core<E: Environment>(
+    runtime: &Runtime,
+    environment: E,
+    force: bool,
+) -> Result<bool, String> {
     let Ok(_tick) = runtime.tick.try_lock() else {
-        return Ok(());
+        return Ok(false);
     };
     let (config, revision, previous, cooldown) = {
         let d = runtime.data.lock().map_err(|_| "State unavailable")?;
@@ -682,9 +785,9 @@ async fn evaluate(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
         )
     };
     if !config.enabled || runtime.data.lock().map_err(|_| "State unavailable")?.failed {
-        return Ok(());
+        return Ok(false);
     }
-    let now = chrono::Utc::now().timestamp();
+    let now = environment.now();
     let mut status = Status {
         phase: "monitoring".into(),
         mode: config.mode,
@@ -694,24 +797,24 @@ async fn evaluate(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
     if now < cooldown {
         status = previous;
         status.last_checked = Some(now);
-        update_status(app, revision, status);
-        return Ok(());
+        update_status(runtime, revision, status);
+        return Ok(false);
     }
     let source_id = match account::get_current_account_id()? {
         Some(id) => id,
         None => {
             status.set("blocked", "no_current_account");
-            update_status(app, revision, status);
-            return Ok(());
+            update_status(runtime, revision, status);
+            return Ok(false);
         }
     };
     status.source_account_id = Some(source_id.clone());
-    let source = match refresh(app, &source_id, force).await {
+    let source = match refresh(runtime, &environment, &source_id, force).await {
         Ok(a) => a,
         Err(reason) => {
             status.set("blocked", reason);
-            update_status(app, revision, status);
-            return Ok(());
+            update_status(runtime, revision, status);
+            return Ok(false);
         }
     };
     status.source_email = Some(source.email.clone());
@@ -719,33 +822,34 @@ async fn evaluate(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
         Ok(p) => p,
         Err(reason) => {
             status.set("blocked", reason);
-            update_status(app, revision, status);
-            return Ok(());
+            update_status(runtime, revision, status);
+            return Ok(false);
         }
     };
     status.remaining_percentage = Some(low);
     {
         let mut d = runtime.data.lock().map_err(|_| "State unavailable")?;
         if d.revision != revision {
-            return Ok(());
+            return Ok(false);
         }
         if d.pending.as_ref().is_some_and(|p| p.source_id != source_id) {
             d.pending = None;
-            d.canceled_source = None;
         }
         if low > config.reserve_percentage as f64 {
             d.pending = None;
-            if low >= config.candidate_min_percentage as f64 && d.canceled_source.is_some() {
+            if low >= config.candidate_min_percentage as f64
+                && d.canceled_source.as_deref() == Some(source_id.as_str())
+            {
                 write_pause(None, false)?;
                 d.canceled_source = None;
             }
             d.status = status;
-            return Ok(());
+            return Ok(false);
         }
         if d.canceled_source.as_deref() == Some(&source_id) {
             status.set("canceled", "canceled_until_recovery");
             d.status = status;
-            return Ok(());
+            return Ok(false);
         }
     }
     let mut candidate = None;
@@ -753,7 +857,7 @@ async fn evaluate(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
         if id == &source_id {
             continue;
         }
-        if let Ok(a) = refresh(app, id, force).await {
+        if let Ok(a) = refresh(runtime, &environment, id, force).await {
             if account_remaining(&a, &config.monitored_model, now)
                 .is_ok_and(|p| p >= config.candidate_min_percentage as f64)
             {
@@ -768,24 +872,25 @@ async fn evaluate(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
             .revision
             != revision
         {
-            return Ok(());
+            return Ok(false);
         }
     }
     let Some(candidate) = candidate else {
         status.set("blocked", "no_candidate");
-        update_status(app, revision, status);
-        return Ok(());
+        update_status(runtime, revision, status);
+        return Ok(false);
     };
     status.target_account_id = Some(candidate.id.clone());
     status.target_email = Some(candidate.email.clone());
-    let process_state = tokio::task::spawn_blocking(clients)
+    let process_environment = environment.clone();
+    let process_state = tokio::task::spawn_blocking(move || process_environment.clients())
         .await
         .unwrap_or(ProcessState::Unknown);
     status.process_state = process_state;
     let pending = {
         let mut d = runtime.data.lock().map_err(|_| "State unavailable")?;
         if d.revision != revision {
-            return Ok(());
+            return Ok(false);
         }
         let result = advance_pending(&mut d, &source_id, &candidate.id, now, process_state);
         status.pending_id = Some(result.id.clone());
@@ -800,33 +905,33 @@ async fn evaluate(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
     // Two observations separated by >=3s improve race detection. They cannot stop
     // an uncoordinated external client from launching during a credential write.
     if !pending.closed_since.is_some_and(|since| now - since >= 3) {
-        return Ok(());
+        return Ok(false);
     }
     let integration = ClosedOnlyIntegration {
         data: runtime.data.clone(),
         pending: pending.clone(),
         config: config.clone(),
+        environment,
     };
     status.set("pending", "checking");
-    update_status(app, revision, status);
+    update_status(runtime, revision, status);
     let result =
         account::switch_account(&candidate.id, config.target.argument(), &integration).await;
     let mut d = runtime.data.lock().map_err(|_| "State unavailable")?;
     d.commit_started = false;
     if d.revision != revision {
-        return Ok(());
+        return Ok(false);
     }
+    let committed = result.is_ok();
     match result {
         Ok(()) => {
             d.pending = None;
             d.status.pending_id = None;
             d.status.set("completed", "credentials_updated");
             d.cooldown_until = now + COOLDOWN_SECONDS;
-            if write_pause(None, false).is_err() {
+            if write_pause(d.canceled_source.clone(), false).is_err() {
                 d.failed = true;
             }
-            let _ = app.emit("tray://account-switched", ());
-            crate::modules::tray::update_tray_menus(app);
         }
         Err(_) => {
             // Authentication writes can fail partially. Never loop over identities
@@ -850,15 +955,16 @@ async fn evaluate(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
             }
         }
     }
-    Ok(())
+    Ok(committed)
 }
 
-struct ClosedOnlyIntegration {
+struct ClosedOnlyIntegration<E: Environment> {
     data: Arc<Mutex<RuntimeData>>,
     pending: Pending,
     config: Config,
+    environment: E,
 }
-impl integration::SystemIntegration for ClosedOnlyIntegration {
+impl<E: Environment> integration::SystemIntegration for ClosedOnlyIntegration<E> {
     async fn on_account_switch(
         &self,
         target: &Account,
@@ -868,48 +974,63 @@ impl integration::SystemIntegration for ClosedOnlyIntegration {
         let p = self.pending.clone();
         let config = self.config.clone();
         let target = target.clone();
+        let environment = self.environment.clone();
         tokio::task::spawn_blocking(move || {
-            let mut d = data.lock().map_err(|_| "state_unavailable")?;
-            let fail = |d: &mut RuntimeData, reason: &str| -> Result<(), String> {
-                d.status.set("blocked", reason);
+            let report = |reason: &str| -> Result<(), String> {
+                if let Ok(mut d) = data.lock() {
+                    if d.revision == p.revision {
+                        d.status.set("blocked", reason);
+                    }
+                }
                 Err(reason.into())
             };
-            if read_config()? != config {
-                return fail(&mut d, "configuration_required");
+            // Slow native reads run without the status mutex. Cancel/settings and
+            // status polling remain responsive until the actual commit boundary.
+            let source_before = account::load_account(&p.source_id)?;
+            if let Err(reason) = environment.verify_source(&source_before, config.target) {
+                return report(reason);
             }
+            // Serialize the final snapshot against in-process quota/deletion/index
+            // changes. The outer account::switch_account also holds both switch locks.
+            let _account_write = account::lock_account_file_updates()?;
             let source = account::load_account(&p.source_id)?;
             let latest_target = account::load_account(&target.id)?;
-            let now = chrono::Utc::now().timestamp();
+            if source.token.refresh_token != source_before.token.refresh_token {
+                return report("credentials_changed");
+            }
             let current = account::get_current_account_id()?;
-            if let Err(reason) = commit_guard(
-                &d,
-                &p,
-                &config,
-                current.as_deref(),
-                &source,
-                &latest_target,
-                now,
-                clients(),
-            ) {
-                return fail(&mut d, reason);
+            {
+                let mut d = data.lock().map_err(|_| "state_unavailable")?;
+                // A completed Cancel/Disable owns the newer visible state.
+                if d.revision != p.revision {
+                    return Err("request_changed".into());
+                }
+                if read_config()? != config {
+                    d.status.set("blocked", "configuration_required");
+                    return Err("configuration_required".into());
+                }
+                if let Err(reason) = commit_guard(
+                    &d,
+                    &p,
+                    &config,
+                    current.as_deref(),
+                    &source,
+                    &latest_target,
+                    environment.now(),
+                    environment.clients(),
+                ) {
+                    d.status.set("blocked", reason);
+                    return Err(reason.into());
+                }
+                // Journal before writes. Polling can now observe switching, and
+                // mutators reject promptly rather than waiting on a keyring call.
+                write_pause(Some(p.source_id.clone()), true)?;
+                d.commit_started = true;
+                d.status.set("switching", "checking");
             }
-            if let Err(reason) = verify_source(&source, config.target) {
-                return fail(&mut d, reason);
-            }
-            // Verify once more after potentially slow keyring access.
-            match clients() {
-                ProcessState::Running => return fail(&mut d, "clients_running"),
-                ProcessState::Unknown => return fail(&mut d, "process_unknown"),
-                ProcessState::Closed => {}
-            }
-            // A crash or partial credential commit must never auto-retry on restart.
-            // Persist the fail-closed journal before any credential write.
-            write_pause(Some(p.source_id.clone()), true)?;
-            d.commit_started = true;
-            d.status.set("switching", "checking");
-            // account::switch_account holds BOTH the in-process and PR5's
-            // cross-process switch locks for this callback and the index update.
-            integration::write_to_system_keyring(&target, false)?;
+            // Write the freshest target token, not the account clone from before
+            // token refresh/initial preflight.
+            environment.write_credentials(&latest_target)?;
             Ok(())
         })
         .await
@@ -1110,7 +1231,7 @@ mod tests {
         );
     }
     #[test]
-    fn both_modes_fake_end_to_end_only_commit_after_client_exit() {
+    fn both_modes_guard_and_file_fixture_only_commit_after_client_exit() {
         for mode in [Mode::Wait, Mode::Stop] {
             let home = tempfile::tempdir().unwrap();
             let session = home.path().join("native-session");
@@ -1177,6 +1298,56 @@ mod tests {
         assert_eq!(native_session_exists(&path), Err("credentials_changed"));
     }
     #[test]
+    fn background_executors_are_not_mistaken_for_closed_clients() {
+        use std::path::Path;
+        assert!(is_client_process("AGY.exe", None, &[]));
+        assert!(is_client_process(
+            "language_server_macos",
+            Some(Path::new(
+                "/Applications/Antigravity.app/Contents/Resources/server"
+            )),
+            &[]
+        ));
+        assert!(is_client_process(
+            "language_server",
+            Some(Path::new(r"C:\Users\test\Programs\Antigravity\server.exe")),
+            &[]
+        ));
+        assert!(is_client_process(
+            "crashpad_handler",
+            Some(Path::new(
+                "/Applications/Antigravity IDE.app/Contents/Frameworks/helper"
+            )),
+            &[]
+        ));
+        assert!(is_client_process(
+            "language_server",
+            Some(Path::new("/opt/antigravity-ide/resources/server")),
+            &[]
+        ));
+        assert!(is_client_process(
+            "language_server",
+            Some(Path::new("/opt/custom/resources/server")),
+            &[Path::new("/opt/custom/client").to_path_buf()]
+        ));
+        assert!(!is_client_process(
+            "other_program",
+            Some(Path::new("/usr/bin/resources/helper")),
+            &[Path::new("/usr/bin/agy").to_path_buf()]
+        ));
+        assert!(!is_client_process(
+            "antigravity-tools",
+            Some(Path::new("/Applications/Antigravity.app/tools")),
+            &[]
+        ));
+        assert!(!is_client_process(
+            "bash",
+            Some(Path::new("/bin/bash")),
+            &[]
+        ));
+    }
+
+    #[test]
     fn pause_record_roundtrip_contains_no_credentials() {
         let pause = PauseRecord {
             source_id: Some("A".into()),
@@ -1188,5 +1359,310 @@ mod tests {
         assert!(restored.failed);
         assert!(!encoded.contains("token"));
         assert!(!encoded.contains("email"));
+    }
+    #[derive(Clone)]
+    struct FixtureEnvironment {
+        now: Arc<std::sync::atomic::AtomicI64>,
+        process: Arc<std::sync::atomic::AtomicU8>,
+        writes: Arc<std::sync::atomic::AtomicUsize>,
+        source_checks: Arc<std::sync::atomic::AtomicUsize>,
+        fail_save: Arc<std::sync::atomic::AtomicBool>,
+        low_backup: Arc<std::sync::atomic::AtomicBool>,
+        fail_write: Arc<std::sync::atomic::AtomicBool>,
+        on_verify: Arc<Mutex<Option<Box<dyn Fn() + Send + Sync>>>>,
+    }
+    impl Default for FixtureEnvironment {
+        fn default() -> Self {
+            Self {
+                now: Arc::new(std::sync::atomic::AtomicI64::new(NOW)),
+                process: Arc::new(std::sync::atomic::AtomicU8::new(1)),
+                writes: Arc::default(),
+                source_checks: Arc::default(),
+                fail_save: Arc::default(),
+                low_backup: Arc::default(),
+                fail_write: Arc::default(),
+                on_verify: Arc::default(),
+            }
+        }
+    }
+    impl Environment for FixtureEnvironment {
+        fn now(&self) -> i64 {
+            self.now.load(std::sync::atomic::Ordering::SeqCst)
+        }
+        fn clients(&self) -> ProcessState {
+            match self.process.load(std::sync::atomic::Ordering::SeqCst) {
+                0 => ProcessState::Closed,
+                1 => ProcessState::Running,
+                _ => ProcessState::Unknown,
+            }
+        }
+        async fn fetch_quota(&self, a: &mut Account) -> Result<QuotaData, String> {
+            let mut q = if a.id == "B" && self.low_backup.load(std::sync::atomic::Ordering::SeqCst)
+            {
+                quota(0.01, 0.9)
+            } else {
+                a.quota.clone().unwrap()
+            };
+            q.last_updated = self.now();
+            Ok(q)
+        }
+        fn save_quota(&self, id: &str, q: QuotaData) -> Result<(), String> {
+            if id == "B" && self.fail_save.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("injected quota persistence failure".into());
+            }
+            account::update_account_quota(id, q)
+        }
+        fn verify_source(&self, source: &Account, _target: Target) -> Result<(), &'static str> {
+            self.source_checks
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if let Some(callback) = self.on_verify.lock().unwrap().take() {
+                callback();
+            }
+            let path = account::get_data_dir().unwrap().join("fixture-native.json");
+            let value: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+            if value["token"]["refresh_token"] == source.token.refresh_token {
+                Ok(())
+            } else {
+                Err("credentials_changed")
+            }
+        }
+        fn write_credentials(&self, target: &Account) -> Result<(), String> {
+            // Proves production account::switch_account took the cross-process
+            // lock before entering the injected native boundary.
+            let root = account::get_data_dir()?;
+            assert!(
+                matches!(crate::cli::SwitchLock::acquire(&root),Err(e) if e=="another_account_switch_in_progress")
+            );
+            self.writes
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            cli_credentials::write_session(
+                &root.join("fixture-native.json"),
+                &cli_credentials::payload(&target.token)?,
+            )?;
+            // Simulate metadata saved by another caller while native work finishes;
+            // final last-used handling must retain it rather than saving an old clone.
+            let mut latest = account::load_account(&target.id)?;
+            latest.custom_label = Some("keep-concurrent-label".into());
+            account::save_account(&latest)?;
+            if self.fail_write.load(std::sync::atomic::Ordering::SeqCst) {
+                Err("injected partial credential commit".into())
+            } else {
+                Ok(())
+            }
+        }
+    }
+    fn fixture_setup(mode: Mode) -> Runtime {
+        let root = account::get_data_dir().unwrap();
+        let a = account_fixture("A", 0.08, 0.5);
+        let b = account_fixture("B", 0.8, 0.8);
+        account::save_account(&a).unwrap();
+        account::save_account(&b).unwrap();
+        let index: crate::models::AccountIndex = serde_json::from_value(
+            serde_json::json!({"version":"2.0","current_account_id":"A","accounts":[
+                {"id":"A","email":a.email,"created_at":1,"last_used":1},
+                {"id":"B","email":b.email,"created_at":1,"last_used":1}
+            ]}),
+        )
+        .unwrap();
+        account::save_account_index(&index).unwrap();
+        cli_credentials::write_session(
+            &root.join("fixture-native.json"),
+            &cli_credentials::payload(&a.token).unwrap(),
+        )
+        .unwrap();
+        let c = config(mode);
+        crate::utils::fs::write_atomic(&config_path().unwrap(), &serde_json::to_vec(&c).unwrap())
+            .unwrap();
+        write_pause(None, false).unwrap();
+        Runtime {
+            data: Arc::new(Mutex::new(RuntimeData {
+                config: c,
+                ..RuntimeData::default()
+            })),
+            tick: tokio::sync::Mutex::new(()),
+        }
+    }
+    #[test]
+    fn production_coordinator_in_isolated_process() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "modules::auto_switch::tests::coordinator_fixture_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("ABV_DATA_DIR", directory.path())
+            .env("AGY_SAFE_SWITCH_FIXTURE", directory.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    #[test]
+    #[ignore = "helper launched only with an isolated temporary account store"]
+    fn coordinator_fixture_child() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let Some(root) = std::env::var_os("AGY_SAFE_SWITCH_FIXTURE") else {
+            return;
+        };
+        assert_eq!(std::env::var_os("ABV_DATA_DIR"), Some(root));
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            for mode in [Mode::Wait, Mode::Stop] {
+                let r = fixture_setup(mode);
+                let env = FixtureEnvironment::default();
+                assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+                assert_eq!(r.data.lock().unwrap().status.phase, "pending");
+                env.process.store(2, SeqCst);
+                assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+                assert_eq!(
+                    r.data.lock().unwrap().status.reason.as_deref(),
+                    Some("process_unknown")
+                );
+                env.process.store(0, SeqCst);
+                env.now.store(NOW + 5, SeqCst);
+                assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+                env.now.store(NOW + 10, SeqCst);
+                assert!(evaluate_core(&r, env.clone(), false).await.unwrap());
+                assert_eq!(
+                    account::get_current_account_id().unwrap().as_deref(),
+                    Some("B")
+                );
+                assert_eq!(
+                    account::load_account("B").unwrap().custom_label.as_deref(),
+                    Some("keep-concurrent-label")
+                );
+                assert_eq!(env.source_checks.load(SeqCst), 1);
+                assert_eq!(env.writes.load(SeqCst), 1);
+                assert_eq!(r.data.lock().unwrap().status.phase, "completed");
+                assert!(!read_pause().unwrap().failed);
+                assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+                assert_eq!(env.writes.load(SeqCst), 1);
+            }
+            // The shared switch core preserves newer quota/disable metadata.
+            fixture_setup(Mode::Wait);
+            account::switch_merge_fixture_check();
+            // Cancel A, visit healthy B, then return to still-low A: A remains canceled.
+            let r = fixture_setup(Mode::Wait);
+            let env = FixtureEnvironment::default();
+            evaluate_core(&r, env.clone(), false).await.unwrap();
+            let id = r.data.lock().unwrap().status.pending_id.clone().unwrap();
+            cancel_pending(&r, &id).unwrap();
+            account::set_current_account_id("B").unwrap();
+            evaluate_core(&r, env.clone(), false).await.unwrap();
+            assert_eq!(r.data.lock().unwrap().canceled_source.as_deref(), Some("A"));
+            account::set_current_account_id("A").unwrap();
+            env.process.store(0, SeqCst);
+            env.now.store(NOW + 10, SeqCst);
+            assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+            assert_eq!(r.data.lock().unwrap().status.phase, "canceled");
+            assert_eq!(env.writes.load(SeqCst), 0);
+            // A successful unrelated B -> C switch must persist A's cancellation.
+            let c = account_fixture("C", 0.8, 0.8);
+            account::save_account(&c).unwrap();
+            let mut index = account::load_account_index().unwrap();
+            index.accounts.push(
+                serde_json::from_value(
+                    serde_json::json!({"id":"C","email":c.email,"created_at":1,"last_used":1}),
+                )
+                .unwrap(),
+            );
+            account::save_account_index(&index).unwrap();
+            {
+                let mut data = r.data.lock().unwrap();
+                data.config.candidate_account_ids.push("C".into());
+                crate::utils::fs::write_atomic(
+                    &config_path().unwrap(),
+                    &serde_json::to_vec(&data.config).unwrap(),
+                )
+                .unwrap();
+            }
+            account::set_current_account_id("B").unwrap();
+            account::update_account_quota("B", quota(0.08, 0.8)).unwrap();
+            let b = account::load_account("B").unwrap();
+            cli_credentials::write_session(
+                &account::get_data_dir().unwrap().join("fixture-native.json"),
+                &cli_credentials::payload(&b.token).unwrap(),
+            )
+            .unwrap();
+            env.now.store(NOW + 15, SeqCst);
+            assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+            env.now.store(NOW + 20, SeqCst);
+            assert!(evaluate_core(&r, env.clone(), false).await.unwrap());
+            assert_eq!(
+                account::get_current_account_id().unwrap().as_deref(),
+                Some("C")
+            );
+            assert_eq!(read_pause().unwrap().source_id.as_deref(), Some("A"));
+            // Cancel during a slow native identity read must stay visibly canceled.
+            let r = Arc::new(fixture_setup(Mode::Wait));
+            let env = FixtureEnvironment::default();
+            env.process.store(0, SeqCst);
+            evaluate_core(&r, env.clone(), false).await.unwrap();
+            let id = r.data.lock().unwrap().status.pending_id.clone().unwrap();
+            let cancel_runtime = r.clone();
+            *env.on_verify.lock().unwrap() = Some(Box::new(move || {
+                cancel_pending(&cancel_runtime, &id).unwrap();
+            }));
+            env.now.store(NOW + 5, SeqCst);
+            assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+            assert_eq!(r.data.lock().unwrap().status.phase, "canceled");
+            assert_eq!(env.writes.load(SeqCst), 0);
+            // A fresh low backup response which failed to persist may not fall
+            // back to the older high cached record during the throttle window.
+            let r = fixture_setup(Mode::Wait);
+            let env = FixtureEnvironment::default();
+            env.low_backup.store(true, SeqCst);
+            env.fail_save.store(true, SeqCst);
+            assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+            env.now.store(NOW + 5, SeqCst);
+            assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+            assert_eq!(
+                r.data.lock().unwrap().status.reason.as_deref(),
+                Some("no_candidate")
+            );
+            assert_eq!(env.writes.load(SeqCst), 0);
+            // A partial native write leaves the index at A and a durable failure
+            // journal; no subsequent coordinator tick is allowed to retry.
+            let r = fixture_setup(Mode::Stop);
+            let env = FixtureEnvironment::default();
+            env.process.store(0, SeqCst);
+            env.fail_write.store(true, SeqCst);
+            evaluate_core(&r, env.clone(), false).await.unwrap();
+            env.now.store(NOW + 5, SeqCst);
+            assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+            assert_eq!(
+                account::get_current_account_id().unwrap().as_deref(),
+                Some("A")
+            );
+            assert!(read_pause().unwrap().failed);
+            assert!(r.data.lock().unwrap().failed);
+            env.now.store(NOW + 70, SeqCst);
+            evaluate_core(&r, env.clone(), false).await.unwrap();
+            assert_eq!(env.writes.load(SeqCst), 1);
+            // Wrong native identity is rejected by the actual integration callback.
+            let r = fixture_setup(Mode::Wait);
+            let env = FixtureEnvironment::default();
+            env.process.store(0, SeqCst);
+            let b = account::load_account("B").unwrap();
+            cli_credentials::write_session(
+                &account::get_data_dir().unwrap().join("fixture-native.json"),
+                &cli_credentials::payload(&b.token).unwrap(),
+            )
+            .unwrap();
+            evaluate_core(&r, env.clone(), false).await.unwrap();
+            env.now.store(NOW + 5, SeqCst);
+            assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+            assert_eq!(env.writes.load(SeqCst), 0);
+            assert_eq!(
+                account::get_current_account_id().unwrap().as_deref(),
+                Some("A")
+            );
+        });
     }
 }
