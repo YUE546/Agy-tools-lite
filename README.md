@@ -145,6 +145,13 @@ Based on [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Mana
 
 Tools Lite includes a local management CLI named `agy-lite`: list accounts, read the recorded current account and cached quota, and explicitly switch accounts using the same safe path as the GUI. It is separate from Google’s `agy`; `current` is a local record and `quota` does not refresh live data. See [CLI usage](docs/cli.md).
 
-The older v4.7.6 release does not include this management CLI.
+[v4.7.7](https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.7.7) includes this CLI; older v4.7.6 packages do not. On Apple Silicon macOS, the cask in this repository installs the app and links its bundled command as `agy-lite`:
 
-[Homebrew packaging](docs/homebrew.md) generates an Apple Silicon macOS cask with the release ZIP’s real SHA-256 and installs both the app and `agy-lite`. The verified cask will live under this repository's root `Casks/` directory, using Homebrew's explicit-URL tap form. That entry and its installation must be published and tested before the installation commands are advertised as available; see the [release checklist](docs/release-checklist.md).
+```sh
+brew tap anglee0323/antigravity-tools-lite https://github.com/anglee0323/antigravity-tools-lite.git
+brew install --cask anglee0323/antigravity-tools-lite/antigravity-tools-lite
+agy-lite --version
+agy-lite --help
+```
+
+The recipe pins the published ZIP's verified SHA-256. Native Homebrew installation, upgrade and uninstall acceptance is still pending; this is not a claim that the unsigned app has passed macOS trust checks. Keep a backup of an existing manually installed app and resolve any app-folder conflict yourself without deleting account data. Homebrew does not install Google's `agy`. See [Homebrew verification and limitations](docs/homebrew.md).

@@ -1,0 +1,52 @@
+name: Homebrew recipe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - Casks/**
+      - packaging/homebrew/**
+      - scripts/generate-homebrew.mjs
+      - .github/workflows/homebrew-cask.yml
+  push:
+    branches: [main]
+    paths:
+      - Casks/**
+      - packaging/homebrew/**
+      - scripts/generate-homebrew.mjs
+      - .github/workflows/homebrew-cask.yml
+
+permissions:
+  contents: read
+
+jobs:
+  recipe:
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_ANALYTICS: 1
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Load the cask and fetch its real archive without installing
+        run: |
+          set -euo pipefail
+          ruby -c Casks/antigravity-tools-lite.rb
+          TAP="anglee0323/antigravity-tools-lite"
+          TAP_PATH="$(brew --repository)/Library/Taps/anglee0323/homebrew-antigravity-tools-lite"
+          mkdir -p "$(dirname "$TAP_PATH")"
+          ln -s "$GITHUB_WORKSPACE" "$TAP_PATH"
+          brew readall "$TAP"
+          brew fetch --cask "$TAP/antigravity-tools-lite"
+          VERSION="$(node -p "require('./package.json').version")"
+          ARCHIVE="$RUNNER_TEMP/Antigravity-Tools-Lite-${VERSION}-macos-arm64.zip"
+          cp "$(brew --cache --cask "$TAP/antigravity-tools-lite")" "$ARCHIVE"
+          node scripts/generate-homebrew.mjs --archive "$ARCHIVE" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/Antigravity-Tools-Lite-${VERSION}-macos-arm64.zip" \
+            --version "$VERSION" --output "$RUNNER_TEMP/verified-cask.rb"
+          cmp Casks/antigravity-tools-lite.rb "$RUNNER_TEMP/verified-cask.rb"
