@@ -1,6 +1,6 @@
 # Antigravity App localization (WIP, disabled)
 
-This draft implements a Settings subsection, migration-safe opt-in configuration, bounded read-only App version detection, and an independently tested reversible runtime. **It does not yet provide working App localization.** There is no production adapter or CDP transport in this build. Both UI controls and backend commands fail closed; editing the saved flag cannot enable injection. Do not merge or advertise this feature until the real-App validation gate below passes.
+This draft implements a Settings subsection, migration-safe opt-in configuration, bounded read-only App version detection, and an independently tested reversible runtime. **It does not yet provide working App localization.** There is no production adapter or enabled CDP connection path in this build. A dormant constrained transport is exercised only against a synthetic loopback server. Both UI controls and backend commands fail closed; editing the saved flag cannot enable injection. Do not merge or advertise this feature until the real-App validation gate below passes.
 
 No new navigation tab is added. Tools' existing display language is independent. No installation files, account data, credentials, system startup entries, security settings or debugging flags are changed. No upstream installer is executed.
 
@@ -62,11 +62,34 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml --lib client_localizati
 
 The 27 runtime tests cover exact writes, all exclusion categories, original-value rollback, legitimate concurrent changes, reapply/reinjection, DOM drift, unknown versions, lease expiry and the source-derived Settings shape. Rust tests cover default-off migration, separation from Tools' language, safe package identity/version parsing, bounded malformed-ASAR handling and the server-side unsupported-version gate.
 
+## Constrained transport (dormant)
+
+`modules/localization_transport.rs` is not connected to any Tauri command. Its public-in-crate inputs require a complete OS observation of listener addresses/owner PID and independently verified App server origin; the platform evidence collector is still pending. The transport itself:
+
+- accepts only an observed 127.0.0.1 listener owned by the expected browser PID; rejects any non-loopback/mismatched binding in the observation
+- validates the two-line official active-port file, and creates a direct WebSocket connection with no proxy, discovery scan, redirect, wildcard Origin or TLS override
+- checks `SystemInfo.getProcessInfo` before page enumeration and each operation
+- considers only page targets at the exact independently verified local App origin; never treats the first target as trusted
+- rechecks target identity and origin before evaluation, and guards `location.origin` inside the synchronous script to cover navigation races
+- exposes only fixed probe/apply/renew/dispose scripts with bundled runtime/dictionary data. It accepts no arbitrary script or selector from the UI or endpoint
+- caps messages at 256 KiB, event processing at 64 messages, targets at eight, and each request at two seconds
+- discards remote descriptions/page data and returns only a small allowlisted status report
+- detaches sessions after an operation; disconnect stops future lease renewal, allowing the runtime to restore its own changes
+- probes through the existing controller or a private host facade, preserving an active controller
+
+Pure validation tests cover URL aliases, redirection attempts, non-loopback and wrong-PID evidence, response IDs/errors, target scope and JavaScript interpolation. Three synthetic localhost WebSocket tests cover the complete constrained protocol, rejection before page access for a wrong PID, and a bounded timeout. These are not real-App E2E tests and do not enable the feature.
+
+## Candidate coverage beyond the first control
+
+The official 2.19.1 source has fixed global Settings navigation entries for General, Application (internal ID App), Appearance, Skin, Notifications, Models, Customizations, Developer, Tab and Editor, plus Shortcuts and Provide Feedback. Their labels are a reasonable next review batch, followed by individually identified static labels/tooltips inside those Settings screens.
+
+Do not blindly allow all `settings-nav-item-*` nodes: workspace and project names reuse the same component and identifier prefix. A user can name a project General or Models. Each future adapter must also verify the exact top-level global-navigation group, reject collisions and exclude Account's user-name/email content. The current test-only Settings-button fixture is a proof of the lifecycle and boundary, not a claim of full-App coverage.
+
 ## Required before enabling/merging
 
 1. Obtain actual App DOM evidence in an authorized environment that supports normal Chromium sandbox and Unix sockets; retain the existing temporary-profile/no-account boundary until separate access is authorized
 2. Verify the minimal Settings-label adapter in real rendering, including duplicate/user-content lookalikes, navigation, label updates, shutdown and recovery
-3. Implement a reviewed, local-only transport that verifies the App process, installation, exact release, target origin and loopback listener; never blindly attach to all targets
+3. Finish the platform evidence collector and wire the dormant reviewed transport only after verifying the App process, installation, exact release, target origin and complete loopback listener ownership; never blindly attach to all targets
 4. Verify lease renewal, cleanup on disconnect and disabling; an account switch must not fail because optional localization failed
 5. Run platform-specific integration tests. Add only validated versions/platforms to the production registry; unknown builds remain blocked
 6. Review the enabled feature and update the Settings notice only after real validation passes
