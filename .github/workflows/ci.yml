@@ -50,6 +50,11 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Test menu-bar quota presentation
+        run: node scripts/test-menubar-logic.mjs
+
+      - name: Test desktop preference UI races
+        run: node scripts/test-desktop-settings.mjs
       - name: Install Chromium for mocked UI acceptance
         if: runner.os == 'Linux'
         run: npx playwright install --with-deps chromium
@@ -64,6 +69,14 @@ jobs:
         with:
           name: auto-switch-ui-acceptance
           path: test-results/auto-switch
+          if-no-files-found: ignore
+
+      - name: Upload menu-bar mock browser screenshots
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: menubar-ui-mock-acceptance
+          path: test-results/auto-switch/**/menubar-*.png
           if-no-files-found: ignore
 
       - name: Set up Rust

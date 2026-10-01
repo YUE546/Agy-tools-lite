@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use super::account::get_data_dir;
+use crate::models::config::DesktopPreferences;
 use crate::models::AppConfig;
 
 const CONFIG_FILE: &str = "gui_config.json";
@@ -50,12 +51,12 @@ fn load_config_at(path: &Path) -> Result<AppConfig, String> {
 fn save_config_at(path: &Path, config: &AppConfig) -> Result<(), String> {
     let _guard = lock_config()?;
     let mut next = config.clone();
-    // Only the dedicated toggle may change this preference. Ordinary settings
-    // saves preserve the current disk value, even if their UI snapshot is stale.
-    // A new/legacy configuration always starts with localization disabled.
-    next.app_localization = read_config_unlocked(path)?
-        .map(|current| current.app_localization)
-        .unwrap_or_default();
+    // Only dedicated setters may change these preferences. Ordinary settings
+    // saves preserve current disk values even if their UI snapshot is stale.
+    // New/legacy configurations always start with both opt-ins disabled.
+    let current = read_config_unlocked(path)?.unwrap_or_default();
+    next.app_localization = current.app_localization;
+    next.desktop = current.desktop;
     write_config_unlocked(path, &next)
 }
 
@@ -66,13 +67,20 @@ fn set_localization_enabled_at(path: &Path, enabled: bool) -> Result<(), String>
     write_config_unlocked(path, &config)
 }
 
+fn set_desktop_preferences_at(path: &Path, preferences: &DesktopPreferences) -> Result<(), String> {
+    let _guard = lock_config()?;
+    let mut config = read_config_unlocked(path)?.unwrap_or_default();
+    config.desktop = preferences.clone();
+    write_config_unlocked(path, &config)
+}
+
 /// Load application configuration.
 pub fn load_app_config() -> Result<AppConfig, String> {
     load_config_at(&get_data_dir()?.join(CONFIG_FILE))
 }
 
 /// Save ordinary application settings atomically, preserving the separately
-/// managed App-localization preference from the current configuration on disk.
+/// managed localization and desktop preferences from current disk configuration.
 pub fn save_app_config(config: &AppConfig) -> Result<(), String> {
     save_config_at(&get_data_dir()?.join(CONFIG_FILE), config)
 }
@@ -81,6 +89,13 @@ pub fn save_app_config(config: &AppConfig) -> Result<(), String> {
 /// used by ordinary configuration writes, preserving all other current settings.
 pub fn set_app_localization_enabled(enabled: bool) -> Result<(), String> {
     set_localization_enabled_at(&get_data_dir()?.join(CONFIG_FILE), enabled)
+}
+
+/// Persist only the desktop preferences after their OS-backed transaction.
+/// The dedicated writer retains localization and ordinary settings saved by
+/// another window while the OS operation was in progress.
+pub fn set_saved_desktop_preferences(preferences: &DesktopPreferences) -> Result<(), String> {
+    set_desktop_preferences_at(&get_data_dir()?.join(CONFIG_FILE), preferences)
 }
 
 #[cfg(test)]
@@ -206,6 +221,115 @@ mod tests {
         });
         let actual = load_config_at(&path).unwrap();
         assert!(!actual.app_localization.enabled);
+        assert_eq!(actual.theme, "dark");
+    }
+
+    #[test]
+    fn ordinary_first_save_cannot_enable_desktop_preferences() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(CONFIG_FILE);
+        let mut proposed = AppConfig::new();
+        proposed.desktop = DesktopPreferences {
+            launch_at_login: true,
+            hide_dock_icon: true,
+            start_minimized: true,
+        };
+        save_config_at(&path, &proposed).unwrap();
+        let actual = load_config_at(&path).unwrap();
+        assert!(!actual.desktop.launch_at_login);
+        assert!(!actual.desktop.hide_dock_icon);
+        assert!(!actual.desktop.start_minimized);
+    }
+
+    #[test]
+    fn dedicated_preferences_survive_stale_ordinary_and_each_others_writes() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(CONFIG_FILE);
+        let mut stale = load_config_at(&path).unwrap();
+        set_localization_enabled_at(&path, true).unwrap();
+        let desktop = DesktopPreferences {
+            launch_at_login: true,
+            hide_dock_icon: true,
+            start_minimized: true,
+        };
+        set_desktop_preferences_at(&path, &desktop).unwrap();
+        stale.theme = "dark".into();
+        save_config_at(&path, &stale).unwrap();
+        let actual = load_config_at(&path).unwrap();
+        assert!(actual.app_localization.enabled);
+        assert!(actual.desktop.launch_at_login);
+        assert!(actual.desktop.hide_dock_icon);
+        assert!(actual.desktop.start_minimized);
+        assert_eq!(actual.theme, "dark");
+
+        let mut stale = actual;
+        set_localization_enabled_at(&path, false).unwrap();
+        set_desktop_preferences_at(&path, &DesktopPreferences::default()).unwrap();
+        stale.language = "en".into();
+        save_config_at(&path, &stale).unwrap();
+        let actual = load_config_at(&path).unwrap();
+        assert!(!actual.app_localization.enabled);
+        assert!(!actual.desktop.launch_at_login);
+        assert!(!actual.desktop.hide_dock_icon);
+        assert!(!actual.desktop.start_minimized);
+        assert_eq!(actual.theme, "dark");
+        assert_eq!(actual.language, "en");
+    }
+
+    #[test]
+    fn desktop_writer_refuses_to_overwrite_malformed_configuration() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(CONFIG_FILE);
+        let original = b"{broken existing config";
+        fs::write(&path, original).unwrap();
+        assert!(set_desktop_preferences_at(&path, &DesktopPreferences::default()).is_err());
+        assert_eq!(fs::read(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn concurrent_desktop_localization_and_ordinary_writers_preserve_final_opt_outs() {
+        use std::sync::{Arc, Barrier};
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(CONFIG_FILE);
+        let enabled = DesktopPreferences {
+            launch_at_login: true,
+            hide_dock_icon: true,
+            start_minimized: true,
+        };
+        set_desktop_preferences_at(&path, &enabled).unwrap();
+        set_localization_enabled_at(&path, true).unwrap();
+        let mut stale = load_config_at(&path).unwrap();
+        stale.theme = "dark".into();
+        let start = Arc::new(Barrier::new(3));
+        std::thread::scope(|scope| {
+            let ordinary_path = path.clone();
+            let ordinary_start = start.clone();
+            scope.spawn(move || {
+                ordinary_start.wait();
+                for _ in 0..16 {
+                    save_config_at(&ordinary_path, &stale).unwrap();
+                }
+            });
+            let localization_path = path.clone();
+            let localization_start = start.clone();
+            scope.spawn(move || {
+                localization_start.wait();
+                for _ in 0..16 {
+                    set_localization_enabled_at(&localization_path, true).unwrap();
+                    set_localization_enabled_at(&localization_path, false).unwrap();
+                }
+            });
+            start.wait();
+            for _ in 0..16 {
+                set_desktop_preferences_at(&path, &enabled).unwrap();
+                set_desktop_preferences_at(&path, &DesktopPreferences::default()).unwrap();
+            }
+        });
+        let actual = load_config_at(&path).unwrap();
+        assert!(!actual.app_localization.enabled);
+        assert!(!actual.desktop.launch_at_login);
+        assert!(!actual.desktop.hide_dock_icon);
+        assert!(!actual.desktop.start_minimized);
         assert_eq!(actual.theme, "dark");
     }
 }

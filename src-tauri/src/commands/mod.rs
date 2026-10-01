@@ -201,6 +201,8 @@ pub async fn load_config() -> Result<AppConfig, String> {
 /// 保存配置
 #[tauri::command]
 pub async fn save_config(app: tauri::AppHandle, config: AppConfig) -> Result<(), String> {
+    // Ordinary saves preserve dedicated desktop/localization preferences under
+    // the same configuration lock, including stale snapshots from other windows.
     modules::save_app_config(&config)?;
     let _ = app.emit("config://updated", ());
     Ok(())
@@ -418,8 +420,8 @@ pub async fn get_data_dir_path() -> Result<String, String> {
 
 /// 显示主窗口
 #[tauri::command]
-pub async fn show_main_window(window: tauri::Window) -> Result<(), String> {
-    window.show().map_err(|e| e.to_string())
+pub async fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    modules::desktop::show_main(&app)
 }
 
 /// 设置窗口主题（用于同步 Windows 标题栏按钮颜色）

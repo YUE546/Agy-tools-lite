@@ -6,6 +6,7 @@ import { AppConfig } from '../types/config';
 import { request as invoke } from '../utils/request';
 import { showToast } from '../components/common/ToastContainer';
 import { open } from '@tauri-apps/plugin-dialog';
+import DesktopSettings from '../components/settings/DesktopSettings';
 import AppLocalizationSettings from '../components/settings/AppLocalizationSettings';
 import { AutoSwitchSettings } from '../components/autoSwitch/AutoSwitch';
 
@@ -288,6 +289,7 @@ function Settings() {
                             </div>
                         </div>
                     </section>
+                    <DesktopSettings />
                     <AppLocalizationSettings />
                 </div>
             </div>
