@@ -22,7 +22,33 @@ cargo build --locked --manifest-path src-tauri/Cargo.toml
 ./src-tauri/target/debug/antigravity-tools accounts list
 ```
 
-On Linux, the installed `antigravity-tools` executable accepts these arguments too. CLI mode starts before Tauri/GTK initialization, so read-only commands do not need a display. This is the same executable as the desktop app and still depends on its installed platform libraries; it is not a standalone server binary. On Windows, use `antigravity-tools.exe` with the same arguments.
+On Linux, the installed `antigravity-tools` executable accepts these arguments too. CLI mode starts before Tauri/GTK initialization, so read-only commands do not need a display. This is the same executable as the desktop app and still depends on its installed platform libraries; it is not a standalone server binary.
+
+### Windows shell invocation
+
+The Windows release `antigravity-tools.exe` keeps the GUI subsystem so normal app startup does not open a console. CLI mode attaches to the parent's console, but a shell can return its prompt before a GUI executable exits. Use explicit waiting when completion and exit codes matter. For read-only commands in PowerShell:
+
+```powershell
+$exe = (Resolve-Path .\antigravity-tools.exe).Path
+$process = Start-Process -FilePath $exe -ArgumentList 'accounts list' -NoNewWindow -Wait -PassThru
+$process.ExitCode
+```
+
+Read the returned process's `ExitCode`, not `$LASTEXITCODE` from `Start-Process`. For JSON capture, pass `-RedirectStandardOutput` and `-RedirectStandardError` as well; they must name different files:
+
+```powershell
+$out = [IO.Path]::GetTempFileName()
+$err = [IO.Path]::GetTempFileName()
+try {
+    $process = Start-Process -FilePath $exe -ArgumentList 'accounts list --json' -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+    if ($process.ExitCode -eq 0) { Get-Content -Raw $out | ConvertFrom-Json }
+    else { Get-Content -Raw $err; Write-Error "agy-lite exited with code $($process.ExitCode)" }
+} finally { Remove-Item $out, $err }
+```
+
+These calls use PowerShell's documented [waiting, process-result and redirection options](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/start-process). Programmatic callers should likewise wait for the child process and capture stdout and stderr separately.
+
+For `switch`, omit `Start-Process`'s `-Wait`: that option waits for descendants too and may keep waiting until the relaunched Antigravity app closes. Instead keep `-PassThru`, call `$process.WaitForExit()`, then inspect `$process.ExitCode`. [.NET's `WaitForExit()`](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.process.waitforexit) waits for the CLI process itself. The usual account-switching precautions below still apply.
 
 ## Commands
 
@@ -79,5 +105,7 @@ node --test scripts/test-homebrew-generator.mjs
 ```
 
 The launch regression test compiles the production process-launch functions with a synthetic configuration and harmless child executable; it covers manual/auto-detected launches, JSON output and timely pipe EOF without credentials.
+
+The separate `Release CLI` workflow builds actual optimized Windows and Linux executables and runs the same synthetic-data smoke test. Windows also runs `scripts/test-windows-cli.ps1`, which checks the GUI PE subsystem, `Start-Process -Wait` and `WaitForExit()` completion/exit codes, and redirected JSON success/errors. Inherited-I/O checks establish completion and exit codes; console text visibility and a real account switch still need interactive acceptance. Debug smoke alone does not establish release shell behavior.
 
 The smoke test uses a temporary data directory and synthetic tokens. It does not call `switch`, log in, contact Google or modify real accounts. Real credential-store switches and Homebrew installation require platform testing before a release is advertised as verified.

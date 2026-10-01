@@ -1,0 +1,54 @@
+name: Release CLI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-cli:
+    name: ${{ matrix.platform }} release CLI
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev git cmake clang libclang-dev pkg-config
+      - run: npm run build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: release-cli-${{ matrix.platform }}
+      - name: Build actual release executable
+        run: cargo build --release --locked --manifest-path src-tauri/Cargo.toml
+      - name: Test release CLI with captured stdout and stderr
+        shell: bash
+        run: |
+          BINARY=src-tauri/target/release/antigravity-tools
+          if [[ "$RUNNER_OS" == Windows ]]; then BINARY="${BINARY}.exe"; fi
+          node scripts/test-cli.mjs "$BINARY"
+      - name: Test Windows release CLI with explicit PowerShell waiting
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-cli.ps1 -Binary ./src-tauri/target/release/antigravity-tools.exe
