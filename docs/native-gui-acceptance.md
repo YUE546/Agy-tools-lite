@@ -81,3 +81,19 @@ computer. It is not a claim that environment variables sandbox Windows Known Fol
 - [Tauri manual native driver setup](https://v2.tauri.app/develop/tests/webdriver/manual-setup/)
 - [Microsoft WebView2 WebDriver testing](https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/webdriver)
 - [GitHub Windows runner image](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)
+
+## First hosted run: known limitations (2026-10-01)
+
+The initial Windows run used matching WebView2/EdgeDriver 153.0.4234.48 and completed
+isolation/cleanup, but native session creation timed out. WebView2 150+ deliberately
+ignores environment-based debugging overrides for elevated host processes; see
+[Microsoft's explanation](https://github.com/MicrosoftEdge/WebView2Feedback/issues/5645)
+and the [upstream testing issue](https://github.com/webdriverio/desktop-mobile/issues/542).
+The locked Wry 0.54.1/hosted administrator combination remains blocked. This is not a
+Windows GUI pass. This lane does not change registry policies, weaken security, or
+modify the production dependency to force a pass.
+
+The initial Linux run reached a real app PID and real IPC, but rejected a two-color
+first capture. Screenshots now wait for fonts and painted frames, then validate
+pixels for a bounded rendering window. An image still rejected is retained with a
+`.rejected.png` suffix for diagnosis only; pixel thresholds remain unchanged.

@@ -1,7 +1,7 @@
 // Real Tauri/WebDriver acceptance. No IPC mocks, real accounts, or desktop capture.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, lstatSync, rmSync, readlinkSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, lstatSync, rmSync, readlinkSync, readdirSync, realpathSync } from 'node:fs';
 import { join, resolve, dirname, isAbsolute } from 'node:path';
 import { tmpdir, platform, release } from 'node:os';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
@@ -15,7 +15,7 @@ if (!selfTest) {
     assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted', 'Self-hosted/user machines are excluded');
     assert.ok(['win32', 'linux'].includes(platform()));
 }
-const root = mkdtempSync(join(tmpdir(), 'agy-lite-native-'));
+const root = mkdtempSync(join(realpathSync(tmpdir()), 'agy-lite-native-'));
 const home = join(root, 'home'), data = join(root, 'data');
 const output = resolve('artifacts/native-gui');
 const owned = [root];
@@ -122,8 +122,20 @@ async function ipc(commandName) {
 async function screenshot(name) {
     const layout = await execute("return {width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth+1,route:location.pathname,theme:document.documentElement.dataset.theme,text:document.body.innerText.length}");
     assert.equal(layout.overflow, false); assert.ok(layout.text > 100);
-    const bytes = Buffer.from(await command('GET', '/screenshot'), 'base64');
-    const pixels = inspectPng(bytes); writeFileSync(join(output, name + '.png'), bytes);
+    await command('POST', '/execute/async', { script: 'const done=arguments[arguments.length-1]; document.fonts.ready.then(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>done(true))));', args: [] });
+    let bytes, pixels;
+    try {
+        await until(async () => {
+            bytes = Buffer.from(await command('GET', '/screenshot'), 'base64');
+            pixels = inspectPng(bytes); return true;
+        }, `nonblank native pixels for ${name}`, 10000);
+    } catch (e) {
+        // Diagnostic comes only from our app session. Never reuse a rejected image as acceptance evidence.
+        if (bytes) writeFileSync(join(output, name + '.rejected.png'), bytes);
+        report.rejected_capture = { name, ...layout, diagnostic: await execute("return {ready:document.readyState,visible:document.visibilityState,background:getComputedStyle(document.documentElement).backgroundColor,stylesheets:document.styleSheets.length}") };
+        throw e;
+    }
+    writeFileSync(join(output, name + '.png'), bytes);
     report.screenshots.push({ file: name + '.png', ...layout, ...pixels });
 }
 function appProcesses(binary) {
