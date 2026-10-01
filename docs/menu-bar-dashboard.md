@@ -8,11 +8,15 @@ On macOS the panel uses the system Popover vibrancy material over a transparent 
 
 A browser preview uses synthetic data and CSS to approximate the material. It cannot verify native macOS desktop blur or accessibility changes.
 
+The default Overview separates active identity, saved-account readiness, and per-pool usable-account counts. Counts use all saved accounts as the denominator. Every reported/required window must be known, fresh and above the configured reserve threshold. Stale/expired, missing-window, validation-blocked, forbidden and locally protected data is never counted as usable. Model fallback and group pools remain separate; percentages are never added or averaged.
+
+Choosing an account only changes the inspected view. A separate **Use this account** button invokes the existing switching command. Disabled accounts remain inspectable. Machine-local token totals appear only in Overview, never as per-account usage.
+
 The panel includes:
 - The active account, subscription tier and quota update age
 - Each **reported** quota pool and window, with remaining percentages and reset countdowns
 - Pinned model quotas when the server does not report grouped windows
-- Today's locally recorded tokens and requests, explicitly spanning all accounts on the device
+- Today's locally recorded tokens and requests, clearly marked as not attributed to individual accounts
 - Saved-account switching through the same backend as the full application
 - Refresh, account management, full dashboard, settings and quit actions
 

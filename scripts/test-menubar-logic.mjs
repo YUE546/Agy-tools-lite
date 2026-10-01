@@ -23,6 +23,9 @@ const {
   quotaPages,
   pageSlice,
   pageSizeForHeight,
+  summarizeAccounts,
+  accountReadiness,
+  quotaThreshold,
 } = await import(
   `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
 );
@@ -186,5 +189,154 @@ test("short display work areas reduce page size instead of scrolling or clipping
   assert.equal(pageSizeForHeight(400), 3);
   assert.equal(pageSizeForHeight(330), 2);
   assert.equal(pageSizeForHeight(280), 1);
+});
+
+const overviewNow = Date.parse("2026-10-01T12:00:00Z");
+const quotaAccount = (id, session = 0.8, weekly = 0.6) => ({
+  id,
+  email: `${id}@example.com`,
+  quota: {
+    last_updated: overviewNow / 1000 - 30,
+    models: [],
+    quota_groups: [
+      {
+        display_name: "Gemini Models",
+        buckets: [
+          {
+            bucket_id: "session",
+            window: "5h",
+            remaining_fraction: session,
+            reset_time: "2026-10-01T16:00:00Z",
+          },
+          {
+            bucket_id: "week",
+            window: "weekly",
+            remaining_fraction: weekly,
+            reset_time: "2026-10-07T12:00:00Z",
+          },
+        ],
+      },
+    ],
+  },
+});
+test("overview counts all saved accounts and excludes stale, disabled and unknown quota", () => {
+  const fresh = quotaAccount("fresh");
+  const low = quotaAccount("low", 0.8, 0.05);
+  const stale = quotaAccount("stale");
+  stale.quota.last_updated -= 3600;
+  const disabled = { ...quotaAccount("disabled"), disabled: true };
+  const unknown = { id: "unknown", email: "unknown@example.com" };
+  const result = summarizeAccounts(
+    [fresh, low, stale, disabled, unknown],
+    10,
+    15,
+    overviewNow,
+  );
+  assert.deepEqual(
+    [
+      result.total,
+      result.healthy,
+      result.low,
+      result.unavailable,
+      result.unknown,
+    ],
+    [5, 1, 1, 1, 2],
+  );
+  assert.deepEqual(
+    [
+      result.pools[0].total,
+      result.pools[0].usable,
+      result.pools[0].low,
+      result.pools[0].unavailable,
+      result.pools[0].unknown,
+    ],
+    [5, 1, 1, 1, 2],
+  );
+});
+test("a healthy session cannot mask an exhausted weekly window", () => {
+  assert.equal(
+    summarizeAccounts([quotaAccount("low", 1, 0)], 10, 15, overviewNow).pools[0]
+      .usable,
+    0,
+  );
+});
+test("missing quota windows are unverified instead of unlimited", () => {
+  const partial = quotaAccount("partial");
+  partial.quota.quota_groups[0].buckets.pop();
+  const result = summarizeAccounts(
+    [quotaAccount("complete"), partial],
+    10,
+    15,
+    overviewNow,
+  );
+  assert.equal(result.pools[0].usable, 1);
+  assert.equal(result.pools[0].unknown, 1);
+  assert.equal(result.statuses.partial, "unknown");
+  assert.equal(result.healthy, 1);
+});
+test("protection, validation and expired reset snapshots are never usable", () => {
+  const protectedAccount = {
+    ...quotaAccount("protected"),
+    protected_models: ["gemini-3-pro-high"],
+  };
+  const verification = {
+    ...quotaAccount("verification"),
+    validation_blocked: true,
+  };
+  const expired = quotaAccount("expired");
+  expired.quota.quota_groups[0].buckets[0].reset_time = "2026-10-01T11:59:00Z";
+  const result = summarizeAccounts(
+    [protectedAccount, verification, expired],
+    10,
+    15,
+    overviewNow,
+  );
+  assert.equal(result.pools[0].usable, 0);
+  assert.equal(result.unavailable, 1);
+  assert.equal(result.unknown, 2);
+});
+test("group quotas and model fallback are not merged or summed", () => {
+  const grouped = quotaAccount("grouped");
+  const model = {
+    id: "model",
+    quota: {
+      last_updated: overviewNow / 1000,
+      models: [{ name: "Gemini Models", percentage: 70, reset_time: "" }],
+    },
+  };
+  const result = summarizeAccounts([grouped, model], 10, 15, overviewNow);
+  assert.equal(result.pools.length, 2);
+  assert.deepEqual(
+    result.pools.map((pool) => [pool.usable, pool.total]),
+    [
+      [1, 2],
+      [1, 2],
+    ],
+  );
+});
+test("configured threshold is read without enabling automatic switching", () => {
+  assert.equal(quotaThreshold(undefined), 10);
+  assert.equal(quotaThreshold(150), 10);
+  assert.equal(
+    accountReadiness(quotaAccount("fifty", 0.5, 0.5), 50, 15, overviewNow),
+    "low",
+  );
+  assert.equal(
+    accountReadiness(quotaAccount("fifty", 0.5, 0.5), 10, 15, overviewNow),
+    "healthy",
+  );
+});
+test("view selection does not invoke credential activation", () => {
+  const ui = readFileSync(
+    new URL("../src/pages/MenuBarDashboard.tsx", import.meta.url),
+    "utf8",
+  );
+  const handler = ui.slice(
+    ui.indexOf("const viewAccount ="),
+    ui.indexOf("const refresh ="),
+  );
+  assert.doesNotMatch(handler, /request\(|switchAccount\(/);
+  assert.match(ui, /onClick=\{\(\) => viewAccount\(account.id\)\}/);
+  assert.match(ui, /Use this account/);
 });
 console.log(`${passed} tests passed`);

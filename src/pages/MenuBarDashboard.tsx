@@ -28,6 +28,9 @@ import {
   quotaPages,
   pageSlice,
   pageSizeForHeight,
+  summarizeAccounts,
+  accountReadiness,
+  quotaThreshold,
 } from "../utils/menuBarQuota";
 import { getMenuBarMessages } from "../components/menubar/messages";
 import "../components/menubar/MenuBarDashboard.css";
@@ -42,6 +45,7 @@ interface MenuBarAppearance {
 interface LocalUsage {
   today: { total_tokens: number; request_count: number };
   unreadable_databases?: number;
+  skipped_large_records?: number;
 }
 const shortNumber = (value: number, language: string) =>
   new Intl.NumberFormat(language, {
@@ -61,6 +65,9 @@ export default function MenuBarDashboard() {
   const config = useConfigStore((state) => state.config);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [current, setCurrent] = useState<Account | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
+    null,
+  );
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
   const [quotaPage, setQuotaPage] = useState(0);
   const [panelHeight, setPanelHeight] = useState(window.innerHeight);
@@ -177,15 +184,43 @@ export default function MenuBarDashboard() {
   }, [hide]);
   const open = (page: "dashboard" | "accounts" | "settings") =>
     void runAction(() => request("open_app_page", { page }));
+  const viewedAccount =
+    accounts.find((account) => account.id === selectedAccountId) || null;
+  const isOverview = viewedAccount === null;
+  const threshold = quotaThreshold(
+    config?.quota_protection?.threshold_percentage,
+  );
+  const overview = useMemo(
+    () => summarizeAccounts(accounts, threshold, config?.refresh_interval, now),
+    [accounts, threshold, config?.refresh_interval, now],
+  );
+  // Viewing is deliberately separate from credential activation.
+  const viewAccount = (accountId: string | null) => {
+    setSelectedAccountId(accountId);
+    setAccountPickerOpen(false);
+    setQuotaPage(0);
+    setNotice("");
+    setError("");
+  };
   const refresh = async () => {
-    if (operationLock.current || !current) return;
+    if (operationLock.current || !accounts.length) return;
     operationLock.current = true;
     generation.current++;
     setOperation("refresh");
     setError("");
     setNotice("");
     try {
-      await request("fetch_account_quota", { accountId: current.id });
+      if (viewedAccount) {
+        await request("fetch_account_quota", { accountId: viewedAccount.id });
+      } else {
+        const stats = await request<{ failed: number }>("refresh_all_quotas");
+        if (stats.failed)
+          setError(
+            i18n.language.startsWith("zh")
+              ? `${stats.failed} 个账号刷新失败，仍显示已保存的数据。`
+              : `${stats.failed} accounts could not refresh. Saved snapshots remain visible.`,
+          );
+      }
       await reload();
       void loadUsage();
     } catch (e) {
@@ -223,11 +258,14 @@ export default function MenuBarDashboard() {
   };
   const groups = useMemo(
     () =>
-      compactQuotaGroups(current?.quota, config?.pinned_quota_models?.models),
-    [current?.quota, config?.pinned_quota_models?.models],
+      compactQuotaGroups(
+        viewedAccount?.quota,
+        config?.pinned_quota_models?.models,
+      ),
+    [viewedAccount?.quota, config?.pinned_quota_models?.models],
   );
   const stale = isQuotaStale(
-    current?.quota?.last_updated,
+    viewedAccount?.quota?.last_updated,
     config?.refresh_interval,
     now,
   );
@@ -238,10 +276,10 @@ export default function MenuBarDashboard() {
     if (hours < 24) return `${hours}${t.hours} ${minutes % 60}${t.minutes}`;
     return `${Math.floor(hours / 24)}${t.days} ${hours % 24}${t.hours}`;
   };
-  const updated = current?.quota?.last_updated
-    ? now - current.quota.last_updated * 1000 < 60_000
+  const updated = viewedAccount?.quota?.last_updated
+    ? now - viewedAccount.quota.last_updated * 1000 < 60_000
       ? t.justNow
-      : `${relativeDuration(now - current.quota.last_updated * 1000)} ${t.ago}`
+      : `${relativeDuration(now - viewedAccount.quota.last_updated * 1000)} ${t.ago}`
     : t.never;
   const resetLabel = (value: string) => {
     const timestamp = resetTimestamp(value);
@@ -272,18 +310,43 @@ export default function MenuBarDashboard() {
   );
   const visibleAccounts = pageSlice(accounts, selectedAccountPage, pageSize);
   const chinese = i18n.language.startsWith("zh");
-  const viewLabel = accountPickerOpen
-    ? chinese
-      ? "返回额度"
-      : "Back to quota"
-    : chinese
-      ? "切换账号"
-      : "Switch account";
+  const overviewPageSize = Math.min(3, pageSize);
+  const poolPage = Math.min(
+    quotaPage,
+    Math.max(0, Math.ceil(overview.pools.length / overviewPageSize) - 1),
+  );
+  const visiblePools = pageSlice(overview.pools, poolPage, overviewPageSize);
   const heading = chinese ? "剩余额度" : "Remaining quota";
   const toggleAccounts = () => {
     setAccountPickerOpen((value) => !value);
     setAccountPage(0);
   };
+  const statusLabels = chinese
+    ? { healthy: "充足", low: "偏低", unavailable: "待处理", unknown: "未确认" }
+    : {
+        healthy: "Healthy",
+        low: "Low",
+        unavailable: "Attention",
+        unknown: "Unverified",
+      };
+  const activeViewed = viewedAccount?.id === current?.id;
+  const readiness = viewedAccount
+    ? overview.statuses[viewedAccount.id] ||
+      accountReadiness(viewedAccount, threshold, config?.refresh_interval, now)
+    : null;
+  const viewLabel = accountPickerOpen
+    ? chinese
+      ? "返回"
+      : "Back"
+    : isOverview
+      ? chinese
+        ? "查看账号"
+        : "View accounts"
+      : activeViewed
+        ? t.active
+        : chinese
+          ? "切换为此账号"
+          : "Use this account";
   const pager = (
     page: number,
     total: number,
@@ -317,25 +380,29 @@ export default function MenuBarDashboard() {
   return (
     <div
       className={`menubar-app mb-native ${appearance?.native_material ? "is-material" : "is-solid"} ${appearance?.high_contrast ? "is-high-contrast" : ""}`}
-      data-view={accountPickerOpen ? "accounts" : "quota"}
+      data-view={
+        accountPickerOpen ? "accounts" : isOverview ? "overview" : "quota"
+      }
     >
       <header className="mb-native-header">
         <div className="mb-native-identity">
           <div className="mb-native-product">
             Antigravity{" "}
-            <span>{current?.quota?.subscription_tier || "Lite"}</span>
+            <span>{viewedAccount?.quota?.subscription_tier || "Lite"}</span>
           </div>
           <button
             type="button"
             className="mb-native-account"
-            aria-label={t.accounts}
+            aria-label={chinese ? "选择查看范围" : "Choose view"}
             aria-expanded={accountPickerOpen}
             disabled={!accounts.length}
             onClick={toggleAccounts}
-            title={current?.email}
+            title={viewedAccount?.email}
           >
             <strong>
-              {current?.custom_label || current?.email || t.noAccount}
+              {isOverview
+                ? `${chinese ? "总览" : "Overview"} · ${accounts.length} ${chinese ? "个账号" : "accounts"}`
+                : viewedAccount.custom_label || viewedAccount.email}
             </strong>
             <ChevronDown size={13} />
           </button>
@@ -343,9 +410,21 @@ export default function MenuBarDashboard() {
         <button
           type="button"
           className="mb-native-icon"
-          aria-label={t.refresh}
-          title={t.refresh}
-          disabled={Boolean(operation) || !current || !isTauri()}
+          aria-label={
+            isOverview
+              ? chinese
+                ? "刷新全部账号"
+                : "Refresh all accounts"
+              : t.refresh
+          }
+          title={
+            isOverview
+              ? chinese
+                ? "刷新全部账号"
+                : "Refresh all accounts"
+              : t.refresh
+          }
+          disabled={Boolean(operation) || !accounts.length || !isTauri()}
           onClick={() => void refresh()}
         >
           <RefreshCw
@@ -366,7 +445,7 @@ export default function MenuBarDashboard() {
       <div
         className={`mb-native-status ${error ? "has-error" : notice ? "has-notice" : ""}`}
         role={error ? "alert" : "status"}
-        title={error || undefined}
+        title={error || viewedAccount?.email}
       >
         {error ? (
           <>
@@ -388,13 +467,15 @@ export default function MenuBarDashboard() {
           </>
         ) : (
           <>
-            <span className={`mb-status-dot ${stale ? "is-stale" : ""}`} />
+            <span
+              className={`mb-status-dot ${isOverview ? (current ? "" : "is-stale") : stale ? "is-stale" : ""}`}
+            />
             <span>
               {operation && operation !== "refresh"
                 ? t.switching
-                : stale && current
-                  ? `${t.stale} · ${updated}`
-                  : updated}
+                : isOverview
+                  ? `${chinese ? "当前使用" : "Active"}: ${current?.custom_label || current?.email || (chinese ? "未选择" : "None")}`
+                  : `${activeViewed ? t.active : chinese ? "仅查看，未切换" : "Viewing only"} · ${stale ? `${t.stale} · ` : ""}${updated}`}
             </span>
           </>
         )}
@@ -412,11 +493,13 @@ export default function MenuBarDashboard() {
             <span>{t.loading}</span>
           </div>
         ) : accountPickerOpen ? (
-          <section className="mb-native-picker" aria-label={t.accounts}>
+          <section
+            className="mb-native-picker"
+            aria-label={chinese ? "查看账号" : "View accounts"}
+          >
             <div className="mb-native-section-label">
               <h2>
-                {chinese ? "选择账号" : "Choose account"}{" "}
-                <span>{accounts.length}</span>
+                {chinese ? "选择查看的账号" : "Choose an account to inspect"}
               </h2>
               {pager(
                 selectedAccountPage,
@@ -425,66 +508,228 @@ export default function MenuBarDashboard() {
                 t.accounts,
               )}
             </div>
+            <button
+              type="button"
+              className={`mb-overview-choice ${isOverview ? "is-selected" : ""}`}
+              onClick={() => viewAccount(null)}
+            >
+              <span>
+                {isOverview && <Check size={12} />}
+                {chinese ? "全部账号总览" : "All accounts overview"}
+              </span>
+              <span>{accounts.length}</span>
+            </button>
             <div
               className="mb-native-account-list"
               style={{ "--account-page-size": pageSize } as React.CSSProperties}
             >
               {visibleAccounts.map((account) => {
                 const active = account.id === current?.id;
-                const allowed = isAccountSwitchable(account, now);
+                const selected = account.id === viewedAccount?.id;
+                const health =
+                  overview.statuses[account.id] ||
+                  accountReadiness(
+                    account,
+                    threshold,
+                    config?.refresh_interval,
+                    now,
+                  );
                 const remaining = lowestKnownQuota(account);
                 return (
                   <button
                     type="button"
                     key={account.id}
-                    className={`mb-native-option ${active ? "is-active" : ""}`}
-                    disabled={active || !allowed || Boolean(operation)}
-                    onClick={() => void switchAccount(account)}
-                    title={
-                      !allowed
-                        ? account.disabled_reason ||
-                          account.validation_blocked_reason ||
-                          t.disabled
-                        : account.email
-                    }
+                    className={`mb-native-option ${selected ? "is-active" : ""}`}
+                    onClick={() => viewAccount(account.id)}
+                    title={account.email}
                   >
                     <span className="mb-native-option-check">
-                      {operation === account.id ? (
-                        <Loader2 size={13} className="mb-spin" />
-                      ) : active ? (
-                        <Check size={13} />
-                      ) : null}
+                      {selected && <Check size={13} />}
                     </span>
                     <span className="mb-native-option-text">
                       <strong>
                         {account.custom_label || account.name || account.email}
                       </strong>
-                      <span>
-                        {allowed
-                          ? account.email
-                          : account.disabled
-                            ? t.disabled
-                            : t.verification}
-                      </span>
+                      <span>{account.email}</span>
                     </span>
-                    <span
-                      className={`mb-native-balance ${classForQuota(remaining)}`}
-                      title={t.quotaLower}
-                    >
-                      {remaining === null ? "—" : `${remaining}%`}
+                    <span className="mb-account-view-state">
+                      {active ? (
+                        <b>{t.active}</b>
+                      ) : (
+                        <span className={health === "low" ? "warning" : ""}>
+                          {statusLabels[health]}
+                        </span>
+                      )}
+                      <small>
+                        {health === "unknown" ||
+                        health === "unavailable" ||
+                        remaining === null
+                          ? "—"
+                          : `${remaining}%`}
+                      </small>
                     </span>
                   </button>
                 );
               })}
             </div>
             <div className="mb-native-picker-bottom">
-              <p>{t.switchHint}</p>
+              <p>
+                {chinese
+                  ? "点选只查看，切换需在详情页确认。"
+                  : "Selecting a row only changes this view."}
+              </p>
               <button type="button" onClick={() => open("accounts")}>
                 {t.addAccount}
                 <ExternalLink size={12} />
               </button>
             </div>
           </section>
+        ) : isOverview ? (
+          <>
+            <section
+              className="mb-overview-counts"
+              aria-label={chinese ? "账号状态" : "Account status"}
+              title={
+                chinese
+                  ? `充足：新鲜且全部已知窗口 > ${threshold}%；过期、缺失和受保护额度不计为可用`
+                  : `Healthy: fresh data and every known window above ${threshold}%. Stale, missing or protected data is unverified.`
+              }
+            >
+              {(["healthy", "low", "unavailable", "unknown"] as const).map(
+                (key) => (
+                  <div key={key}>
+                    <strong>{overview[key]}</strong>
+                    <span>{statusLabels[key]}</span>
+                  </div>
+                ),
+              )}
+            </section>
+            <section
+              className="mb-native-quotas mb-overview-pools"
+              aria-label={
+                chinese ? "各配额池可用账号" : "Usable accounts by pool"
+              }
+            >
+              <div className="mb-native-section-label">
+                <h2>
+                  {chinese ? "可用账号 / 全部账号" : "Usable / all accounts"}
+                </h2>
+                {pager(
+                  poolPage,
+                  Math.ceil(overview.pools.length / overviewPageSize),
+                  setQuotaPage,
+                  heading,
+                )}
+              </div>
+              {visiblePools.length ? (
+                <div
+                  className="mb-native-quota-list"
+                  style={
+                    {
+                      "--quota-rows": visiblePools.length,
+                    } as React.CSSProperties
+                  }
+                >
+                  {visiblePools.map((pool) => (
+                    <div className="mb-native-quota" key={pool.key}>
+                      <div className="mb-native-quota-title">
+                        <div>
+                          <span className="mb-native-model" title={pool.name}>
+                            {pool.name.replace(/ models?$/i, "")}
+                          </span>
+                        </div>
+                        <strong>
+                          {pool.usable}
+                          <span className="mb-count-denominator">
+                            {" "}
+                            / {pool.total}
+                          </span>
+                        </strong>
+                      </div>
+                      <div
+                        className="mb-pool-distribution"
+                        role="img"
+                        aria-label={`${pool.usable} ${chinese ? "可用" : "usable"}, ${pool.low} ${statusLabels.low}, ${pool.unknown} ${statusLabels.unknown}, ${pool.unavailable} ${statusLabels.unavailable}`}
+                      >
+                        <span
+                          className="is-usable"
+                          style={{
+                            width: `${(pool.usable / (pool.total || 1)) * 100}%`,
+                          }}
+                        />
+                        <span
+                          className="is-low"
+                          style={{
+                            width: `${(pool.low / (pool.total || 1)) * 100}%`,
+                          }}
+                        />
+                        <span
+                          className="is-unverified"
+                          style={{
+                            width: `${(pool.unknown / (pool.total || 1)) * 100}%`,
+                          }}
+                        />
+                      </div>
+                      <div className="mb-native-reset">
+                        {pool.low} {statusLabels.low} · {pool.unknown}{" "}
+                        {statusLabels.unknown} · {pool.unavailable}{" "}
+                        {statusLabels.unavailable}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mb-native-empty">
+                  <Users size={21} />
+                  <p>{accounts.length ? t.noQuota : t.noAccountHint}</p>
+                  <button onClick={() => open("accounts")}>
+                    {t.addAccount}
+                    <ChevronRight size={12} />
+                  </button>
+                </div>
+              )}
+              <p className="mb-overview-rule">
+                {chinese
+                  ? `所有已知窗口 > ${threshold}%，且数据有效；不累加额度百分比`
+                  : `Fresh, known windows above ${threshold}%; percentages are not summed`}
+              </p>
+            </section>
+            <section
+              className="mb-native-usage"
+              aria-label={
+                chinese
+                  ? "本机今日用量，未按账号拆分"
+                  : "Local usage today, not attributed to accounts"
+              }
+            >
+              <div>
+                <h2>{chinese ? "本机今日用量" : "Local usage today"}</h2>
+                <span>
+                  {chinese
+                    ? `${usage?.unreadable_databases || usage?.skipped_large_records ? "部分记录 · " : ""}未按账号拆分`
+                    : `${usage?.unreadable_databases || usage?.skipped_large_records ? "Partial · " : ""}Not attributed to accounts`}
+                </span>
+              </div>
+              {usage ? (
+                <div className="mb-native-usage-values">
+                  <div>
+                    <strong>
+                      {shortNumber(usage.today.total_tokens, i18n.language)}
+                    </strong>
+                    <span>tokens</span>
+                  </div>
+                  <div>
+                    <strong>
+                      {shortNumber(usage.today.request_count, i18n.language)}
+                    </strong>
+                    <span>{t.requests}</span>
+                  </div>
+                </div>
+              ) : (
+                <span className="mb-native-usage-missing">{t.noUsage}</span>
+              )}
+            </section>
+          </>
         ) : (
           <>
             <section className="mb-native-quotas" aria-label={heading}>
@@ -492,17 +737,7 @@ export default function MenuBarDashboard() {
                 <h2>{heading}</h2>
                 {pager(selectedQuotaPage, pages.length, setQuotaPage, heading)}
               </div>
-              {!current ? (
-                <div className="mb-native-empty">
-                  <Users size={23} />
-                  <strong>{t.noAccount}</strong>
-                  <p>{t.noAccountHint}</p>
-                  <button type="button" onClick={() => open("accounts")}>
-                    {t.addAccount}
-                    <ChevronRight size={12} />
-                  </button>
-                </div>
-              ) : current.quota?.is_forbidden ? (
+              {viewedAccount.quota?.is_forbidden ? (
                 <div className="mb-native-empty">
                   <CircleAlert size={21} />
                   <p>{t.forbidden}</p>
@@ -571,29 +806,28 @@ export default function MenuBarDashboard() {
                 </div>
               )}
             </section>
-            <section className="mb-native-usage" aria-label={t.today}>
+            <section className="mb-native-usage mb-account-detail-status">
               <div>
-                <h2>{chinese ? "今日用量" : "Today"}</h2>
-                <span>{chinese ? "本机全部账号" : "All local accounts"}</span>
+                <h2>{chinese ? "账号状态" : "Account status"}</h2>
+                <span>{readiness ? statusLabels[readiness] : t.unknown}</span>
               </div>
-              {usage ? (
-                <div className="mb-native-usage-values">
-                  <div>
-                    <strong>
-                      {shortNumber(usage.today.total_tokens, i18n.language)}
-                    </strong>
-                    <span>tokens</span>
-                  </div>
-                  <div>
-                    <strong>
-                      {shortNumber(usage.today.request_count, i18n.language)}
-                    </strong>
-                    <span>{t.requests}</span>
-                  </div>
-                </div>
-              ) : (
-                <span className="mb-native-usage-missing">{t.noUsage}</span>
-              )}
+              <p>
+                {viewedAccount.disabled
+                  ? chinese
+                    ? "登录已失效，请到账号管理处理"
+                    : "Login unavailable; open account management"
+                  : !isAccountSwitchable(viewedAccount, now)
+                    ? t.verification
+                    : readiness === "unknown"
+                      ? chinese
+                        ? "过期、缺失或受保护额度需确认"
+                        : "Stale, missing or protected quota needs verification"
+                      : activeViewed
+                        ? chinese
+                          ? "正在 Antigravity App 中使用"
+                          : "Active in Antigravity App"
+                        : t.switchHint}
+              </p>
             </section>
           </>
         )}
@@ -602,11 +836,34 @@ export default function MenuBarDashboard() {
         <button
           type="button"
           className="mb-native-switch"
-          disabled={!accounts.length || !isTauri()}
-          onClick={toggleAccounts}
+          disabled={
+            !accounts.length ||
+            !isTauri() ||
+            (!accountPickerOpen &&
+              !isOverview &&
+              (Boolean(operation) ||
+                activeViewed ||
+                !isAccountSwitchable(viewedAccount, now)))
+          }
+          title={!isOverview ? t.switchHint : undefined}
+          onClick={() =>
+            accountPickerOpen
+              ? setAccountPickerOpen(false)
+              : isOverview
+                ? toggleAccounts()
+                : void switchAccount(viewedAccount)
+          }
         >
-          {accountPickerOpen ? <ChevronLeft size={13} /> : <Users size={13} />}
-          {viewLabel}
+          {operation && operation !== "refresh" ? (
+            <Loader2 size={13} className="mb-spin" />
+          ) : accountPickerOpen ? (
+            <ChevronLeft size={13} />
+          ) : activeViewed ? (
+            <Check size={13} />
+          ) : (
+            <Users size={13} />
+          )}
+          {operation && operation !== "refresh" ? t.switching : viewLabel}
         </button>
         <div className="mb-native-footer-right">
           <button

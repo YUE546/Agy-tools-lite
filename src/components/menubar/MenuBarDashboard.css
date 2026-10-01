@@ -566,3 +566,116 @@
     --mb-bg: #282c32;
   }
 }
+
+.mb-overview-counts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  height: 47px;
+  flex: none;
+  border-bottom: 1px solid var(--mb-line);
+  margin-bottom: 8px;
+}
+.mb-overview-counts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mb-overview-counts strong {
+  font-size: 16px;
+  line-height: 20px;
+  font-weight: 550;
+}
+.mb-overview-counts span {
+  font-size: 10px;
+  color: var(--mb-muted);
+}
+.mb-overview-pools .mb-native-quota-list {
+  gap: 5px;
+}
+.mb-count-denominator {
+  color: var(--mb-muted);
+  font-weight: 400;
+  font-size: 11px;
+}
+.mb-pool-distribution {
+  display: flex;
+  overflow: hidden;
+  height: 4px;
+  min-height: 4px;
+  border-radius: 3px;
+  background: var(--mb-line);
+  margin: 5px 0;
+}
+.mb-pool-distribution .is-usable {
+  background: var(--mb-green);
+}
+.mb-pool-distribution .is-low {
+  background: var(--mb-yellow);
+}
+.mb-pool-distribution .is-unverified {
+  background: color-mix(in srgb, var(--mb-muted) 50%, transparent);
+}
+.mb-overview-rule {
+  font-size: 9px;
+  line-height: 13px;
+  color: var(--mb-muted);
+  flex: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-top: 7px;
+  margin: 0;
+}
+.mb-overview-choice {
+  height: 27px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 5px !important;
+  border-bottom: 1px solid var(--mb-line) !important;
+  font-size: 11px !important;
+  flex: none;
+}
+.mb-overview-choice > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.mb-account-view-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  font-size: 10px;
+  flex: none;
+}
+.mb-account-view-state b {
+  font-weight: 400;
+  color: var(--mb-green);
+}
+.mb-account-view-state small {
+  color: var(--mb-muted);
+  font-size: 10px;
+}
+.mb-account-detail-status p {
+  color: var(--mb-muted);
+  font-size: 10px;
+  line-height: 15px;
+  max-width: 220px;
+  margin: 0;
+  text-align: right;
+}
+.mb-native-picker .mb-native-account-list {
+  padding-top: 5px;
+  grid-template-rows: repeat(var(--account-page-size, 4), 46px);
+}
+@media (max-height: 440px) {
+  .mb-overview-counts {
+    height: 42px;
+    margin-bottom: 5px;
+  }
+  .mb-native-picker .mb-native-account-list {
+    grid-template-rows: repeat(var(--account-page-size, 4), 39px);
+  }
+}
