@@ -138,6 +138,20 @@ export function AutoSwitchSettings() {
                     <span><span className="block text-sm font-medium">{t(`auto_switch.mode_${mode}`)}</span><span className="mt-1 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">{t(`auto_switch.${mode}_instructions`)}</span></span>
                 </label>)}
             </div>
+            <div className="my-4">
+                <span className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-300">{t('auto_switch.strategy_title')}</span>
+                <div className="grid gap-3 md:grid-cols-2" role="group" aria-label={t('auto_switch.strategy_title')}>
+                    {(['round_robin', 'priority'] as const).map(strategy => (
+                        <label key={strategy} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 ${draft.strategy === strategy || (!draft.strategy && strategy === 'round_robin') ? 'border-blue-400 bg-blue-50/60 dark:bg-blue-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+                            <input type="radio" name="auto-switch-strategy" checked={draft.strategy === strategy || (!draft.strategy && strategy === 'round_robin')} disabled={busy} onChange={() => patch({ strategy })} className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600" />
+                            <span>
+                                <span className="block text-sm font-medium">{t(`auto_switch.strategy_${strategy}`)}</span>
+                                <span className="mt-1 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">{t(`auto_switch.strategy_${strategy}_desc`)}</span>
+                            </span>
+                        </label>
+                    ))}
+                </div>
+            </div>
             <div className="my-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.target')}</span><select aria-label={t('auto_switch.target')} className={FIELD} disabled={busy} value={draft.target} onChange={e => patch({ target: e.target.value as 'app' })}><option value="app">Antigravity APP + agy</option></select></label>
                 <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.model')}</span><select aria-label={t('auto_switch.model')} className={FIELD} disabled={busy} value={draft.monitored_model} onChange={e => patch({ monitored_model: e.target.value })}><option value="">{t('auto_switch.select_model')}</option>{draft.monitored_model && !models.some(([id]) => id === draft.monitored_model) && <option value={draft.monitored_model}>{draft.monitored_model}</option>}{models.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
