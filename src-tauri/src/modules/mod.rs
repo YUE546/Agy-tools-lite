@@ -1,6 +1,7 @@
 pub mod account;
 pub mod account_service;
 pub mod api_pricing;
+pub mod app_localization;
 pub mod cli_credentials;
 pub mod config;
 pub mod db;
@@ -11,6 +12,8 @@ pub mod integration;
 pub mod linux_credentials;
 #[cfg(target_os = "linux")]
 pub mod linux_paths;
+pub(crate) mod localization_macos;
+pub(crate) mod localization_transport;
 pub mod logger;
 pub mod migration;
 pub mod native_token_stats;
@@ -28,4 +31,5 @@ pub use config::*;
 pub use quota::*;
 // pub use device::*;
 
+pub mod desktop;
 pub mod auto_switch;

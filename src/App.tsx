@@ -4,6 +4,7 @@ import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
 import Accounts from './pages/Accounts';
 import Settings from './pages/Settings';
+import MenuBarDashboard from './pages/MenuBarDashboard';
 import ThemeManager from './components/common/ThemeManager';
 import { useEffect } from 'react';
 import { useConfigStore } from './stores/useConfigStore';
@@ -13,6 +14,7 @@ import { listen } from '@tauri-apps/api/event';
 import { isTauri } from './utils/env';
 
 const router = createBrowserRouter([
+  { path: "/menubar", element: <MenuBarDashboard /> },
   {
     path: '/',
     element: <Layout />,
@@ -60,6 +62,14 @@ function App() {
     if (!isTauri()) return;
     const unlistenPromises: Promise<() => void>[] = [];
 
+    unlistenPromises.push(listen('config://updated', () => { loadConfig(); }));
+    if (window.location.pathname === '/menubar') {
+      return () => { Promise.all(unlistenPromises).then(listeners => listeners.forEach(unlisten => unlisten())); };
+    }
+    unlistenPromises.push(listen<string>('app://navigate', event => {
+      if (['/', '/accounts', '/settings'].includes(event.payload)) router.navigate(event.payload);
+    }));
+
     // 监听托盘切换账号事件
     unlistenPromises.push(
       listen('tray://account-switched', () => {
@@ -93,7 +103,7 @@ function App() {
         unlisteners.forEach(unlisten => unlisten());
       });
     };
-  }, [fetchCurrentAccount, fetchAccounts]);
+  }, [fetchCurrentAccount, fetchAccounts, loadConfig]);
 
   return (
     <>

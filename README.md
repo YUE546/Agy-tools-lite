@@ -2,7 +2,7 @@
 
 [简体中文](./README.zh-CN.md)
 
-A local desktop application for [Antigravity](https://antigravity.google). It manages the Google accounts used by the Antigravity app and its `agy` CLI, shows per-model quota with reset countdowns, and summarises locally recorded token usage together with an estimated API cost. All processing happens on the local machine
+A local desktop application for [Antigravity](https://antigravity.google). It manages the Google accounts used by the Antigravity app and its `agy` CLI, shows per-model quota with reset countdowns, and summarises locally recorded token usage together with an estimated API cost. Account and usage records are stored locally, and usage aggregation runs on the device. Google authorization, token refresh and quota queries use the network and the corresponding credentials; price synchronization also uses the network
 
 ![Dashboard](docs/screenshots/dashboard-en.png)
 
@@ -11,8 +11,10 @@ A local desktop application for [Antigravity](https://antigravity.google). It ma
 - **Account management** — import accounts already present on the machine, switch the account Antigravity uses, annotate accounts with remarks, remove them again
 - **Quota overview** — per-model quota and reset time, grouped by PRO / ULTRA / FREE, with table and card views
 - **Usage dashboard** — token usage for today, yesterday, the last 3, 7 or 30 days, broken down per model, with an estimated API cost
+- **Quick dashboard** — inspect quotas from the menu bar or tray, with a separate action to activate an account
+- **Low-quota coordination** — optional backup-account switching after all detected clients exit; running tasks are not migrated
 - **One switch for both clients** — switching synchronizes the credentials used by Antigravity and an initialized `agy` CLI
-- **Local data only** — no proxy, no background service, no telemetry; credentials stay in local account files and the credential stores required by the clients
+- **Local storage** — no project-operated proxy or credential relay service; local account and usage storage with direct Google authorization and quota requests
 - **Bilingual interface** — Simplified Chinese and English, light and dark themes, tray menu
 
 ## Download
@@ -43,7 +45,7 @@ Each row provides four actions, each with a tooltip
 
 | Action | Effect |
 | --- | --- |
-| **Switch to this account** | Makes this account the one Antigravity uses. A running Antigravity is closed first, the credentials are written to the credential store Antigravity reads (or to `state.vscdb` on builds older than 2.0), and the tray is updated. After reopening Antigravity you are signed in as this account. On macOS, Windows and Linux, the initialized native agy session is synchronized separately; start a new CLI command to use the selected account |
+| **Switch to this account** | Writes the selected account to Antigravity's credential store (or `state.vscdb` on builds older than 2.0) and synchronizes an initialized native agy session. A manual switch may close and restart Antigravity; save work first. Reopen the client and verify its account. If a partial update is reported, inspect both clients before retrying |
 | **Refresh quota** | Re-reads this account's per-model quota and reset times |
 | **Edit remark** | Stores a short label, up to 15 characters, to distinguish accounts |
 | **Delete** | Removes the account from this application |
@@ -62,7 +64,7 @@ Session updates use atomic replacement and readback verification, with `0600` pe
 
 ## Usage dashboard
 
-The dashboard reads Antigravity's local conversation databases (`conversation.db`, `token_usage_archive.db`) and its archive directory, then aggregates the records. No data leaves the machine and no request-level estimation is performed beyond what the records contain
+The dashboard reads Antigravity's local conversation databases (`conversation.db`, `token_usage_archive.db`) and its archive directory, then aggregates the recorded usage on the device. Tools Lite does not upload conversation content or estimate unrecorded requests
 
 ![Dashboard in dark mode](docs/screenshots/dashboard-dark-en.png)
 
@@ -73,6 +75,12 @@ The dashboard reads Antigravity's local conversation databases (`conversation.db
 
 Cost is estimated from Google's public Gemini pricing pages, which are fetched once a day and cached, with a built-in fallback table. Models without a known price are reported as unpriced instead of being counted as free
 
+## Quick dashboard
+
+The menu-bar/tray panel offers Overview and per-account inspection. Selecting an account only changes the view; **Use this account** performs a real switch and may close and restart Antigravity, so save work first. The current-account indicator is Tools' local record, and device-wide token totals are not attributed to individual accounts.
+
+Open the panel from the icon on macOS/Windows, or **Quick Dashboard** in the Linux tray menu. The main window remains available when no tray is present. Native positioning, focus, Dock and login-startup acceptance is still pending; browser previews do not establish it. See [panel behavior and platform limits](docs/menu-bar-dashboard.md).
+
 ## Settings
 
 ![Settings](docs/screenshots/settings-en.png)
@@ -80,6 +88,9 @@ Cost is estimated from Google's public Gemini pricing pages, which are fetched o
 - **Appearance and language** — follow the system, or choose light or dark; Simplified Chinese or English
 - **Background tasks** — how often account quotas refresh, and how often the active account is re-read from local Antigravity data
 - **Local data** — location of the application data (`~/.antigravity_tools/`), with a button to open the folder
+- **Startup and menu bar** — launch at login, background launch at login and hiding the Dock icon are all off by default; hiding the Dock icon is macOS-only
+
+**App Settings navigation in Chinese (experimental)** is off by default and supports nine fixed entry/navigation labels in official Antigravity App 2.19.1 on macOS only. Tools Lite's own display language is separate; chat, code, account/project names, paths and input values are excluded. Temporary translation/restoration passed for those nine labels; the final Tools package's enable, reload, reconnect and disable/restore flows still need native acceptance. See [scope and acceptance](docs/app-localization.md).
 
 ## Data handling
 
@@ -87,7 +98,8 @@ Cost is estimated from Google's public Gemini pricing pages, which are fetched o
 | --- | --- |
 | Read | Antigravity's local conversation databases and archives, which contain token counts, model names and timestamps |
 | Written | `~/.antigravity_tools/` for accounts, configuration and cached pricing, the operating system credential store, and the initialized native agy session when an account is switched |
-| Never | Conversation content and credentials are not uploaded; there is no proxy and no server component |
+| Network | Google authorization, token refresh and quota queries use the required credentials; price synchronization also needs network access |
+| Service boundary | Tools Lite provides no credential relay service and does not upload conversation content |
 
 ## Building from source
 
@@ -106,7 +118,7 @@ Bundles are written to `src-tauri/target/release/bundle/`. Pushing a `v*` tag ru
 
 ## Low-quota account switching
 
-Settings now offers two opt-in modes: **Switch after tasks finish** and **Stop first, then switch**. Both prepare a permitted backup from real quota data and update credentials only after all detected Antigravity/agy clients have exited. The tool never stops tasks or forces clients to close. Reopen the client, verify the account, and continue the original conversation manually. See [setup, limits, and verification](docs/low-quota-switching.md).
+Settings offers two default-off modes: **Switch after tasks finish** and **Stop first, then switch**. Both select an allowed backup using real quota and update credentials only after all detected Antigravity APP, IDE and agy clients have exited. This coordinator never stops tasks, closes clients or restarts them. Reopen the client, verify the account and continue the original conversation manually; running generations and commands are not migrated. See [setup, limits, and verification](docs/low-quota-switching.md).
 
 ## Relation to the upstream project
 
@@ -118,7 +130,7 @@ Based on [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Mana
 
 ## Command-line and Homebrew
 
-Tools Lite includes a local management CLI named `agy-lite`: list accounts, read the recorded current account and cached quota, and explicitly switch accounts using the same safe path as the GUI. It is separate from Google’s `agy`. See [CLI usage](docs/cli.md).
+Tools Lite includes a local management CLI named `agy-lite`: list accounts, read the recorded current account and cached quota, and explicitly switch accounts using the same safe path as the GUI. It is separate from Google’s `agy`; `current` is a local record and `quota` does not refresh live data. See [CLI usage](docs/cli.md).
 
 The older v4.7.6 release does not include this management CLI.
 

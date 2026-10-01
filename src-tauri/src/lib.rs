@@ -11,11 +11,6 @@ mod utils;
 use tauri::Manager;
 use tracing::{info, warn};
 
-#[derive(Clone, Copy)]
-struct AppRuntimeFlags {
-    tray_enabled: bool,
-}
-
 fn env_flag_enabled(name: &str) -> bool {
     std::env::var(name)
         .map(|v| {
@@ -236,66 +231,67 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .arg("--autostart")
+                .app_name("Antigravity Tools Lite")
+                .build(),
+        )
+        .plugin(
             tauri_plugin_window_state::Builder::default()
+                .with_denylist(&[modules::desktop::DASHBOARD_LABEL])
                 .with_state_flags(
                     tauri_plugin_window_state::StateFlags::all()
                         .difference(tauri_plugin_window_state::StateFlags::VISIBLE),
                 )
                 .build(),
         )
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            let _ = app.get_webview_window("main").map(|window| {
-                let _ = window.show();
-                let _ = window.set_focus();
-                #[cfg(target_os = "macos")]
-                app.set_activation_policy(tauri::ActivationPolicy::Regular)
-                    .unwrap_or(());
-            });
-        }))
-        .manage(AppRuntimeFlags { tray_enabled })
-        .manage(modules::auto_switch::Runtime::default())
-        .setup(|app| {
-            info!("Setup starting...");
-            modules::auto_switch::start(app.handle().clone());
-
-            let runtime_flags = app.state::<AppRuntimeFlags>();
-            if runtime_flags.tray_enabled {
-                modules::tray::create_tray(app.handle())?;
-                info!("Tray created");
-            } else {
-                info!("Tray disabled for this session");
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !args.iter().any(|arg| arg == "--autostart") {
+                let _ = modules::desktop::show_main(app);
             }
-
-            Ok(())
-        })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let tray_enabled = window
-                    .app_handle()
-                    .try_state::<AppRuntimeFlags>()
-                    .map(|flags| flags.tray_enabled)
-                    .unwrap_or(true);
-
-                if tray_enabled {
-                    let _ = window.hide();
-                    #[cfg(target_os = "macos")]
-                    {
-                        use tauri::Manager;
-                        window
-                            .app_handle()
-                            .set_activation_policy(tauri::ActivationPolicy::Accessory)
-                            .unwrap_or(());
+        }))
+        .manage(modules::desktop::DesktopRuntime::default())
+        .manage(modules::auto_switch::Runtime::default())
+        .setup(move |app| {
+            info!("Setup starting...");
+            modules::app_localization::initialize();
+            modules::auto_switch::start(app.handle().clone());
+            if tray_enabled {
+                match modules::tray::create_tray(app.handle()) {
+                    Ok(()) => {
+                        modules::desktop::set_tray_available(app.handle(), true);
+                        info!("Tray created");
                     }
-                    api.prevent_close();
+                    Err(error) => warn!(
+                        "Tray unavailable; preserving main window and Dock recovery: {}",
+                        error
+                    ),
                 }
             }
+            if let Err(error) = modules::desktop::initialize(app.handle()) {
+                warn!("Desktop preferences could not be applied: {}", error);
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                }
+            }
+            Ok(())
         })
+        .on_window_event(modules::desktop::handle_window_event)
         .invoke_handler(tauri::generate_handler![
+            modules::app_localization::get_app_localization_status,
+            modules::app_localization::set_app_localization_enabled,
+            modules::app_localization::apply_app_localization,
             modules::auto_switch::get_auto_switch_config,
             modules::auto_switch::set_auto_switch_config,
             modules::auto_switch::get_auto_switch_status,
             modules::auto_switch::check_auto_switch_now,
             modules::auto_switch::cancel_auto_switch,
+            modules::desktop::get_desktop_settings,
+            modules::desktop::get_menu_bar_appearance,
+            modules::desktop::set_desktop_preferences,
+            modules::desktop::open_app_page,
+            modules::desktop::hide_menu_bar_dashboard,
+            modules::desktop::quit_app,
             commands::list_accounts,
             commands::add_account,
             commands::delete_account,
@@ -330,16 +326,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app_handle, _event| {
+            if matches!(
+                _event,
+                tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
+            ) {
+                modules::app_localization::shutdown();
+            }
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
-                if let Some(window) = _app_handle.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
-                    _app_handle
-                        .set_activation_policy(tauri::ActivationPolicy::Regular)
-                        .unwrap_or(());
-                }
+                let _ = modules::desktop::show_main(_app_handle);
             }
         });
 }
