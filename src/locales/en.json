@@ -235,5 +235,44 @@
     "no_account": "No Account",
     "unknown_quota": "Unknown (Click to Refresh)",
     "forbidden": "Account rejected (403)"
+  },
+  "app_localization": {
+    "title": "Antigravity App localization (experimental)",
+    "subtitle": "In development: real-App validation is pending. Off by default and separate from this tool’s language.",
+    "enable": "Enable Antigravity App localization",
+    "notice": "This build has not passed real-App compatibility validation. Enabling and applying are unavailable. No debugging port is opened and no script is injected.",
+    "version": "App version: {{version}}",
+    "refresh": "Check status",
+    "launch": "Launch and translate",
+    "apply": "Reapply",
+    "restore": "Disable and restore English",
+    "coverage": "Pending validation: static Settings labels only. The design excludes chat, code, terminals, paths, input values and native system menus.",
+    "source": "Dictionary {{version}} · {{count}} reviewed entries · Source:",
+    "stop_notice": "Disabling removes this tool’s changes. The official app manages its own debugging interface; disabling translation does not imply that interface is closed.",
+    "states": {
+      "checking": "Checking…",
+      "disabled": "Off",
+      "not_installed": "Antigravity App not found",
+      "unsupported_version": "App version not yet supported",
+      "unsupported_platform": "Platform not yet verified",
+      "needs_verification": "Awaiting interface compatibility verification",
+      "ready": "Enabled, ready to apply",
+      "not_running": "App is not running",
+      "applied": "Localization active",
+      "unsupported_dom": "Interface changed; localization stopped",
+      "error": "Localization could not be applied",
+      "restored": "English restored",
+      "restart_required": "Disabled; restart the app normally to finish restoring"
+    },
+    "details": {
+      "unverified_adapter": "No verified interface adapter is available. The app was not launched or injected.",
+      "unknown_installation": "Could not read trusted App version metadata from the installation.",
+      "not_running": "Use Launch and translate, or open the app first.",
+      "no_debug_port": "No local debugging endpoint was found for this app. Startup flags and access permissions will not be changed.",
+      "identity_mismatch": "The debugging endpoint does not belong to the target App process. Connection refused.",
+      "non_loopback": "A non-loopback listener was detected. Connection refused.",
+      "dom_changed": "Only verified interface structures are supported. Other pages are left unchanged.",
+      "lease_expired": "The app connection was interrupted. The runtime automatically restores its changes."
+    }
   }
 }

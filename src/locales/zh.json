@@ -235,5 +235,44 @@
     "no_account": "无账号",
     "unknown_quota": "未知 (点击刷新)",
     "forbidden": "账号被拒绝（403）"
+  },
+  "app_localization": {
+    "title": "Antigravity 客户端汉化（实验性）",
+    "subtitle": "开发中：尚未完成真实客户端验证，默认关闭；与本工具显示语言独立",
+    "enable": "启用 Antigravity 客户端汉化",
+    "notice": "当前构建尚未通过真实客户端兼容性验证，启用和应用操作暂不可用。不会打开调试端口或执行注入。",
+    "version": "客户端版本：{{version}}",
+    "refresh": "检查状态",
+    "launch": "启动并汉化",
+    "apply": "重新应用",
+    "restore": "停用并恢复英文",
+    "coverage": "待验证范围：静态设置标签。设计排除聊天内容、代码、终端、文件路径和输入内容；不包含系统原生菜单。",
+    "source": "词库 {{version}} · {{count}} 条已筛选词条 · 来源：",
+    "stop_notice": "关闭本功能会撤销本工具的修改。客户端自身的调试接口由官方版本管理，停用汉化不代表关闭该接口。",
+    "states": {
+      "checking": "正在检查…",
+      "disabled": "已关闭",
+      "not_installed": "未找到 Antigravity App",
+      "unsupported_version": "当前客户端版本尚未适配",
+      "unsupported_platform": "当前平台尚未验证",
+      "needs_verification": "等待界面兼容性验证",
+      "ready": "已开启，等待应用",
+      "not_running": "客户端未运行",
+      "applied": "汉化已生效",
+      "unsupported_dom": "界面结构发生变化，已停止汉化",
+      "error": "汉化未生效",
+      "restored": "已恢复英文",
+      "restart_required": "已停用，请正常重启客户端完成还原"
+    },
+    "details": {
+      "unverified_adapter": "没有经过验证的界面适配器，未启动客户端或执行注入。",
+      "unknown_installation": "无法从安装包读取可信的 App 版本信息。",
+      "not_running": "可使用“启动并汉化”，或先手动打开客户端。",
+      "no_debug_port": "未找到此客户端的本机调试接口。不会修改启动参数或扩大访问权限。",
+      "identity_mismatch": "调试接口与目标 App 进程不匹配，连接已拒绝。",
+      "non_loopback": "检测到非本机回环监听，连接已拒绝。",
+      "dom_changed": "仅在识别到已核验的界面结构时生效，其他页面保持原样。",
+      "lease_expired": "本工具与客户端的连接已中断，运行时会自动撤销修改。"
+    }
   }
 }

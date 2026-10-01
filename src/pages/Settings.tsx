@@ -6,6 +6,7 @@ import { AppConfig } from '../types/config';
 import { request as invoke } from '../utils/request';
 import { showToast } from '../components/common/ToastContainer';
 import { open } from '@tauri-apps/plugin-dialog';
+import AppLocalizationSettings from '../components/settings/AppLocalizationSettings';
 
 const LANGUAGES = [
     { code: 'zh', label: '简体中文' },
@@ -284,6 +285,7 @@ function Settings() {
                             </div>
                         </div>
                     </section>
+                    <AppLocalizationSettings />
                 </div>
             </div>
         </div>

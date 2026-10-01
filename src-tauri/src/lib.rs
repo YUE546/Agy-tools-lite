@@ -288,6 +288,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            modules::app_localization::get_app_localization_status,
+            modules::app_localization::set_app_localization_enabled,
+            modules::app_localization::apply_app_localization,
             commands::list_accounts,
             commands::add_account,
             commands::delete_account,
