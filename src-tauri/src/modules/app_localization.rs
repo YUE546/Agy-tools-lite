@@ -563,10 +563,7 @@ pub async fn set_app_localization_enabled(enabled: bool) -> Result<LocalizationS
         if !enabled {
             ENABLED.store(false, Ordering::SeqCst);
         }
-        let saved = super::config::load_app_config().and_then(|mut config| {
-            config.app_localization.enabled = enabled;
-            super::config::save_app_config(&config)
-        });
+        let saved = super::config::set_app_localization_enabled(enabled);
         if enabled {
             saved.map_err(|_| "config_unavailable".to_string())?;
             ENABLED.store(true, Ordering::SeqCst);

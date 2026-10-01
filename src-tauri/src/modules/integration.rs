@@ -241,7 +241,10 @@ pub fn read_cli_credentials() -> Result<crate::modules::migration::ImportedOAuth
 }
 
 /// Sync the APP's platform credential store and an existing native agy session.
-fn write_to_system_keyring(account: &crate::models::Account, cli_only: bool) -> Result<(), String> {
+pub(crate) fn write_to_system_keyring(
+    account: &crate::models::Account,
+    cli_only: bool,
+) -> Result<(), String> {
     let payload_json = cli_credentials::payload(&account.token)?;
     let cli_path = cli_session_path()?;
 

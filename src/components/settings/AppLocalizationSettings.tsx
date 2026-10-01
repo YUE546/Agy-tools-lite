@@ -24,6 +24,7 @@ export default function AppLocalizationSettings() {
     const [status, setStatus] = useState<LocalizationStatus | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [needsDisableSave, setNeedsDisableSave] = useState(false);
     const mounted = useRef(true);
     const operation = useRef(false);
     const refreshing = useRef(false);
@@ -59,10 +60,17 @@ export default function AppLocalizationSettings() {
         setError(null);
         try {
             const next = await request<LocalizationStatus>(command, args);
-            if (mounted.current) setStatus(next);
+            if (mounted.current) {
+                setStatus(next);
+                if (command === 'set_app_localization_enabled') setNeedsDisableSave(false);
+            }
             await loadConfig();
         } catch (e) {
-            if (mounted.current) setError(String(e));
+            if (mounted.current) {
+                const code = String(e);
+                setError(code);
+                if (command === 'set_app_localization_enabled' && args?.enabled === false && code === 'disable_not_saved') setNeedsDisableSave(true);
+            }
         } finally {
             operation.current = false;
             if (mounted.current) setBusy(false);
@@ -96,7 +104,7 @@ export default function AppLocalizationSettings() {
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
                 <button type="button" className={buttonClass} disabled={busy || !enabled || !status?.can_apply} onClick={() => void run('apply_app_localization', { launch: false })}><RefreshCw className="h-3.5 w-3.5" />{t('app_localization.apply')}</button>
-                <button type="button" className={buttonClass} disabled={busy || (!enabled && !status?.active && status?.state !== 'restore_pending')} onClick={() => void run('set_app_localization_enabled', { enabled: false })}><RotateCcw className="h-3.5 w-3.5" />{t('app_localization.restore')}</button>
+                <button type="button" className={buttonClass} disabled={busy || (!enabled && !status?.active && status?.state !== 'restore_pending' && !needsDisableSave)} onClick={() => void run('set_app_localization_enabled', { enabled: false })}><RotateCcw className="h-3.5 w-3.5" />{t('app_localization.restore')}</button>
             </div>
             {error && <p role="alert" className="mt-3 break-words text-xs text-red-600 dark:text-red-400">{t(`app_localization.details.${error}`, { defaultValue: t('app_localization.details.runtime_failed') })}</p>}
             <div className="mt-4 text-xs leading-relaxed text-gray-500 dark:text-gray-400">

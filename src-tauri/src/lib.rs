@@ -253,9 +253,11 @@ pub fn run() {
             });
         }))
         .manage(AppRuntimeFlags { tray_enabled })
+        .manage(modules::auto_switch::Runtime::default())
         .setup(|app| {
             info!("Setup starting...");
             modules::app_localization::initialize();
+            modules::auto_switch::start(app.handle().clone());
 
             let runtime_flags = app.state::<AppRuntimeFlags>();
             if runtime_flags.tray_enabled {
@@ -293,6 +295,11 @@ pub fn run() {
             modules::app_localization::get_app_localization_status,
             modules::app_localization::set_app_localization_enabled,
             modules::app_localization::apply_app_localization,
+            modules::auto_switch::get_auto_switch_config,
+            modules::auto_switch::set_auto_switch_config,
+            modules::auto_switch::get_auto_switch_status,
+            modules::auto_switch::check_auto_switch_now,
+            modules::auto_switch::cancel_auto_switch,
             commands::list_accounts,
             commands::add_account,
             commands::delete_account,

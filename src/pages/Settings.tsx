@@ -7,6 +7,7 @@ import { request as invoke } from '../utils/request';
 import { showToast } from '../components/common/ToastContainer';
 import { open } from '@tauri-apps/plugin-dialog';
 import AppLocalizationSettings from '../components/settings/AppLocalizationSettings';
+import { AutoSwitchSettings } from '../components/autoSwitch/AutoSwitch';
 
 const LANGUAGES = [
     { code: 'zh', label: '简体中文' },
@@ -89,6 +90,8 @@ function Settings() {
                     <h1 className="text-2xl font-bold text-gray-900 dark:text-base-content">{t('local_settings.title')}</h1>
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('local_settings.subtitle')}</p>
                 </header>
+
+                <AutoSwitchSettings />
 
                 <div className="grid gap-4 lg:grid-cols-2">
                     <section className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
