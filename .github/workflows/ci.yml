@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, codex/cli-homebrew]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -22,6 +25,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -78,6 +84,45 @@ jobs:
           BINARY=src-tauri/target/debug/antigravity-tools
           if [[ "$RUNNER_OS" == Windows ]]; then BINARY="${BINARY}.exe"; fi
           node scripts/test-cli.mjs "$BINARY"
+
+      - name: Validate native GUI fixture and screenshot checks
+        run: node scripts/test-native-gui.mjs --self-test
+
+      - name: Install official native GUI test tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y webkit2gtk-driver xvfb dbus-x11 fonts-noto-cjk
+
+      - name: Install pinned official Tauri WebDriver
+        if: runner.os != 'macOS'
+        run: cargo install tauri-driver --version 2.0.6 --locked
+
+      - name: Prepare matching Microsoft WebView2 driver
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/prepare-windows-webdriver.ps1
+
+      - name: Test actual Linux Tauri window with isolated synthetic data
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        env:
+          SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" dbus-run-session -- node scripts/test-native-gui.mjs src-tauri/target/debug/antigravity-tools
+
+      - name: Test actual Windows Tauri window with isolated synthetic data
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        env:
+          SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/test-native-gui.mjs src-tauri/target/debug/antigravity-tools.exe
+
+      - name: Upload native GUI evidence (never substitute mock screenshots)
+        if: runner.os != 'macOS' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-gui-${{ runner.os }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/native-gui/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Test Homebrew cask generation
         if: runner.os != 'Windows'
