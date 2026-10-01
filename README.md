@@ -111,6 +111,10 @@ npm run tauri build     # macOS .app or Windows installer
 
 Bundles are written to `src-tauri/target/release/bundle/`. Pushing a `v*` tag runs the release workflow, which builds macOS, Windows and Linux deb packages and attaches the results to the GitHub release
 
+## Low-quota account switching
+
+Settings now offers two opt-in modes: **Switch after tasks finish** and **Stop first, then switch**. Both prepare a permitted backup from real quota data and update credentials only after all detected Antigravity/agy clients have exited. The tool never stops tasks or forces clients to close. Reopen the client, verify the account, and continue the original conversation manually. See [setup, limits, and verification](docs/low-quota-switching.md).
+
 ## Relation to the upstream project
 
 This project is a focused fork of [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager). Upstream provides a full toolkit, including a reverse proxy, an HTTP API, a Cloudflared tunnel, IP management and a Docker image. This fork keeps the account manager and the local usage dashboard, removes the proxy and web-mode parts of the codebase, and adds its own dashboard, bilingual interface, theme support and release tooling. The two projects are independent; use upstream if a proxy is required

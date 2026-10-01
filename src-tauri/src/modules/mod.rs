@@ -27,3 +27,5 @@ pub use account::*;
 pub use config::*;
 pub use quota::*;
 // pub use device::*;
+
+pub mod auto_switch;
