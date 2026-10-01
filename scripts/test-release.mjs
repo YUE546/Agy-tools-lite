@@ -6,7 +6,7 @@ import { join, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { packageNames, validateSource, verifyAssets, writeChecksum, writeManifest } from './release-assets.mjs';
 import { renderCask } from './generate-homebrew.mjs';
-import { publishRelease } from './publish-release.mjs';
+import { publishRelease, releaseNotes } from './publish-release.mjs';
 
 // Entirely synthetic packages and GitHub responses; no network or real release.
 const context = { tag: 'v4.7.7', commit: 'a'.repeat(40), repository: 'fixture/repository' };
@@ -28,8 +28,8 @@ function fixture(fn) {
   } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
-function fakeGithub({ existing, failUpload = false, corruptDownload = false, remoteCommit = context.commit, newer = false } = {}) {
-  let release = existing ? { id: 123, ...existing, assets: [] } : null;
+function fakeGithub({ existing, failUpload = false, corruptDownload = false, remoteCommit = context.commit, newer = false, changeNotesOnRefresh = false } = {}) {
+  let release = existing ? { id: 123, body: releaseNotes(context), ...existing, assets: [] } : null;
   const files = new Map(existing?.files ?? []);
   const calls = [];
   const snapshot = () => ({ ...release, assets: [...files.keys()].map(name => ({ name })) });
@@ -42,10 +42,10 @@ function fakeGithub({ existing, failUpload = false, corruptDownload = false, rem
         if (!release || release.draft) throw new Error('HTTP 404: tag lookup only returns a published release');
         return JSON.stringify(snapshot());
       }
-      if (args[1].endsWith('/releases/123')) return JSON.stringify(snapshot());
+      if (args[1].endsWith('/releases/123')) return JSON.stringify({ ...snapshot(), ...(changeNotesOnRefresh ? { body: 'All platforms fully tested' } : {}) });
     }
     if (args[0] === 'release') {
-      if (args[1] === 'create') { assert.ok(args.includes('--draft')); release = { id: 123, tag_name: context.tag, draft: true }; return ''; }
+      if (args[1] === 'create') { assert.ok(args.includes('--draft')); release = { id: 123, tag_name: context.tag, draft: true, body: readFileSync(args[args.indexOf('--notes-file') + 1], 'utf8') }; return ''; }
       if (args[1] === 'upload') {
         assert.ok(release.draft); assert.ok(!args.includes('--clobber'));
         for (const file of args.slice(3, args.indexOf('--repo'))) { files.set(basename(file), readFileSync(file)); if (failUpload) throw new Error('Upload interrupted'); }
@@ -56,7 +56,7 @@ function fakeGithub({ existing, failUpload = false, corruptDownload = false, rem
         for (const [name, bytes] of files) writeFileSync(join(directory, name), corruptDownload ? 'wrong bytes' : bytes);
         return '';
       }
-      if (args[1] === 'edit') { assert.ok(args.includes('--draft=false')); release.draft = false; return ''; }
+      if (args[1] === 'edit') { assert.ok(args.includes('--draft=false')); assert.equal(release.body, releaseNotes(context)); release.draft = false; return ''; }
     }
     throw new Error(`Unexpected mock invocation: ${args.join(' ')}`);
   };
@@ -109,6 +109,28 @@ test('public releases, moved tags and obsolete versions cannot be published', ()
   for (const options of [{ existing: { tag_name: context.tag, draft: false } }, { remoteCommit: 'b'.repeat(40) }, { newer: true }]) {
     const api = fakeGithub(options); assert.throws(() => publishRelease(directory, context, api.run));
     assert.ok(!api.calls.some(a => a[0] === 'release'));
+  }
+}));
+
+test('reviewed release notes disclose native acceptance limits and cannot be silently reused for a new version', () => {
+  const notes = releaseNotes(context);
+  assert.match(notes, /Linux native Tauri\/WebKitGTK acceptance passed/);
+  assert.match(notes, /Windows native GUI acceptance is \*\*blocked\*\*/);
+  assert.match(notes, /Final native window.*still need acceptance on a Mac/);
+  assert.match(notes, /experimental and off by default/);
+  assert.match(notes, /final Tools Lite package remain unverified/);
+  assert.throws(() => releaseNotes({ ...context, tag: 'v999.999.999' }), /ENOENT/);
+});
+
+test('missing or changed acceptance notes leave fresh and resumed drafts unpublished', () => fixture(directory => {
+  const missing = fakeGithub({ existing: { tag_name: context.tag, draft: true, body: 'Old incomplete notes' } });
+  assert.throws(() => publishRelease(directory, context, missing.run), /acceptance disclosure/);
+  assert.ok(!missing.calls.some(a => a[0] === 'release'));
+  for (const existing of [undefined, { tag_name: context.tag, draft: true }]) {
+    const changed = fakeGithub({ existing, changeNotesOnRefresh: true });
+    assert.throws(() => publishRelease(directory, context, changed.run), /acceptance disclosure/);
+    assert.equal(changed.isPublic(), false);
+    assert.ok(!changed.calls.some(a => a[1] === 'edit'));
   }
 }));
 

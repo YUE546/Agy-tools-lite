@@ -10,6 +10,7 @@ on:
       - scripts/release-assets.mjs
       - scripts/publish-release.mjs
       - scripts/test-release.mjs
+      - docs/release-notes/**
       - scripts/generate-homebrew.mjs
       - scripts/build-linux-deb.sh
       - packaging/homebrew/**
