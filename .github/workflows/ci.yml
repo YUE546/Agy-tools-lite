@@ -47,6 +47,23 @@ jobs:
       - name: Check Tauri backend
         run: cargo check --locked --manifest-path src-tauri/Cargo.toml
 
+      - name: Test Tools Lite CLI on every platform
+        run: "cargo test --locked --manifest-path src-tauri/Cargo.toml --lib cli::"
+
+      - name: Build executable for headless CLI smoke test
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Smoke test CLI without a display or real credentials
+        shell: bash
+        run: |
+          BINARY=src-tauri/target/debug/antigravity-tools
+          if [[ "$RUNNER_OS" == Windows ]]; then BINARY="${BINARY}.exe"; fi
+          node scripts/test-cli.mjs "$BINARY"
+
+      - name: Test Homebrew cask generation
+        if: runner.os != 'Windows'
+        run: node --test scripts/test-homebrew-generator.mjs
+
       - name: Test native CLI credentials on every platform
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib cli_credentials::tests
 

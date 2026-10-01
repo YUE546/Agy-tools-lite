@@ -1,0 +1,341 @@
+//! Tools Lite's local CLI. Never initializes Tauri, a logger, or OAuth for reads.
+mod output;
+mod switch_lock;
+
+use output::{AccountView, Snapshot};
+use std::path::{Path, PathBuf};
+
+const HELP: &str = "agy-lite - Antigravity Tools Lite CLI\n\nUsage:\n  agy-lite accounts list [--json]\n  agy-lite current [--json]\n  agy-lite quota [ACCOUNT_ID|EMAIL] [--json]\n  agy-lite switch ACCOUNT_ID|EMAIL [--target app|cli|ide] [--json]\n  agy-lite --help\n  agy-lite --version\n\nRead commands use local cached data only and never open the GUI or refresh tokens.\n'current' is Tools Lite's recorded account, not a live credential-store check.\n'switch' may refresh tokens, close/restart Antigravity, and update credentials.\nDefault target 'app' follows the GUI switch behavior; 'cli' updates initialized agy only.\nQuit older Tools Lite versions before switching; they do not share the switch lock.\nAccounts must first be added through the GUI. ABV_DATA_DIR overrides the data directory.\n";
+
+#[derive(Debug, PartialEq)]
+enum Command {
+    Help,
+    Version,
+    List,
+    Current,
+    Quota(Option<String>),
+    Switch { selector: String, target: String },
+}
+
+#[derive(Debug)]
+struct CliError {
+    code: i32,
+    message: &'static str,
+}
+
+type Result<T> = std::result::Result<T, CliError>;
+
+impl CliError {
+    fn usage() -> Self {
+        Self {
+            code: 2,
+            message: "Invalid command or arguments. Run agy-lite --help.",
+        }
+    }
+    fn data(message: &'static str) -> Self {
+        Self { code: 1, message }
+    }
+    fn missing() -> Self {
+        Self {
+            code: 3,
+            message: "No matching account. Run agy-lite accounts list.",
+        }
+    }
+}
+
+fn parse(args: &[String]) -> Result<(Command, bool)> {
+    let json = args.iter().any(|arg| arg == "--json");
+    if args.iter().filter(|arg| arg.as_str() == "--json").count() > 1 {
+        return Err(CliError::usage());
+    }
+    let mut args: Vec<&str> = args
+        .iter()
+        .map(String::as_str)
+        .filter(|arg| *arg != "--json")
+        .collect();
+    if args.first() == Some(&"--cli") {
+        args.remove(0);
+    }
+    if args.first() == Some(&"accounts") {
+        args.remove(0);
+    }
+    let command = match args.as_slice() {
+        [] | ["--help"] | ["-h"] | ["help"] => Command::Help,
+        ["--version"] | ["-V"] => Command::Version,
+        ["list"] => Command::List,
+        ["current"] => Command::Current,
+        ["quota"] => Command::Quota(None),
+        ["quota", selector] if !selector.starts_with('-') => {
+            Command::Quota(Some((*selector).into()))
+        }
+        ["switch", selector] if !selector.starts_with('-') => Command::Switch {
+            selector: (*selector).into(),
+            target: "app".into(),
+        },
+        ["switch", selector, "--target", target]
+            if !selector.starts_with('-') && matches!(*target, "app" | "cli" | "ide") =>
+        {
+            Command::Switch {
+                selector: (*selector).into(),
+                target: (*target).into(),
+            }
+        }
+        _ => return Err(CliError::usage()),
+    };
+    Ok((command, json))
+}
+
+/// `None` preserves normal GUI launch. Called before any app initialization.
+pub fn run_if_requested() -> Option<i32> {
+    let args: Vec<_> = std::env::args_os().collect();
+    let named_cli = args
+        .first()
+        .and_then(|arg| Path::new(arg).file_stem())
+        .is_some_and(|name| name == "agy-lite");
+    if !named_cli
+        && (args.len() == 1
+            || (args.len() == 2
+                && (args[1] == "--autostart" || args[1].to_string_lossy().starts_with("-psn_"))))
+    {
+        return None;
+    }
+    // Release builds are GUI-subsystem executables on Windows. Attach only in
+    // CLI mode, before stdout/stderr are first used; never allocate a new console.
+    #[cfg(windows)]
+    unsafe {
+        #[link(name = "Kernel32")]
+        extern "system" {
+            fn AttachConsole(process_id: u32) -> i32;
+        }
+        let _ = AttachConsole(u32::MAX);
+    }
+    let json = args.iter().any(|arg| arg == "--json");
+    let strings: std::result::Result<Vec<String>, _> = args
+        .into_iter()
+        .skip(1)
+        .map(|arg| arg.into_string())
+        .collect();
+    let result = strings
+        .map_err(|_| CliError::usage())
+        .and_then(|args| parse(&args))
+        .and_then(|(command, json)| execute(command, json));
+    Some(match result {
+        Ok(output) => {
+            println!("{output}");
+            0
+        }
+        Err(error) => {
+            if json {
+                eprintln!(
+                    "{}",
+                    serde_json::json!({"schema_version": 1, "error": {"code": error.code, "message": error.message}})
+                );
+            } else {
+                eprintln!("agy-lite: {}", error.message);
+            }
+            error.code
+        }
+    })
+}
+
+fn data_dir() -> Result<PathBuf> {
+    if let Some(path) =
+        std::env::var_os("ABV_DATA_DIR").filter(|path| !path.to_string_lossy().trim().is_empty())
+    {
+        return Ok(PathBuf::from(path));
+    }
+    dirs::home_dir()
+        .map(|home| home.join(".antigravity_tools"))
+        .ok_or_else(|| CliError::data("Cannot resolve the home directory."))
+}
+
+fn execute(command: Command, json: bool) -> Result<String> {
+    match command {
+        Command::Help => {
+            return Ok(if json {
+                serde_json::json!({"schema_version": 1, "help": HELP}).to_string()
+            } else {
+                HELP.into()
+            })
+        }
+        Command::Version => {
+            return Ok(if json {
+                serde_json::json!({"schema_version": 1, "name": "agy-lite", "version": env!("CARGO_PKG_VERSION")}).to_string()
+            } else {
+                format!("agy-lite {}", env!("CARGO_PKG_VERSION"))
+            })
+        }
+        _ => {}
+    }
+    let snapshot = Snapshot::read(&data_dir()?)?;
+    match command {
+        Command::List => {
+            if json {
+                return Ok(serde_json::json!({"schema_version": 1, "accounts": snapshot.accounts, "current_target": snapshot.current_target}).to_string());
+            }
+            if snapshot.accounts.is_empty() {
+                return Ok("No saved accounts. Add an account in the Tools Lite GUI.".into());
+            }
+            Ok(snapshot
+                .accounts
+                .iter()
+                .map(AccountView::line)
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        Command::Current => {
+            let account = snapshot.current()?;
+            Ok(if json {
+                serde_json::json!({"schema_version": 1, "account": account, "current_target": snapshot.current_target, "source": "local_index"}).to_string()
+            } else {
+                format!(
+                    "{}\nRecorded target: {} (local index)",
+                    account.line(),
+                    snapshot.current_target.as_deref().unwrap_or("app")
+                )
+            })
+        }
+        Command::Quota(selector) => {
+            let account = match selector {
+                Some(selector) => snapshot.select(&selector)?,
+                None => snapshot.current()?,
+            };
+            let quota = account.quota.as_ref().ok_or(CliError {
+                code: 4,
+                message: "No cached quota. Refresh this account's quota in the Tools Lite GUI.",
+            })?;
+            Ok(if json {
+                serde_json::json!({"schema_version": 1, "account_id": account.id, "email": account.email, "cached": true, "quota": quota}).to_string()
+            } else {
+                quota.human(&account.email)
+            })
+        }
+        Command::Switch { selector, target } => {
+            let account = snapshot.select(&selector)?;
+            let runtime = tokio::runtime::Runtime::new()
+                .map_err(|_| CliError::data("Could not start the account-switch runtime."))?;
+            let target_ide = match target.as_str() {
+                "cli" => Some("agy"),
+                "ide" => Some("ide"),
+                _ => None,
+            };
+            runtime
+                .block_on(crate::modules::account::switch_account(
+                    &account.id,
+                    target_ide,
+                    &HeadlessIntegration,
+                ))
+                .map_err(|error| switch_error(&error))?;
+            Ok(if json {
+                serde_json::json!({"schema_version": 1, "switched": true, "account_id": account.id, "email": account.email, "target": target}).to_string()
+            } else {
+                format!(
+                    "Switched {} (target: {}). Start a new agy command to use the updated session.",
+                    output::terminal_text(&account.email),
+                    target
+                )
+            })
+        }
+        _ => unreachable!(),
+    }
+}
+
+// Never forward server responses, credentials, or untrusted filenames to the terminal.
+fn switch_error(error: &str) -> CliError {
+    if error.contains("another_account_switch_in_progress") {
+        return CliError {
+            code: 5,
+            message: "Another account switch is in progress. Wait and retry.",
+        };
+    }
+    if error.contains("No initialized native agy")
+        || error.contains("No initialized agy")
+        || error.contains("not initialized")
+    {
+        return CliError::data(
+            "The native agy session is not initialized. Log in with agy first, then retry.",
+        );
+    }
+    if error.contains("APP") && (error.contains("updated") || error.contains("recovery failed")) {
+        return CliError::data("The switch may be partially applied. Check the active accounts in Antigravity and agy before retrying.");
+    }
+    CliError::data("Account switch failed; credentials may be partially updated. Check Antigravity and agy. Use the Tools Lite GUI to diagnose or sign in again.")
+}
+
+struct HeadlessIntegration;
+impl crate::modules::integration::SystemIntegration for HeadlessIntegration {
+    async fn on_account_switch(
+        &self,
+        account: &crate::models::Account,
+        target_ide: Option<&str>,
+    ) -> std::result::Result<(), String> {
+        let account = account.clone();
+        let target = target_ide.map(str::to_owned);
+        tokio::task::spawn_blocking(move || {
+            crate::modules::integration::DesktopIntegration::switch_sync(
+                &HeadlessIntegration,
+                &account,
+                target.as_deref(),
+            )
+        })
+        .await
+        .map_err(|_| "Account switch worker failed.".to_string())?
+    }
+    fn update_tray(&self) {}
+    fn show_notification(&self, _title: &str, _body: &str) {}
+}
+
+pub(crate) use switch_lock::SwitchLock;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn args(args: &[&str]) -> Vec<String> {
+        args.iter().map(|arg| (*arg).into()).collect()
+    }
+    #[test]
+    fn parses_commands_and_json() {
+        assert_eq!(
+            parse(&args(&["accounts", "list", "--json"])).unwrap(),
+            (Command::List, true)
+        );
+        assert_eq!(
+            parse(&args(&["--json", "current"])).unwrap(),
+            (Command::Current, true)
+        );
+        assert_eq!(
+            parse(&args(&["--cli", "quota", "a@example.invalid"])).unwrap(),
+            (Command::Quota(Some("a@example.invalid".into())), false)
+        );
+        assert_eq!(
+            parse(&args(&["switch", "abc", "--target", "cli"])).unwrap(),
+            (
+                Command::Switch {
+                    selector: "abc".into(),
+                    target: "cli".into()
+                },
+                false
+            )
+        );
+    }
+    #[test]
+    fn rejects_ambiguous_or_unknown_arguments() {
+        for input in [
+            &["switch"][..],
+            &["switch", "a", "--target", "unknown"],
+            &["quota", "--refresh"],
+            &["export"],
+            &["list", "--json", "--json"],
+            &["switch", "a", "extra"],
+            &["--wat"],
+        ] {
+            assert_eq!(parse(&args(input)).unwrap_err().code, 2);
+        }
+    }
+    #[test]
+    fn errors_do_not_echo_secrets() {
+        let error = switch_error("server says secret-refresh-token, access_token=abc");
+        assert!(!error.message.contains("secret-refresh-token"));
+        assert!(!error.message.contains("abc"));
+    }
+}
