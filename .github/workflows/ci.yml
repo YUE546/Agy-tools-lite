@@ -44,6 +44,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Test CLI child-process stdio isolation
+        run: node scripts/test-cli-launch.mjs
+
       - name: Check Tauri backend
         run: cargo check --locked --manifest-path src-tauri/Cargo.toml
 
@@ -59,9 +62,6 @@ jobs:
           BINARY=src-tauri/target/debug/antigravity-tools
           if [[ "$RUNNER_OS" == Windows ]]; then BINARY="${BINARY}.exe"; fi
           node scripts/test-cli.mjs "$BINARY"
-
-      - name: Test CLI child-process stdio isolation
-        run: node scripts/test-cli-launch.mjs
 
       - name: Test Homebrew cask generation
         if: runner.os != 'Windows'
