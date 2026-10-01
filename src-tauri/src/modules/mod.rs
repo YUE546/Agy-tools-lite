@@ -29,3 +29,4 @@ pub use quota::*;
 // pub use device::*;
 
 pub mod desktop;
+pub mod auto_switch;

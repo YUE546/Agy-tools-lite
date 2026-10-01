@@ -27,3 +27,7 @@ lerna-debug.log*
 # Editors
 .vscode/
 .idea/
+
+# Browser acceptance artifacts
+test-results/
+playwright-report/

@@ -11,6 +11,11 @@ pub trait SystemIntegration: Send + Sync {
         target_ide: Option<&str>,
     ) -> Result<(), String>;
 
+    /// The CLI overrides only launch I/O; GUI launch behavior stays unchanged.
+    fn start_application(&self, target_ide: Option<&str>) -> Result<(), String> {
+        process::start_antigravity(target_ide)
+    }
+
     /// 更新系统托盘（如果适用）
     fn update_tray(&self);
 
@@ -34,9 +39,11 @@ impl SystemIntegration for DesktopIntegration {
         };
         let account = account.clone();
         let target = target_ide.map(str::to_owned);
-        tokio::task::spawn_blocking(move || integration.switch_sync(&account, target.as_deref()))
-            .await
-            .map_err(|_| "Account switch worker failed.".to_string())?
+        tokio::task::spawn_blocking(move || {
+            DesktopIntegration::switch_sync(&integration, &account, target.as_deref())
+        })
+        .await
+        .map_err(|_| "Account switch worker failed.".to_string())?
     }
 
     fn update_tray(&self) {
@@ -50,8 +57,9 @@ impl SystemIntegration for DesktopIntegration {
 }
 
 impl DesktopIntegration {
-    fn switch_sync(
-        &self,
+    /// Shared credential/process operations; callbacks may be headless (CLI).
+    pub(crate) fn switch_sync(
+        integration: &impl SystemIntegration,
         account: &crate::models::Account,
         target_ide: Option<&str>,
     ) -> Result<(), String> {
@@ -90,8 +98,8 @@ impl DesktopIntegration {
                     account.email
                 )
             };
-            self.show_notification("Antigravity CLI", &msg);
-            self.update_tray();
+            integration.show_notification("Antigravity CLI", &msg);
+            integration.update_tray();
 
             return Ok(());
         }
@@ -211,10 +219,10 @@ impl DesktopIntegration {
         }
 
         // 3. 重启外部进程
-        process::start_antigravity(target_ide)?;
+        integration.start_application(target_ide)?;
 
         // 4. 更新托盘
-        let _ = crate::modules::tray::update_tray_menus(&self.app_handle);
+        integration.update_tray();
 
         Ok(())
     }
@@ -233,7 +241,10 @@ pub fn read_cli_credentials() -> Result<crate::modules::migration::ImportedOAuth
 }
 
 /// Sync the APP's platform credential store and an existing native agy session.
-fn write_to_system_keyring(account: &crate::models::Account, cli_only: bool) -> Result<(), String> {
+pub(crate) fn write_to_system_keyring(
+    account: &crate::models::Account,
+    cli_only: bool,
+) -> Result<(), String> {
     let payload_json = cli_credentials::payload(&account.token)?;
     let cli_path = cli_session_path()?;
 

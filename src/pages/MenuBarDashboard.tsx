@@ -34,6 +34,10 @@ import {
 } from "../utils/menuBarQuota";
 import { getMenuBarMessages } from "../components/menubar/messages";
 import "../components/menubar/MenuBarDashboard.css";
+import {
+  MenuBarSwitchDetails,
+  useMenuBarSwitchStatus,
+} from "../components/menubar/LowQuotaStatus";
 
 interface MenuBarAppearance {
   native_material: boolean;
@@ -60,7 +64,9 @@ const errorText = (error: unknown) =>
       : JSON.stringify(error);
 
 export default function MenuBarDashboard() {
-  const { i18n } = useTranslation();
+  const { i18n, t: translate } = useTranslation();
+  const lowQuota = useMenuBarSwitchStatus();
+  const [switchDetailsOpen, setSwitchDetailsOpen] = useState(false);
   const t = getMenuBarMessages(i18n.language);
   const config = useConfigStore((state) => state.config);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -144,6 +150,9 @@ export default function MenuBarDashboard() {
       listen("menubar://data-updated", () => {
         void reload();
       }),
+      listen("tray://account-switched", () => {
+        void reload();
+      }),
       listen("accounts://refreshed", () => {
         void reload();
       }),
@@ -188,7 +197,9 @@ export default function MenuBarDashboard() {
     accounts.find((account) => account.id === selectedAccountId) || null;
   const isOverview = viewedAccount === null;
   const threshold = quotaThreshold(
-    config?.quota_protection?.threshold_percentage,
+    lowQuota.config?.enabled
+      ? lowQuota.config.reserve_percentage
+      : config?.quota_protection?.threshold_percentage,
   );
   const overview = useMemo(
     () => summarizeAccounts(accounts, threshold, config?.refresh_interval, now),
@@ -196,6 +207,7 @@ export default function MenuBarDashboard() {
   );
   // Viewing is deliberately separate from credential activation.
   const viewAccount = (accountId: string | null) => {
+    setSwitchDetailsOpen(false);
     setSelectedAccountId(accountId);
     setAccountPickerOpen(false);
     setQuotaPage(0);
@@ -224,7 +236,9 @@ export default function MenuBarDashboard() {
       await reload();
       void loadUsage();
     } catch (e) {
-      setError(`${t.lastError} ${errorText(e)}`);
+      setError(
+        `${viewedAccount?.custom_label || viewedAccount?.email || (i18n.language.startsWith("zh") ? "全部账号" : "All accounts")}: ${t.lastError} ${errorText(e)}`,
+      );
     } finally {
       operationLock.current = false;
       setOperation(null);
@@ -233,6 +247,9 @@ export default function MenuBarDashboard() {
   const switchAccount = async (account: Account) => {
     if (
       operationLock.current ||
+      lowQuota.status === null ||
+      lowQuota.status?.phase === "switching" ||
+      lowQuota.readError ||
       account.id === current?.id ||
       !isAccountSwitchable(account)
     )
@@ -245,9 +262,14 @@ export default function MenuBarDashboard() {
     try {
       await request("switch_account", { accountId: account.id });
       await reload();
-      setNotice(t.switched);
-      setAccountPickerOpen(false);
-      setQuotaPage(0);
+      const name = account.custom_label || account.email;
+      setNotice(
+        i18n.language.startsWith("zh")
+          ? `已切换到 ${name}`
+          : `Switched to ${name}`,
+      );
+      // Do not close or replace a newer account-inspection view while this
+      // background operation was in flight.
     } catch (e) {
       setError(errorText(e));
       await reload();
@@ -318,6 +340,7 @@ export default function MenuBarDashboard() {
   const visiblePools = pageSlice(overview.pools, poolPage, overviewPageSize);
   const heading = chinese ? "剩余额度" : "Remaining quota";
   const toggleAccounts = () => {
+    setSwitchDetailsOpen(false);
     setAccountPickerOpen((value) => !value);
     setAccountPage(0);
   };
@@ -334,19 +357,20 @@ export default function MenuBarDashboard() {
     ? overview.statuses[viewedAccount.id] ||
       accountReadiness(viewedAccount, threshold, config?.refresh_interval, now)
     : null;
-  const viewLabel = accountPickerOpen
-    ? chinese
-      ? "返回"
-      : "Back"
-    : isOverview
+  const viewLabel =
+    accountPickerOpen || switchDetailsOpen
       ? chinese
-        ? "查看账号"
-        : "View accounts"
-      : activeViewed
-        ? t.active
-        : chinese
-          ? "切换为此账号"
-          : "Use this account";
+        ? "返回"
+        : "Back"
+      : isOverview
+        ? chinese
+          ? "查看账号"
+          : "View accounts"
+        : activeViewed
+          ? t.active
+          : chinese
+            ? "切换为此账号"
+            : "Use this account";
   const pager = (
     page: number,
     total: number,
@@ -381,7 +405,13 @@ export default function MenuBarDashboard() {
     <div
       className={`menubar-app mb-native ${appearance?.native_material ? "is-material" : "is-solid"} ${appearance?.high_contrast ? "is-high-contrast" : ""}`}
       data-view={
-        accountPickerOpen ? "accounts" : isOverview ? "overview" : "quota"
+        switchDetailsOpen
+          ? "switch-status"
+          : accountPickerOpen
+            ? "accounts"
+            : isOverview
+              ? "overview"
+              : "quota"
       }
     >
       <header className="mb-native-header">
@@ -447,7 +477,7 @@ export default function MenuBarDashboard() {
         role={error ? "alert" : "status"}
         title={error || viewedAccount?.email}
       >
-        {error ? (
+        {error && lowQuota.status?.phase !== "switching" ? (
           <>
             <CircleAlert size={11} />
             <span>{error}</span>
@@ -460,6 +490,47 @@ export default function MenuBarDashboard() {
               {t.retry}
             </button>
           </>
+        ) : lowQuota.visible ? (
+          <button
+            type="button"
+            className="mb-low-quota-indicator"
+            onClick={() => {
+              setSwitchDetailsOpen((value) => !value);
+              setAccountPickerOpen(false);
+            }}
+            aria-label={
+              chinese
+                ? "查看低额度换号详情"
+                : "View low-quota switching details"
+            }
+            title={
+              lowQuota.readError
+                ? translate("auto_switch.status_failed")
+                : translate(
+                    `auto_switch.reasons.${lowQuota.status?.reason || "checking"}`,
+                    {
+                      defaultValue: translate(
+                        "auto_switch.reasons.state_unavailable",
+                      ),
+                    },
+                  )
+            }
+          >
+            <CircleAlert size={11} />
+            <span>
+              {lowQuota.readError
+                ? translate("auto_switch.status_failed")
+                : translate(
+                    `auto_switch.reasons.${lowQuota.status?.reason || "checking"}`,
+                    {
+                      defaultValue: translate(
+                        "auto_switch.reasons.state_unavailable",
+                      ),
+                    },
+                  )}
+            </span>
+            <b>{chinese ? "详情" : "Details"}</b>
+          </button>
         ) : notice ? (
           <>
             <Check size={11} />
@@ -474,7 +545,7 @@ export default function MenuBarDashboard() {
               {operation && operation !== "refresh"
                 ? t.switching
                 : isOverview
-                  ? `${chinese ? "当前使用" : "Active"}: ${current?.custom_label || current?.email || (chinese ? "未选择" : "None")}`
+                  ? `${chinese ? "当前记录" : "Recorded current"}: ${current?.custom_label || current?.email || (chinese ? "未选择" : "None")}`
                   : `${activeViewed ? t.active : chinese ? "仅查看，未切换" : "Viewing only"} · ${stale ? `${t.stale} · ` : ""}${updated}`}
             </span>
           </>
@@ -492,6 +563,11 @@ export default function MenuBarDashboard() {
             <Loader2 size={21} className="mb-spin" />
             <span>{t.loading}</span>
           </div>
+        ) : switchDetailsOpen ? (
+          <MenuBarSwitchDetails
+            state={lowQuota}
+            openSettings={() => open("settings")}
+          />
         ) : accountPickerOpen ? (
           <section
             className="mb-native-picker"
@@ -824,8 +900,8 @@ export default function MenuBarDashboard() {
                         : "Stale, missing or protected quota needs verification"
                       : activeViewed
                         ? chinese
-                          ? "正在 Antigravity App 中使用"
-                          : "Active in Antigravity App"
+                          ? "Tools 记录的当前账号"
+                          : "Current account recorded by Tools"
                         : t.switchHint}
               </p>
             </section>
@@ -837,26 +913,32 @@ export default function MenuBarDashboard() {
           type="button"
           className="mb-native-switch"
           disabled={
-            !accounts.length ||
+            (!accounts.length && !accountPickerOpen && !switchDetailsOpen) ||
             !isTauri() ||
             (!accountPickerOpen &&
+              !switchDetailsOpen &&
               !isOverview &&
               (Boolean(operation) ||
+                lowQuota.status === null ||
+                lowQuota.status?.phase === "switching" ||
+                lowQuota.readError ||
                 activeViewed ||
                 !isAccountSwitchable(viewedAccount, now)))
           }
           title={!isOverview ? t.switchHint : undefined}
           onClick={() =>
-            accountPickerOpen
-              ? setAccountPickerOpen(false)
-              : isOverview
-                ? toggleAccounts()
-                : void switchAccount(viewedAccount)
+            switchDetailsOpen
+              ? setSwitchDetailsOpen(false)
+              : accountPickerOpen
+                ? setAccountPickerOpen(false)
+                : isOverview
+                  ? toggleAccounts()
+                  : void switchAccount(viewedAccount)
           }
         >
           {operation && operation !== "refresh" ? (
             <Loader2 size={13} className="mb-spin" />
-          ) : accountPickerOpen ? (
+          ) : accountPickerOpen || switchDetailsOpen ? (
             <ChevronLeft size={13} />
           ) : activeViewed ? (
             <Check size={13} />

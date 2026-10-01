@@ -111,6 +111,10 @@ npm run tauri build     # macOS .app or Windows installer
 
 Bundles are written to `src-tauri/target/release/bundle/`. Pushing a `v*` tag runs the release workflow, which builds macOS, Windows and Linux deb packages and attaches the results to the GitHub release
 
+## Low-quota account switching
+
+Settings now offers two opt-in modes: **Switch after tasks finish** and **Stop first, then switch**. Both prepare a permitted backup from real quota data and update credentials only after all detected Antigravity/agy clients have exited. The tool never stops tasks or forces clients to close. Reopen the client, verify the account, and continue the original conversation manually. See [setup, limits, and verification](docs/low-quota-switching.md).
+
 ## Relation to the upstream project
 
 This project is a focused fork of [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager). Upstream provides a full toolkit, including a reverse proxy, an HTTP API, a Cloudflared tunnel, IP management and a Docker image. This fork keeps the account manager and the local usage dashboard, removes the proxy and web-mode parts of the codebase, and adds its own dashboard, bilingual interface, theme support and release tooling. The two projects are independent; use upstream if a proxy is required
@@ -118,3 +122,9 @@ This project is a focused fork of [lbjlaq/Antigravity-Manager](https://github.co
 ## License
 
 Based on [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager) and distributed under the same [CC BY-NC-SA 4.0](./LICENSE) license. The license and the attribution requirements of the original project apply to any use, modification or redistribution
+
+## Command-line and Homebrew
+
+Tools Lite includes a local management CLI named `agy-lite`: list accounts, read the recorded current account and cached quota, and explicitly switch accounts using the same safe path as the GUI. It is separate from Google’s `agy`. See [CLI usage](docs/cli.md).
+
+[Homebrew packaging](docs/homebrew.md) generates an Apple Silicon macOS cask with the release ZIP’s real SHA-256 and installs both the app and `agy-lite`. This change does not create a public tap or publish a release; installation instructions become available after those artifacts are published and tested.

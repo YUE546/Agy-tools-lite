@@ -679,3 +679,103 @@
     grid-template-rows: repeat(var(--account-page-size, 4), 39px);
   }
 }
+
+/* Coordinator status occupies the existing status line, not a taller banner. */
+.mb-low-quota-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  width: 100%;
+  text-align: left;
+  color: var(--mb-yellow) !important;
+}
+.mb-low-quota-indicator > svg,
+.mb-low-quota-indicator > b {
+  flex: none;
+}
+.mb-low-quota-indicator > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.mb-low-quota-indicator > b {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--mb-fg);
+}
+.mb-switch-details {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 10px;
+  padding: 3px 0 12px;
+  font-size: 11px;
+}
+.mb-switch-details h2 {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+.mb-switch-details p {
+  margin: 0;
+  line-height: 16px;
+}
+.mb-switch-detail-reason {
+  font-weight: 500;
+}
+.mb-switch-details dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 0;
+  border-top: 1px solid var(--mb-line);
+  border-bottom: 1px solid var(--mb-line);
+}
+.mb-switch-details dl > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mb-switch-details dt {
+  color: var(--mb-muted);
+  font-size: 10px;
+  flex: none;
+}
+.mb-switch-details dd {
+  min-width: 0;
+  margin: 0 0 0 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mb-switch-detail-instructions {
+  color: var(--mb-muted);
+}
+.mb-switch-detail-error {
+  color: var(--mb-red);
+}
+.mb-switch-detail-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+.mb-switch-detail-actions > button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--mb-line);
+  border-radius: 5px;
+  padding: 6px 8px;
+  font-size: 10px;
+}
+.mb-switch-detail-link {
+  align-self: flex-start;
+  color: var(--mb-muted) !important;
+  text-decoration: underline;
+  font-size: 10px !important;
+}

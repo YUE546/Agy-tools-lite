@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Navbar from '../navbar/Navbar';
+import { AutoSwitchStatusBar } from '../autoSwitch/AutoSwitch';
 import BackgroundTaskRunner from '../common/BackgroundTaskRunner';
 import ToastContainer from '../common/ToastContainer';
 import { useEffect } from 'react';
@@ -34,6 +35,7 @@ function Layout() {
             <BackgroundTaskRunner />
             <ToastContainer />
             <Navbar />
+            <AutoSwitchStatusBar />
             <main className="flex-1 overflow-hidden flex flex-col relative">
                 <Outlet />
             </main>

@@ -8,19 +8,27 @@ On macOS the panel uses the system Popover vibrancy material over a transparent 
 
 A browser preview uses synthetic data and CSS to approximate the material. It cannot verify native macOS desktop blur or accessibility changes.
 
-The default Overview separates active identity, saved-account readiness, and per-pool usable-account counts. Counts use all saved accounts as the denominator. Every reported/required window must be known, fresh and above the configured reserve threshold. Stale/expired, missing-window, validation-blocked, forbidden and locally protected data is never counted as usable. Model fallback and group pools remain separate; percentages are never added or averaged.
+The default Overview separates the recorded current identity, saved-account readiness, and per-pool usable-account counts. Counts use all saved accounts as the denominator. Every reported/required window must be known, fresh and above the configured reserve threshold. Stale/expired, missing-window, validation-blocked, forbidden and locally protected data is never counted as usable. Model fallback and group pools remain separate; percentages are never added or averaged.
+
+The recorded current account comes from the local Tools index; it is not a live check of the account in an open Antigravity window.
 
 Choosing an account only changes the inspected view. A separate **Use this account** button invokes the existing switching command. Disabled accounts remain inspectable. Machine-local token totals appear only in Overview, never as per-account usage.
 
 The panel includes:
-- The active account, subscription tier and quota update age
+- The current account recorded by Tools, subscription tier and quota update age
 - Each **reported** quota pool and window, with remaining percentages and reset countdowns
 - Pinned model quotas when the server does not report grouped windows
 - Today's locally recorded tokens and requests, clearly marked as not attributed to individual accounts
 - Saved-account switching through the same backend as the full application
 - Refresh, account management, full dashboard, settings and quit actions
 
-Unknown quota is shown as a dash, not zero. Cached quota is marked stale. Independent quota pools are not averaged. Blocked/disabled accounts cannot be selected in the panel, and concurrent clicks are suppressed. Switching can restart Antigravity App, as the interface explains.
+Unknown quota is shown as a dash, not zero. Cached quota is marked stale. Independent quota pools are not averaged. Blocked/disabled accounts cannot be activated in the panel, and concurrent clicks are suppressed. Switching can restart Antigravity App, as the interface explains.
+
+## Low-quota coordinator status
+
+The menu-bar route has its own compact view of the existing low-quota coordinator because it intentionally does not mount the full window's Layout. Its read-only status indicator uses the existing status-line space. Selecting it replaces the main content with a bounded detail view, with the same verified reason, source/target, wait/stop instructions, cancellation ID and check action as Settings. Stop guidance opens the full Settings view; it never sends a stop or kill command. During a committed coordinator switch or an unreadable coordinator state, manual activation is disabled in the panel. The backend remains the single owner of switching decisions. Overview uses the enabled coordinator's reserve as its read-only display threshold; while that feature is disabled, it retains the existing quota-protection display threshold. This statistic does not broaden the coordinator's configured model or candidate-account scope.
+
+The frontend does not start a second coordinator or duplicate the background quota scheduler. A `tray://account-switched` event updates the inspected account data even when the main Layout is not mounted.
 
 ## Settings
 
@@ -40,7 +48,7 @@ The panel closes on Escape, a second tray click, or loss of focus. Its position 
 - `cargo check --locked --manifest-path src-tauri/Cargo.toml`
 - `cargo test --locked --manifest-path src-tauri/Cargo.toml --lib`
 
-Automated tests cover quota truthfulness, pinned-model fallback, account eligibility, stale data, startup safety and display-bound calculations. No test enables startup or modifies a real user's account.
+Automated tests cover quota truthfulness, pinned-model fallback, account eligibility, stale data, startup safety and display-bound calculations. Playwright synthetic-IPC acceptance covers the 380×480 layout, pagination, explicit activation, repeated/interrupted navigation, low-quota status and cancellation, and truthful completion/errors. Captures from that runner are Linux browser UI evidence, not native macOS/Windows screenshots. No test enables startup or modifies a real user's account.
 
 Before release, validate on an installed macOS build: menu-bar positioning on multiple Retina displays; outside-click/second-click dismissal; switching while the main window is hidden; Dock preference preservation; relaunch from Spotlight; actual login startup; System Settings changes to login/menu-bar visibility. Linux compilation is not a substitute for this native macOS validation.
 

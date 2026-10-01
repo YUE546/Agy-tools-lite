@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, codex/cli-homebrew]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, windows-latest, ubuntu-22.04]
+        platform: [macos-15, windows-latest, ubuntu-22.04]
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 30
     steps:
@@ -43,15 +43,86 @@ jobs:
 
       - name: Test menu-bar quota presentation
         run: node scripts/test-menubar-logic.mjs
+      - name: Install Chromium for mocked UI acceptance
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
+
+      - name: Test low-quota switching UI with synthetic IPC
+        if: runner.os == 'Linux'
+        run: npx playwright test
+
+      - name: Upload UI acceptance screenshots
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-switch-ui-acceptance
+          path: test-results/auto-switch
+          if-no-files-found: ignore
+
+      - name: Upload menu-bar mock browser screenshots
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: menubar-ui-mock-acceptance
+          path: test-results/auto-switch/**/menubar-*.png
+          if-no-files-found: ignore
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Test CLI child-process stdio isolation
+        run: node scripts/test-cli-launch.mjs
+
       - name: Check Tauri backend
         run: cargo check --locked --manifest-path src-tauri/Cargo.toml
 
+      - name: Test Tools Lite CLI on every platform
+        run: "cargo test --locked --manifest-path src-tauri/Cargo.toml --lib cli::"
+
+      - name: Build executable for headless CLI smoke test
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Smoke test CLI without a display or real credentials
+        shell: bash
+        run: |
+          BINARY=src-tauri/target/debug/antigravity-tools
+          if [[ "$RUNNER_OS" == Windows ]]; then BINARY="${BINARY}.exe"; fi
+          node scripts/test-cli.mjs "$BINARY"
+
+      - name: Test Homebrew cask generation
+        if: runner.os != 'Windows'
+        run: node --test scripts/test-homebrew-generator.mjs
+
+      - name: Test safe low-quota switching on every platform
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib auto_switch::tests
+
       - name: Test native CLI credentials on every platform
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib cli_credentials::tests
+
+      - name: Package macOS arm64 test app
+        if: runner.os == 'macOS'
+        env:
+          SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          npm run tauri bundle -- --debug --bundles app
+          APP="src-tauri/target/debug/bundle/macos/Antigravity Tools Lite.app"
+          [[ "$(lipo -archs "$APP/Contents/MacOS/antigravity-tools")" == "arm64" ]]
+          node scripts/test-cli.mjs "$APP/Contents/MacOS/antigravity-tools"
+          mkdir -p artifacts/macos-test
+          ARCHIVE="artifacts/macos-test/Antigravity-Tools-Lite-test-${SOURCE_HEAD}-macos-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ARCHIVE"
+          shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+          node --input-type=module -e 'import { writeFileSync } from "node:fs"; import { execFileSync } from "node:child_process"; writeFileSync("artifacts/macos-test/build-info.json", JSON.stringify({ source_head: process.env.SOURCE_HEAD, checkout_commit: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), run_id: process.env.GITHUB_RUN_ID, architecture: "arm64", profile: "debug", distribution: "CI test build; not a signed or notarized release" }, null, 2) + "\n");'
+
+      - name: Upload macOS test app
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-test-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/macos-test/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Test Linux backend
         if: runner.os == 'Linux'

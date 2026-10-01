@@ -339,4 +339,30 @@ test("view selection does not invoke credential activation", () => {
   assert.match(ui, /onClick=\{\(\) => viewAccount\(account.id\)\}/);
   assert.match(ui, /Use this account/);
 });
+test("switch completion identifies its actual target and preserves newer navigation", () => {
+  const ui = readFileSync(
+    new URL("../src/pages/MenuBarDashboard.tsx", import.meta.url),
+    "utf8",
+  );
+  const handler = ui.slice(
+    ui.indexOf("const switchAccount ="),
+    ui.indexOf("const groups ="),
+  );
+  assert.match(handler, /account.custom_label \|\| account.email/);
+  assert.doesNotMatch(
+    handler,
+    /setSelectedAccountId|setAccountPickerOpen|setQuotaPage/,
+  );
+});
+test("recorded-current badges do not claim a live native app session", () => {
+  const ui = readFileSync(
+    new URL("../src/pages/MenuBarDashboard.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    ui,
+    /Active in Antigravity App|正在 Antigravity App 中使用|当前使用/,
+  );
+  assert.match(ui, /Current account recorded by Tools/);
+});
 console.log(`${passed} tests passed`);

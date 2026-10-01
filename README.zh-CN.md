@@ -111,6 +111,10 @@ npm run tauri build     # macOS .app 或 Windows 安装包
 
 构建产物位于 `src-tauri/target/release/bundle/`。推送 `v*` tag 会触发发布工作流，构建 macOS、Windows 和 Linux deb 并挂载到 GitHub Release
 
+## 低额度换号
+
+设置中提供两个默认关闭的模式：**任务结束后换号**、**停止后换号**。两者都按真实配额选择允许使用的备用账号，仅在检测到 Antigravity/agy 客户端均已退出后更新凭据。工具不会替你停止任务或强制关闭客户端。重新打开客户端后，请核对账号，从历史打开原对话并手动继续。详见[设置方式、边界和验证说明](docs/low-quota-switching.md)。
+
 ## 与上游项目的关系
 
 本项目是 [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager) 的精简分支。上游提供完整工具箱，包含反向代理、HTTP API、Cloudflared 隧道、IP 管理与 Docker 镜像。本分支保留账号管理与本地用量仪表盘，移除代码库中的代理与 Web 模式部分，并加入自己的仪表盘、双语界面、主题支持与发布流程。两者为独立项目，若需要代理功能请使用上游
@@ -118,3 +122,9 @@ npm run tauri build     # macOS .app 或 Windows 安装包
 ## 许可
 
 基于 [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager) 定制，沿用 [CC BY-NC-SA 4.0](./LICENSE) 许可证。任何使用、修改或再分发行为均需遵守该许可证及原项目的署名要求
+
+## 命令行与 Homebrew
+
+Tools Lite 自带管理命令 `agy-lite`，支持列出账号、查看本地记录的当前账号和缓存配额，以及复用 GUI 安全流程显式切换账号。它与 Google 的 `agy` 命令不同，详见 [CLI 使用说明](docs/cli.md)。
+
+[Homebrew 分发说明](docs/homebrew.md) 提供 Apple Silicon macOS cask 生成工具，从真实 release ZIP 计算 SHA-256，同时安装 APP 与 `agy-lite`。本改动不会创建公开 tap 或发布 release；发布并验证这些文件后才能提供公开安装命令。

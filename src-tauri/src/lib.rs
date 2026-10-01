@@ -1,3 +1,4 @@
+pub mod cli;
 mod commands;
 pub mod constants;
 pub mod error;
@@ -250,8 +251,10 @@ pub fn run() {
             }
         }))
         .manage(modules::desktop::DesktopRuntime::default())
+        .manage(modules::auto_switch::Runtime::default())
         .setup(move |app| {
             info!("Setup starting...");
+            modules::auto_switch::start(app.handle().clone());
             if tray_enabled {
                 match modules::tray::create_tray(app.handle()) {
                     Ok(()) => {
@@ -274,6 +277,11 @@ pub fn run() {
         })
         .on_window_event(modules::desktop::handle_window_event)
         .invoke_handler(tauri::generate_handler![
+            modules::auto_switch::get_auto_switch_config,
+            modules::auto_switch::set_auto_switch_config,
+            modules::auto_switch::get_auto_switch_status,
+            modules::auto_switch::check_auto_switch_now,
+            modules::auto_switch::cancel_auto_switch,
             modules::desktop::get_desktop_settings,
             modules::desktop::get_menu_bar_appearance,
             modules::desktop::set_desktop_preferences,
