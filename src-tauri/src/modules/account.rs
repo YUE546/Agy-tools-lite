@@ -1047,6 +1047,8 @@ pub async fn switch_account(
         account.email, account.id, target_ide
     ));
 
+    let original_refresh_token = account.token.refresh_token.clone();
+
     // 2. Ensure token is valid before switch. Surface clearer hints for known account-state failures.
     let fresh_token = match oauth::ensure_fresh_token(&account.token, Some(&account.id)).await {
         Ok(token) => token,
@@ -1058,27 +1060,18 @@ pub async fn switch_account(
         }
     };
 
-    // If Token updated, save back to account file
-    if fresh_token.access_token != account.token.access_token {
-        account.token = fresh_token.clone();
-        save_account(&account)?;
-    }
-
+    // Resolve only switch-owned fields on the detached snapshot; never save the
+    // old whole account after an await, because quota/disabled state may change.
+    account.token = fresh_token;
     ensure_enterprise_project_ready(&mut account).await?;
-
-    if account.device_profile.is_none() {
-        account.device_profile = Some(modules::device::generate_profile());
-        save_account(&account)?;
-    }
+    account = merge_switch_fields(&account, &original_refresh_token)?;
 
     // 3. Execute platform-specific system integration (Close proc, Inject DB, Start proc, etc.)
     integration.on_account_switch(&account, target_ide).await?;
 
-    // 4. Update tool internal state
-    set_current_account_id_with_target(account_id, target_ide)?;
-
-    account.update_last_used();
-    save_account(&account)?;
+    // Merge last-used/index changes into fresh data under the account write lock.
+    // A concurrent quota refresh must not be replaced by our old Account clone.
+    finish_switch_account(account_id, target_ide)?;
 
     crate::modules::logger::log_info(&format!(
         "Account switch core logic completed: {}",
@@ -1086,6 +1079,64 @@ pub async fn switch_account(
     ));
 
     Ok(())
+}
+
+fn merge_switch_fields(
+    snapshot: &Account,
+    expected_refresh_token: &str,
+) -> Result<Account, String> {
+    let _write = lock_account_file_updates()?;
+    let index = load_account_index()?;
+    if !index.accounts.iter().any(|a| a.id == snapshot.id) {
+        return Err("Account was removed during switch preparation.".into());
+    }
+    let mut latest = load_account(&snapshot.id)?;
+    if latest.token.refresh_token != expected_refresh_token {
+        return Err("Account credentials changed during switch preparation.".into());
+    }
+    if snapshot.token.expiry_timestamp >= latest.token.expiry_timestamp {
+        latest.token = snapshot.token.clone();
+    } else if latest.token.project_id.is_none() {
+        latest.token.project_id = snapshot.token.project_id.clone();
+    }
+    if latest.device_profile.is_none() {
+        latest.device_profile = Some(modules::device::generate_profile());
+    }
+    save_account(&latest)?;
+    Ok(latest)
+}
+
+#[cfg(test)]
+pub(crate) fn switch_merge_fixture_check() {
+    // Called only by the isolated auto-switch subprocess fixture. Exercise the
+    // same fresh-field merge after simulating a concurrent quota/flag update.
+    assert!(std::env::var_os("AGY_SAFE_SWITCH_FIXTURE").is_some());
+    let stale = load_account("B").unwrap();
+    let mut latest = stale.clone();
+    latest.disabled = true;
+    latest.custom_label = Some("newer-label".into());
+    if let Some(q) = latest.quota.as_mut() {
+        q.models[0].percentage = 1;
+    }
+    save_account(&latest).unwrap();
+    let merged = merge_switch_fields(&stale, &stale.token.refresh_token).unwrap();
+    assert!(merged.disabled);
+    assert_eq!(merged.custom_label.as_deref(), Some("newer-label"));
+    assert_eq!(merged.quota.unwrap().models[0].percentage, 1);
+}
+
+fn finish_switch_account(account_id: &str, target_ide: Option<&str>) -> Result<(), String> {
+    let _write = lock_account_file_updates()?;
+    let mut index = load_account_index()?;
+    if !index.accounts.iter().any(|a| a.id == account_id) {
+        return Err("Credentials were updated, but the target account was removed.".into());
+    }
+    let mut latest = load_account(account_id)?;
+    latest.update_last_used();
+    save_account(&latest)?;
+    index.current_account_id = Some(account_id.into());
+    index.current_target_ide = target_ide.map(str::to_owned);
+    save_account_index(&index)
 }
 
 fn is_enterprise_client(client_key: Option<&str>) -> bool {
@@ -1124,7 +1175,6 @@ async fn ensure_enterprise_project_ready(account: &mut Account) -> Result<(), St
                 account.email, project_id
             ));
             account.token.project_id = Some(project_id);
-            save_account(account)?;
             Ok(())
         }
         Err(e) => {

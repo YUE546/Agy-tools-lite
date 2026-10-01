@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, codex/cli-homebrew]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -41,6 +41,22 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Install Chromium for mocked UI acceptance
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
+
+      - name: Test low-quota switching UI with synthetic IPC
+        if: runner.os == 'Linux'
+        run: npx playwright test
+
+      - name: Upload UI acceptance screenshots
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-switch-ui-acceptance
+          path: test-results/auto-switch
+          if-no-files-found: ignore
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -66,6 +82,9 @@ jobs:
       - name: Test Homebrew cask generation
         if: runner.os != 'Windows'
         run: node --test scripts/test-homebrew-generator.mjs
+
+      - name: Test safe low-quota switching on every platform
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib auto_switch::tests
 
       - name: Test native CLI credentials on every platform
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib cli_credentials::tests
