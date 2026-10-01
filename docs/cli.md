@@ -49,6 +49,8 @@ agy-lite switch ACCOUNT_ID --target ide
 
 Switching is an explicit mutating command. It reuses the GUI's token validation/refresh, credential synchronization, process handling and account-index update. The default `--target app` follows the GUI behavior: it may close and restart Antigravity and synchronize an initialized native `agy` session. On Linux without an installed APP, the same GUI fallback can select an initialized `agy` installation. `--target cli` updates only an already-initialized native `agy` session; `--target ide` retains the independent IDE database path.
 
+When the CLI relaunches an APP or IDE, child stdin/stdout/stderr are detached so the command returns promptly and JSON output stays machine-readable. GUI launches preserve their existing I/O behavior.
+
 Save work in Antigravity before switching. Start a new `agy` invocation afterward; a running invocation may retain the previous token. A failure can follow a partial external credential change, so inspect both clients before retrying. CLI errors intentionally omit raw server details; use the GUI for detailed troubleshooting.
 
 GUI and CLI switches in this version share an OS-level lock (`account-switch.lock` inside the data directory). A competing switch fails with exit code 5; the OS releases the lock when the owning process exits. Do not remove the lock file while a switch is running. Older Tools Lite versions do not honor the lock, so quit them before using the CLI. GUI quota refresh/add/delete operations are not coordinated by this switch-only lock; avoid editing or deleting accounts while a CLI switch is in progress. A CLI switch does not directly refresh an already-open GUI's tray; reopen the account page to read the saved state.
@@ -70,7 +72,10 @@ Exit codes:
 cargo test --locked --manifest-path src-tauri/Cargo.toml --lib cli::
 cargo build --locked --manifest-path src-tauri/Cargo.toml
 node scripts/test-cli.mjs ./src-tauri/target/debug/antigravity-tools
+node scripts/test-cli-launch.mjs
 node --test scripts/test-homebrew-generator.mjs
 ```
+
+The launch regression test compiles the production process-launch functions with a synthetic configuration and harmless child executable; it covers manual/auto-detected launches, JSON output and timely pipe EOF without credentials.
 
 The smoke test uses a temporary data directory and synthetic tokens. It does not call `switch`, log in, contact Google or modify real accounts. Real credential-store switches and Homebrew installation require platform testing before a release is advertised as verified.

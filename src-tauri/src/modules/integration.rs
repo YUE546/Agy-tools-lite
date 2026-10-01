@@ -11,6 +11,11 @@ pub trait SystemIntegration: Send + Sync {
         target_ide: Option<&str>,
     ) -> Result<(), String>;
 
+    /// The CLI overrides only launch I/O; GUI launch behavior stays unchanged.
+    fn start_application(&self, target_ide: Option<&str>) -> Result<(), String> {
+        process::start_antigravity(target_ide)
+    }
+
     /// 更新系统托盘（如果适用）
     fn update_tray(&self);
 
@@ -214,7 +219,7 @@ impl DesktopIntegration {
         }
 
         // 3. 重启外部进程
-        process::start_antigravity(target_ide)?;
+        integration.start_application(target_ide)?;
 
         // 4. 更新托盘
         integration.update_tray();

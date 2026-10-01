@@ -281,6 +281,9 @@ impl crate::modules::integration::SystemIntegration for HeadlessIntegration {
         .await
         .map_err(|_| "Account switch worker failed.".to_string())?
     }
+    fn start_application(&self, target_ide: Option<&str>) -> std::result::Result<(), String> {
+        crate::modules::process::start_antigravity_detached(target_ide)
+    }
     fn update_tray(&self) {}
     fn show_notification(&self, _title: &str, _body: &str) {}
 }

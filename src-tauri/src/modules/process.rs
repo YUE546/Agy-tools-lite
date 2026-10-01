@@ -774,9 +774,27 @@ pub fn clean_appimage_env(cmd: &mut Command) {
     }
 }
 
-/// Start Antigravity
-#[allow(unused_mut)]
+/// Start Antigravity using the GUI's existing stdio behavior.
 pub fn start_antigravity(target_ide: Option<&str>) -> Result<(), String> {
+    start_antigravity_with_stdio(target_ide, false)
+}
+
+/// CLI launches must not leak child output or keep the CLI's capture pipes open.
+pub fn start_antigravity_detached(target_ide: Option<&str>) -> Result<(), String> {
+    start_antigravity_with_stdio(target_ide, true)
+}
+
+fn prepare_launch_stdio(command: &mut Command, detached: bool) {
+    if detached {
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+    }
+}
+
+#[allow(unused_mut)]
+fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Result<(), String> {
     crate::modules::logger::log_info(&format!("Starting Antigravity ({:?})...", target_ide));
 
     // Prefer manually specified path and args from configuration
@@ -822,6 +840,7 @@ pub fn start_antigravity(target_ide: Option<&str>) -> Result<(), String> {
                 // macOS: if .app directory, use open
                 if path_str.ends_with(".app") || path.is_dir() {
                     let mut cmd = Command::new("open");
+                    prepare_launch_stdio(&mut cmd, detached);
                     cmd.arg("-a").arg(&path_str);
 
                     // Add startup arguments
@@ -835,6 +854,7 @@ pub fn start_antigravity(target_ide: Option<&str>) -> Result<(), String> {
                         .map_err(|e| format!("Startup failed (open): {}", e))?;
                 } else {
                     let mut cmd = Command::new(&path_str);
+                    prepare_launch_stdio(&mut cmd, detached);
 
                     // Add startup arguments
                     if let Some(ref args) = args {
@@ -851,6 +871,7 @@ pub fn start_antigravity(target_ide: Option<&str>) -> Result<(), String> {
             #[cfg(not(target_os = "macos"))]
             {
                 let mut cmd = Command::new(&path_str);
+                prepare_launch_stdio(&mut cmd, detached);
 
                 // Add startup arguments
                 if let Some(ref args) = args {
@@ -885,6 +906,7 @@ pub fn start_antigravity(target_ide: Option<&str>) -> Result<(), String> {
     {
         // Improvement: Use output() to wait for open command completion and capture "app not found" error
         let mut cmd = Command::new("open");
+        prepare_launch_stdio(&mut cmd, detached);
         let app_name = if target_ide == Some("ide") {
             "Antigravity IDE"
         } else {
@@ -916,6 +938,7 @@ pub fn start_antigravity(target_ide: Option<&str>) -> Result<(), String> {
         // Windows/Linux Auto-detection and Startup
         if let Some(detected_path) = get_antigravity_executable_path(target_ide) {
             let mut cmd = Command::new(&detected_path);
+            prepare_launch_stdio(&mut cmd, detached);
 
             // Add startup arguments
             if let Some(ref args) = args {
