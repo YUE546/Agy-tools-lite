@@ -2,7 +2,11 @@
 
 ## Status
 
-This repository provides a reproducible **macOS Apple Silicon cask recipe** and a release-asset generator. A public tap has not been created by this change, and existing releases may not include the CLI. Do not advertise `brew install` against a tap or asset until that exact release archive and generated cask have been published and tested.
+This repository contains the **macOS Apple Silicon cask** at `Casks/antigravity-tools-lite.rb`, backed by the public [v4.7.7 release](https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.7.7). It uses this repository as an explicit-URL tap; no separate tap repository is required. v4.7.6 predates the management CLI.
+
+The public ZIP, checksums, generated cask and source manifest were downloaded and compared with GitHub's asset digests. The ZIP's executable is ARM64 and reports bundle version 4.7.7; its path matches the `binary` stanza. The root cask is byte-for-byte identical to the release attachment, with ZIP SHA-256 `ecb686028b5a565b7bdec4a610cb1ee1eb19191b0882c8e72bd4808cca2a5b70`. The Homebrew recipe check loads the DSL and fetches/verifies the archive without installing or launching the app.
+
+**Native installation acceptance is pending.** Installation, upgrade, uninstall/account preservation, custom `--appdir` behavior and Gatekeeper acceptance have not yet been tested on a user's Mac. Recipe and package validation do not establish these results. The installation commands below are provided with that limitation; no security checks are disabled.
 
 The cask installs both `Antigravity Tools Lite.app` and the management command `agy-lite`. It uses Homebrew's documented [`app` and `binary` artifacts](https://docs.brew.sh/Cask-Cookbook#stanza-binary). A separate formula would still carry the current desktop-linked executable, so no lightweight CLI-only formula is claimed here. Linux and Intel macOS Homebrew packages are not provided; use the existing Linux packages or build from source.
 
@@ -13,7 +17,7 @@ The macOS release job explicitly builds `aarch64-apple-darwin`, verifies the Mac
 - `Antigravity-Tools-Lite-VERSION-macos-arm64.zip`
 - `antigravity-tools-lite.rb`, generated from the exact ZIP with a real SHA-256 checksum
 
-The ZIP and cask are uploaded together by the existing release workflow. Editing this workflow does not itself trigger a release or create a tap. The workflow refuses a tag/version mismatch. Replacing a published ZIP changes its checksum: regenerate and republish the matching cask, or preferably release a new version.
+The ZIP and cask are uploaded together by the existing release workflow. Editing this workflow does not itself trigger a release or create a tap. The workflow refuses a tag/version mismatch. Never replace a published ZIP or its checksum; publish a new version and update the cask through a PR.
 
 For manual generation, set these to a real archive and its intended immutable release URL; no sample release URL is assumed to exist:
 
@@ -53,9 +57,9 @@ The existing release workflow does not configure Developer ID signing/notarizati
 
 ## Publish the cask in this repository
 
-A separate `homebrew-*` repository is optional. Homebrew's [two-argument tap form](https://docs.brew.sh/Taps) supports this existing Git repository. After the final release ZIP is published and its generated cask is tested, open a small PR that copies the exact generated `antigravity-tools-lite.rb` into `Casks/antigravity-tools-lite.rb` at the repository root. Keep the real immutable release URL and SHA-256 from that archive. A release attachment alone is not a tap entry.
+A separate `homebrew-*` repository is optional. Homebrew's [two-argument tap form](https://docs.brew.sh/Taps) supports this existing Git repository. The root `Casks/antigravity-tools-lite.rb` is the exact generated v4.7.7 release attachment, with its immutable archive URL and real SHA-256. A release attachment alone is not a tap entry.
 
-Only after that PR is merged and the following installation has been verified should the README advertise these commands:
+Install from the repository with:
 
 ```sh
 brew tap anglee0323/antigravity-tools-lite https://github.com/anglee0323/antigravity-tools-lite.git
@@ -65,6 +69,8 @@ agy-lite --help
 ```
 
 The explicit Git URL matters: the one-argument `brew tap` form would look for a different, `homebrew-`-prefixed repository. The cask's `app` artifact installs the app, and its `binary` artifact links the bundled executable as `$(brew --prefix)/bin/agy-lite`, following a custom `--appdir`. It neither installs nor replaces Google's `agy`.
+
+Installation does not launch the app. If a manually installed app already occupies the destination, keep a backup and review Homebrew's conflict message before proceeding. These commands do not request forced overwrite, app adoption, account-data deletion or removal of platform trust checks.
 
 For later versions, publish the new ZIP first, generate and test the matching cask, then update the same root-level cask through a PR. Users can then run:
 
