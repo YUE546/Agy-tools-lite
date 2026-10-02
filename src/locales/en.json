@@ -356,5 +356,20 @@
       "operation_superseded": "A newer setting replaced this request. Check the current status."
     },
     "translated": "{{count}} static labels currently translated"
+  },
+  "settings_sections": {
+    "navigation": "Settings categories",
+    "appearance": "Appearance & language",
+    "appearance_description": "Choose the theme and language for Tools.",
+    "startup": "Startup & menu bar",
+    "startup_description": "Manage startup behavior, the menu bar and Dock visibility.",
+    "sync": "Accounts & background sync",
+    "sync_description": "Manage account quota refresh and current-account synchronization.",
+    "low_quota": "Low-quota switching",
+    "data": "Apps & data",
+    "data_description": "Inspect application paths, local data and usage-statistics scope.",
+    "experimental": "Experimental features",
+    "experimental_description": "Manage optional experiments and review compatibility and cautions.",
+    "config_failed": "Could not load or save application settings: {{error}}"
   }
 }

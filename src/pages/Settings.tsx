@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Activity, Check, Clock3, Database, FolderOpen, Globe2, HardDrive, Monitor, Moon, RefreshCw, ShieldCheck, Sun } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../stores/useConfigStore';
@@ -9,6 +9,8 @@ import { open } from '@tauri-apps/plugin-dialog';
 import DesktopSettings from '../components/settings/DesktopSettings';
 import AppLocalizationSettings from '../components/settings/AppLocalizationSettings';
 import { AutoSwitchSettings } from '../components/autoSwitch/AutoSwitch';
+import SettingsNavigation, { SETTINGS_SECTIONS, SettingsSection } from '../components/settings/SettingsNavigation';
+import '../components/settings/SettingsLayout.css';
 
 const LANGUAGES = [
     { code: 'zh', label: '简体中文' },
@@ -20,8 +22,16 @@ const SYNC_INTERVALS = [1, 5, 15, 30];
 
 function Settings() {
     const { t } = useTranslation();
-    const { config, loadConfig, saveConfig } = useConfigStore();
+    const { config, loading, error, loadConfig, saveConfig } = useConfigStore();
     const [dataDirPath, setDataDirPath] = useState('~/.antigravity_tools');
+    const [section, setSection] = useState<SettingsSection>('appearance');
+    const layout = useRef<HTMLDivElement>(null);
+    const contentScroller = useRef<HTMLDivElement>(null);
+    // Categories start at the top; mounted panels retain their unsaved drafts.
+    useEffect(() => {
+        if (layout.current) layout.current.scrollTop = 0;
+        if (contentScroller.current) contentScroller.current.scrollTop = 0;
+    }, [section]);
 
     useEffect(() => {
         loadConfig();
@@ -84,17 +94,8 @@ function Settings() {
         </button>
     );
 
-    return (
-        <div className="h-full w-full overflow-y-auto">
-            <div className="mx-auto max-w-5xl space-y-5 px-4 py-6 md:px-6">
-                <header>
-                    <h1 className="text-2xl font-bold text-gray-900 dark:text-base-content">{t('local_settings.title')}</h1>
-                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('local_settings.subtitle')}</p>
-                </header>
-
-                <AutoSwitchSettings />
-
-                <div className="grid gap-4 lg:grid-cols-2">
+    const content = {
+        appearance: (
                     <section className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                         <div className="flex items-center gap-3">
                             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-400/10 dark:text-blue-300">
@@ -160,6 +161,9 @@ function Settings() {
                         </div>
                     </section>
 
+        ),
+        startup: <DesktopSettings />,
+        sync: (
                     <section className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                         <div className="flex items-center gap-3">
                             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600 dark:bg-violet-400/10 dark:text-violet-300">
@@ -230,7 +234,10 @@ function Settings() {
                         </div>
                     </section>
 
-                    <section className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 lg:col-span-2">
+        ),
+        lowQuota: <AutoSwitchSettings />,
+        data: (
+                    <section className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                         <div className="flex items-center gap-3">
                             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300">
                                 <Database className="h-5 w-5" />
@@ -289,9 +296,30 @@ function Settings() {
                             </div>
                         </div>
                     </section>
-                    <DesktopSettings />
-                    <AppLocalizationSettings />
-                </div>
+        ),
+        experimental: <AppLocalizationSettings />,
+    };
+
+    return (
+        <div ref={layout} className="settings-layout">
+            <aside className="settings-sidebar">
+                <h1 className="settings-sidebar-title text-2xl font-bold text-gray-900 dark:text-gray-100">{t('local_settings.title')}</h1>
+                <SettingsNavigation selected={section} onSelect={setSection} />
+            </aside>
+            <div ref={contentScroller} className="settings-content">
+                {error && <div role="alert" className="settings-panel mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                    <p>{t('settings_sections.config_failed', { error })}</p>
+                    <button type="button" disabled={loading} onClick={() => void loadConfig()} className="mt-3 rounded-lg border border-current px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50">{t(loading ? 'auto_switch.loading' : 'auto_switch.retry')}</button>
+                </div>}
+                {SETTINGS_SECTIONS.map(({ id, title, description }) => (
+                    <section key={id} id={`settings-panel-${id}`} role="tabpanel" aria-labelledby={`settings-tab-${id}`} tabIndex={0} hidden={section !== id} className={section === id ? 'settings-panel' : 'settings-panel hidden'}>
+                        <header className="settings-section-header">
+                            <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t(title)}</h2>
+                            <p className="mt-2 text-sm leading-relaxed text-gray-500 dark:text-gray-400">{t(description)}</p>
+                        </header>
+                        {content[id]}
+                    </section>
+                ))}
             </div>
         </div>
     );
