@@ -287,25 +287,33 @@ function AccountCard({
             <div className="flex-none flex items-center justify-center pt-2 pb-1 border-t border-gray-100 dark:border-base-200 mt-auto">
                 <div className="flex items-center justify-center gap-2 w-full">
                     <button
-                        className={`p-1.5 rounded-lg transition-all ${(isSwitching || isDisabled) ? 'text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/10 cursor-not-allowed' : 'text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
+                        className={cn(
+                            "p-1.5 rounded-lg transition-all text-gray-400 dark:text-gray-500",
+                            isSwitching
+                                ? "text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/20 cursor-not-allowed"
+                                : "hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                        )}
                         onClick={(e) => { e.stopPropagation(); onSwitch(); }}
                         title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_account'))}
                         disabled={isSwitching || isDisabled}
                     >
-                        <ArrowRightLeft className={`w-3.5 h-3.5 ${isSwitching ? 'animate-spin' : ''}`} />
+                        <ArrowRightLeft className={cn("w-3.5 h-3.5", isSwitching && "animate-spin")} />
                     </button>
                     <button
-                        className={`p-1.5 rounded-lg transition-all ${isRefreshing
-                            ? 'text-green-600 bg-green-50'
-                            : 'text-gray-400 hover:text-green-600 hover:bg-green-50'}`}
+                        className={cn(
+                            "p-1.5 rounded-lg transition-all text-gray-400 dark:text-gray-500",
+                            isRefreshing
+                                ? "text-green-600 bg-green-50 dark:text-green-400 dark:bg-green-900/20 cursor-not-allowed"
+                                : "hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                        )}
                         onClick={(e) => { e.stopPropagation(); onRefresh(); }}
                         disabled={isRefreshing || isDisabled}
                         title={isDisabled ? t('accounts.disabled_tooltip') : t('accounts.refresh_quota')}
                     >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                        <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin")} />
                     </button>
                     <button
-                        className="p-1.5 rounded-lg transition-all text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:text-orange-400 dark:hover:bg-orange-900/30 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="p-1.5 rounded-lg transition-all text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:text-orange-400 dark:hover:bg-orange-900/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                         onClick={(e) => { e.stopPropagation(); onEditLabel(); }}
                         disabled={isRefreshing || isSwitching}
                         title={t('accounts.edit_remark', '编辑备注')}
@@ -314,7 +322,7 @@ function AccountCard({
                         <Tag className="w-3.5 h-3.5" />
                     </button>
                     <button
-                        className="p-1.5 rounded-lg transition-all text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/30"
+                        className="p-1.5 rounded-lg transition-all text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                         onClick={(e) => { e.stopPropagation(); onDelete(); }}
                         disabled={isRefreshing || isSwitching}
                         title={t('accounts.delete_account')}
