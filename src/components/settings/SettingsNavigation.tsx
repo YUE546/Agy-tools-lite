@@ -32,8 +32,8 @@ export default function SettingsNavigation({ selected, onSelect }: { selected: S
                     if (next === null) return;
                     event.preventDefault(); onSelect(SETTINGS_SECTIONS[next].id); buttons.current[next]?.focus();
                 }}
-                className={`settings-tab focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${selected === id ? 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300' : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-slate-800'}`}>
-                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" /><span>{t(title)}</span>
+                className={`settings-tab focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${selected === id ? 'bg-blue-50/90 text-blue-600 font-semibold dark:bg-blue-500/15 dark:text-blue-300 shadow-sm' : 'text-slate-600 hover:bg-slate-200/50 dark:text-slate-400 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-200'}`}>
+                <Icon className={`h-4 w-4 shrink-0 ${selected === id ? 'text-blue-600 dark:text-blue-300' : 'text-slate-400 dark:text-slate-500'}`} aria-hidden="true" /><span>{t(title)}</span>
             </button>
         ))}
     </div>;
