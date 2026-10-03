@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { ArrowRightLeft, RefreshCw, Trash2, Lock, Ban, Diamond, Gem, Circle, Sparkles, Tag, Clock, Bot, GripVertical } from 'lucide-react';
+import { ArrowRightLeft, RefreshCw, Trash2, Lock, Ban, Diamond, Gem, Circle, Sparkles, Tag, Clock, GripVertical, BrainCircuit } from 'lucide-react';
 import { Account } from '../../types/account';
 import { cn } from '../../utils/cn';
 import { useTranslation } from 'react-i18next';
@@ -7,6 +7,7 @@ import { useConfigStore } from '../../stores/useConfigStore';
 import { QuotaItem } from './QuotaItem';
 import { getDisplayQuotaModels } from '../../config/modelConfig';
 import { getValidationBlockedStatusLabel } from './accountValidationStatus';
+import { formatTimeRemaining } from '../../utils/format';
 
 interface AccountCardProps {
     account: Account;
@@ -62,20 +63,24 @@ function AccountCard({
             return group.buckets
                 .filter(b => b.window.toLowerCase().includes('week') || b.bucket_id.toLowerCase().includes('week'))
                 .map(b => {
-                    const shortGroupName = group.display_name
-                        .replace(/ models?$/i, '')
-                        .replace(/Claude and GPT/i, 'Claude/GPT');
-                    const weeklySuffix = t('accounts.quota_window_weekly_short', '周配额');
+                    const isClaude = group.display_name.toLowerCase().includes('claude') || group.display_name.toLowerCase().includes('gpt');
+                    const title = isClaude ? 'Claude / GPT' : 'Gemini';
+                    const poolBadge = t('accounts.shared_pool', '共享池');
+                    const scopeDesc = isClaude
+                        ? t('accounts.weekly_scope_claude', '涵盖 Claude Opus · Sonnet · GPT-OSS')
+                        : t('accounts.weekly_scope_gemini', '涵盖 Gemini 3.8 · 3.7 · 3.1 · 2.5');
                     return {
                         id: `${group.display_name}-${b.bucket_id}`,
-                        label: `${shortGroupName} (${weeklySuffix})`,
+                        title,
+                        poolBadge,
+                        scopeDesc,
                         percentage: Math.round((b.remaining_fraction || 0) * 100),
                         resetTime: b.reset_time,
-                        Icon: shortGroupName.toLowerCase().includes('claude') ? Sparkles : Bot,
+                        Icon: isClaude ? BrainCircuit : Sparkles,
                     };
                 });
         });
-    }, [quotaWindow, account.quota?.quota_groups]);
+    }, [quotaWindow, account.quota?.quota_groups, t]);
 
     const isModelProtected = (key?: string) => {
         if (!config?.quota_protection?.enabled) return false;
@@ -93,14 +98,14 @@ function AccountCard({
             isDragging && "shadow-xl ring-2 ring-blue-500/30"
         )}>
 
-            {/* Header: Grip + Checkbox + Email + Badges */}
-            <div className="flex-none flex items-start gap-2.5 mb-2">
-                <div className="flex items-center gap-1.5 mt-0.5 shrink-0">
+            {/* Header Row 1: Grip + Checkbox + Email + Last Used Date */}
+            <div className="flex-none flex items-center justify-between gap-2 mb-1.5">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
                     {dragHandleProps && (
                         <div
                             {...dragHandleProps.attributes}
                             {...dragHandleProps.listeners}
-                            className="flex items-center justify-center w-5 h-5 rounded cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-base-200 transition-colors"
+                            className="flex items-center justify-center w-5 h-5 rounded cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-base-200 transition-colors shrink-0"
                             title={t('accounts.drag_to_reorder', '拖拽调整账号顺序')}
                         >
                             <GripVertical className="w-3.5 h-3.5" />
@@ -108,90 +113,87 @@ function AccountCard({
                     )}
                     <input
                         type="checkbox"
-                        className="checkbox checkbox-xs rounded border-2 border-gray-400 dark:border-gray-500 checked:border-blue-600 checked:bg-blue-600 [--chkbg:theme(colors.blue.600)] [--chkfg:white]"
+                        className="checkbox checkbox-xs rounded border-2 border-gray-400 dark:border-gray-500 checked:border-blue-600 checked:bg-blue-600 [--chkbg:theme(colors.blue.600)] [--chkfg:white] shrink-0"
                         checked={selected}
                         onChange={() => onSelect()}
                         onClick={(e) => e.stopPropagation()}
                     />
-                </div>
-                <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                     <h3 className={cn(
-                        "font-semibold text-sm truncate w-full",
+                        "font-semibold text-sm truncate",
                         isCurrent ? "text-blue-700 dark:text-blue-400" : "text-gray-900 dark:text-base-content"
                     )} title={account.email}>
                         {account.email}
                     </h3>
-                    <div className="flex items-center justify-between w-full gap-2">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                            {/* 1. 订阅类型徽章 (始终置前，上下对齐) */}
-                            {(() => {
-                                const tier = (account.quota?.subscription_tier || 'free').toLowerCase();
-                                if (tier.includes('ultra')) {
-                                    return (
-                                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[9px] font-bold shadow-sm">
-                                            <Gem className="w-2.5 h-2.5 fill-current" />
-                                            ULTRA
-                                        </span>
-                                    );
-                                } else if (tier.includes('pro')) {
-                                    return (
-                                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[9px] font-bold shadow-sm">
-                                            <Diamond className="w-2.5 h-2.5 fill-current" />
-                                            PRO
-                                        </span>
-                                    );
-                                } else {
-                                    return (
-                                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400 text-[9px] font-bold shadow-sm border border-gray-200 dark:border-white/10">
-                                            <Circle className="w-2.5 h-2.5" />
-                                            FREE
-                                        </span>
-                                    );
-                                }
-                            })()}
-
-                            {/* 2. 自定义标签 */}
-                            {account.custom_label && (
-                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-[9px] font-bold shadow-sm border border-orange-200/50">
-                                    <Tag className="w-2.5 h-2.5" />
-                                    {account.custom_label}
-                                </span>
-                            )}
-
-                            {/* 3. 额外状态标签 (全部后置，不挤占 Pro 对齐位置) */}
-                            {isCurrent && (
-                                <span className="px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[9px] font-bold shadow-sm border border-blue-200/50">
-                                    {t('accounts.current').toUpperCase()}
-                                </span>
-                            )}
-                            {isDisabled && (
-                                <span
-                                    className="px-1.5 py-0.5 rounded-md bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-rose-200/50"
-                                >
-                                    <Ban className="w-2.5 h-2.5" />
-                                    {t('accounts.disabled').toUpperCase()}
-                                </span>
-                            )}
-                            {account.quota?.is_forbidden && (
-                                <span className="px-1.5 py-0.5 rounded-md bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-red-200/50">
-                                    <Lock className="w-2.5 h-2.5" />
-                                    {t('accounts.forbidden').toUpperCase()}
-                                </span>
-                            )}
-                            {account.validation_blocked && (
-                                <span className="px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-amber-200/50">
-                                    <Clock className="w-2.5 h-2.5" />
-                                    {validationBlockedLabel.toUpperCase()}
-                                </span>
-                            )}
-                        </div>
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono shrink-0 whitespace-nowrap">
-                            {new Date(account.last_used * 1000).toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                    </div>
                 </div>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono shrink-0 whitespace-nowrap">
+                    {new Date(account.last_used * 1000).toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </span>
             </div>
 
+            {/* Header Row 2: Badges (顶格靠左对齐，完整宽度不折行) */}
+            <div className="flex-none flex items-center gap-1.5 flex-wrap mb-2.5">
+                {/* 1. 订阅类型徽章 (始终置前，上下对齐) */}
+                {(() => {
+                    const tier = (account.quota?.subscription_tier || 'free').toLowerCase();
+                    if (tier.includes('ultra')) {
+                        return (
+                            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[9px] font-bold shadow-sm">
+                                <Gem className="w-2.5 h-2.5 fill-current" />
+                                ULTRA
+                            </span>
+                        );
+                    } else if (tier.includes('pro')) {
+                        return (
+                            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[9px] font-bold shadow-sm">
+                                <Diamond className="w-2.5 h-2.5 fill-current" />
+                                PRO
+                            </span>
+                        );
+                    } else {
+                        return (
+                            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400 text-[9px] font-bold shadow-sm border border-gray-200 dark:border-white/10">
+                                <Circle className="w-2.5 h-2.5" />
+                                FREE
+                            </span>
+                        );
+                    }
+                })()}
+
+                {/* 2. 自定义标签 */}
+                {account.custom_label && (
+                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-[9px] font-bold shadow-sm border border-orange-200/50">
+                        <Tag className="w-2.5 h-2.5" />
+                        {account.custom_label}
+                    </span>
+                )}
+
+                {/* 3. 额外状态标签 (全部后置，不挤占 Pro 对齐位置) */}
+                {isCurrent && (
+                    <span className="px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[9px] font-bold shadow-sm border border-blue-200/50">
+                        {t('accounts.current').toUpperCase()}
+                    </span>
+                )}
+                {isDisabled && (
+                    <span
+                        className="px-1.5 py-0.5 rounded-md bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-rose-200/50"
+                    >
+                        <Ban className="w-2.5 h-2.5" />
+                        {t('accounts.disabled').toUpperCase()}
+                    </span>
+                )}
+                {account.quota?.is_forbidden && (
+                    <span className="px-1.5 py-0.5 rounded-md bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-red-200/50">
+                        <Lock className="w-2.5 h-2.5" />
+                        {t('accounts.forbidden').toUpperCase()}
+                    </span>
+                )}
+                {account.validation_blocked && (
+                    <span className="px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-amber-200/50">
+                        <Clock className="w-2.5 h-2.5" />
+                        {validationBlockedLabel.toUpperCase()}
+                    </span>
+                )}
+            </div>
 
             {/* 配额展示 */}
             <div className="flex-1 px-2 mb-2 flex flex-col justify-center overflow-y-auto scrollbar-none">
@@ -207,30 +209,80 @@ function AccountCard({
                             </span>
                         </div>
                     </div>
+                ) : quotaWindow === 'weekly' && weeklyItems.length > 0 ? (
+                    <div className="flex flex-col gap-2 w-full my-auto">
+                        {weeklyItems.map((item) => {
+                            const pct = item.percentage;
+                            const isHigh = pct >= 50;
+                            const isMid = pct >= 20 && pct < 50;
+                            const textColor = isHigh
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : isMid
+                                    ? 'text-amber-600 dark:text-amber-400'
+                                    : 'text-rose-600 dark:text-rose-400';
+                            const barBg = isHigh
+                                ? 'bg-emerald-500'
+                                : isMid
+                                    ? 'bg-amber-500'
+                                    : 'bg-rose-500';
+
+                            return (
+                                <div
+                                    key={item.id}
+                                    className="px-2.5 py-2 rounded-xl border border-gray-100 dark:border-white/5 bg-gray-50/60 dark:bg-white/[0.03] flex flex-col gap-1.5 shadow-xs"
+                                >
+                                    {/* Header: Title + Pool Badge + Reset Timer + Percentage */}
+                                    <div className="flex items-center justify-between w-full">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            <item.Icon className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                                            <span className="font-semibold text-xs text-gray-800 dark:text-gray-200 truncate">
+                                                {item.title}
+                                            </span>
+                                            <span className="px-1.5 py-0.5 rounded text-[8.5px] font-semibold bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/30 shrink-0">
+                                                {item.poolBadge}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            {item.resetTime && (
+                                                <span className="flex items-center gap-0.5 text-[10px] text-gray-400 dark:text-gray-500 font-mono">
+                                                    <Clock className="w-2.5 h-2.5 shrink-0" />
+                                                    {formatTimeRemaining(item.resetTime)}
+                                                </span>
+                                            )}
+                                            <span className={cn("text-xs font-bold font-mono", textColor)}>
+                                                {pct}%
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Progress Bar */}
+                                    <div className="h-1.5 w-full bg-gray-200/70 dark:bg-white/10 rounded-full overflow-hidden">
+                                        <div
+                                            className={cn("h-full rounded-full transition-all duration-500", barBg)}
+                                            style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+                                        />
+                                    </div>
+
+                                    {/* Footer: Models Scope Hint */}
+                                    <div className="text-[9.5px] text-gray-400 dark:text-gray-500 truncate font-mono">
+                                        {item.scopeDesc}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 ) : (
                     <div className="grid grid-cols-1 gap-2 content-start my-auto">
-                        {quotaWindow === 'weekly' && weeklyItems.length > 0 ? (
-                            weeklyItems.map((item) => (
-                                <QuotaItem
-                                    key={item.id}
-                                    label={item.label}
-                                    percentage={item.percentage}
-                                    resetTime={item.resetTime}
-                                    Icon={item.Icon}
-                                />
-                            ))
-                        ) : (
-                            displayModels.map((model) => (
-                                <QuotaItem
-                                    key={model.id}
-                                    label={model.label}
-                                    percentage={model.data?.percentage || 0}
-                                    resetTime={model.data?.reset_time}
-                                    isProtected={isModelProtected(model.protectedKey)}
-                                    Icon={model.Icon}
-                                />
-                            ))
-                        )}
+                        {displayModels.map((model) => (
+                            <QuotaItem
+                                key={model.id}
+                                label={model.label}
+                                percentage={model.data?.percentage || 0}
+                                resetTime={model.data?.reset_time}
+                                isProtected={isModelProtected(model.protectedKey)}
+                                Icon={model.Icon}
+                            />
+                        ))}
                     </div>
                 )}
             </div>

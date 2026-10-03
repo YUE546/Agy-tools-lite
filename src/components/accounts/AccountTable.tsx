@@ -36,6 +36,7 @@ import {
     Tag,
     Clock,
     Bot,
+    BrainCircuit,
     ArrowUpDown,
     ArrowUp,
     ArrowDown,
@@ -286,16 +287,16 @@ function AccountRowContent({
             return group.buckets
                 .filter(b => b.window.toLowerCase().includes('week') || b.bucket_id.toLowerCase().includes('week'))
                 .map(b => {
-                    const shortGroupName = group.display_name
-                        .replace(/ models?$/i, '')
-                        .replace(/Claude and GPT/i, 'Claude/GPT');
-                    const weeklySuffix = t('accounts.quota_window_weekly_short', '周配额');
+                    const isClaude = group.display_name.toLowerCase().includes('claude') || group.display_name.toLowerCase().includes('gpt');
+                    const title = isClaude ? 'Claude / GPT' : 'Gemini';
+                    const poolBadge = t('accounts.shared_pool', '共享池');
                     return {
                         id: `${group.display_name}-${b.bucket_id}`,
-                        label: `${shortGroupName} (${weeklySuffix})`,
+                        title,
+                        poolBadge,
                         percentage: Math.round((b.remaining_fraction || 0) * 100),
                         resetTime: b.reset_time,
-                        Icon: shortGroupName.toLowerCase().includes('claude') ? Sparkles : Bot,
+                        Icon: isClaude ? BrainCircuit : Sparkles,
                     };
                 });
         });
@@ -412,7 +413,15 @@ function AccountRowContent({
                             weeklyItems.map((item) => (
                                 <QuotaItem
                                     key={item.id}
-                                    label={item.label}
+                                    label={
+                                        <span className="flex items-center gap-1.5 truncate">
+                                            <span>{item.title}</span>
+                                            <span className="px-1 py-0.2 rounded text-[8.5px] font-semibold bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/30 shrink-0">
+                                                {item.poolBadge}
+                                            </span>
+                                        </span>
+                                    }
+                                    title={`${item.title} (${item.poolBadge})`}
                                     percentage={item.percentage}
                                     resetTime={item.resetTime}
                                     Icon={item.Icon}
