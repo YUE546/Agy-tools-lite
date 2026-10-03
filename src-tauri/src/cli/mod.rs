@@ -6,7 +6,7 @@ mod switch_lock;
 use output::{AccountView, Snapshot};
 use std::path::{Path, PathBuf};
 
-const HELP: &str = "agy-switch - Antigravity Tools Lite CLI\n\nUsage:\n  agy-switch                         Interactive account picker (TUI)\n  agy-switch accounts list [--json]\n  agy-switch current [--json]\n  agy-switch quota [ACCOUNT_ID|EMAIL] [--json]\n  agy-switch switch [ACCOUNT_ID|EMAIL] [--target app|ide] [--json]\n  agy-switch --help\n  agy-switch --version\n\nRead commands use local cached data only and never open the GUI or refresh tokens.\n'current' is Tools Lite's recorded account, not a live credential-store check.\n'switch' may refresh tokens, close/restart Antigravity, and update credentials.\nDefault target 'app' synchronizes APP credentials and an initialized agy session.\nThere is no CLI-only target: APP and agy may share the same credential store.\nQuit older Tools Lite versions before switching; they do not share the switch lock.\nAccounts must first be added through the GUI. ABV_DATA_DIR overrides the data directory.\n";
+const HELP: &str = "agy-switch - Antigravity Tools Lite CLI\n\nUsage:\n  agy-switch                         Interactive dashboard / menu (TUI)\n  agy-switch accounts list [--json]\n  agy-switch current [--json]\n  agy-switch quota [ACCOUNT_ID|EMAIL] [--json]\n  agy-switch switch [ACCOUNT_ID|EMAIL] [--target app|ide] [--json]\n  agy-switch stats [--json]\n  agy-switch refresh [ACCOUNT_ID|EMAIL] [--json]\n  agy-switch --help\n  agy-switch --version\n\nRead commands use local cached data only and never open the GUI or refresh tokens.\n'current' is Tools Lite's recorded account, not a live credential-store check.\n'switch' may refresh tokens, close/restart Antigravity, and update credentials.\nDefault target 'app' synchronizes APP credentials and an initialized agy session.\nThere is no CLI-only target: APP and agy may share the same credential store.\nQuit older Tools Lite versions before switching; they do not share the switch lock.\nAccounts can be managed interactively via TUI or through the GUI. ABV_DATA_DIR overrides the data directory.\n";
 
 #[derive(Debug, PartialEq)]
 enum Command {
@@ -15,14 +15,17 @@ enum Command {
     List,
     Current,
     Quota(Option<String>),
+    Stats,
+    Refresh(Option<String>),
     Switch { selector: String, target: String },
-    Interactive { target: String },
+    InteractiveSwitch { target: String },
+    InteractiveDashboard,
 }
 
 #[derive(Debug)]
-struct CliError {
-    code: i32,
-    message: &'static str,
+pub(crate) struct CliError {
+    pub(crate) code: i32,
+    pub(crate) message: &'static str,
 }
 
 type Result<T> = std::result::Result<T, CliError>;
@@ -34,7 +37,7 @@ impl CliError {
             message: "Invalid command or arguments. Run agy-switch --help.",
         }
     }
-    fn data(message: &'static str) -> Self {
+    pub(crate) fn data(message: &'static str) -> Self {
         Self { code: 1, message }
     }
     fn missing() -> Self {
@@ -73,9 +76,7 @@ fn parse(args: &[String], interactive: bool) -> Result<(Command, bool)> {
         args.remove(0);
     }
     let command = match args.as_slice() {
-        [] if interactive && !json => Command::Interactive {
-            target: "app".into(),
-        },
+        [] if interactive && !json => Command::InteractiveDashboard,
         [] | ["--help"] | ["-h"] | ["help"] => Command::Help,
         ["--version"] | ["-V"] => Command::Version,
         ["list"] => Command::List,
@@ -84,13 +85,18 @@ fn parse(args: &[String], interactive: bool) -> Result<(Command, bool)> {
         ["quota", selector] if !selector.starts_with('-') => {
             Command::Quota(Some((*selector).into()))
         }
-        ["switch"] if interactive && !json => Command::Interactive {
+        ["stats"] => Command::Stats,
+        ["refresh"] => Command::Refresh(None),
+        ["refresh", selector] if !selector.starts_with('-') => {
+            Command::Refresh(Some((*selector).into()))
+        }
+        ["switch"] if interactive && !json => Command::InteractiveSwitch {
             target: "app".into(),
         },
         ["switch", "--target", target]
             if interactive && !json && matches!(*target, "app" | "ide") =>
         {
-            Command::Interactive {
+            Command::InteractiveSwitch {
                 target: (*target).into(),
             }
         }
@@ -167,7 +173,7 @@ pub fn run_if_requested() -> Option<i32> {
     })
 }
 
-fn data_dir() -> Result<PathBuf> {
+pub(crate) fn data_dir() -> Result<PathBuf> {
     if let Some(path) =
         std::env::var_os("ABV_DATA_DIR").filter(|path| !path.to_string_lossy().trim().is_empty())
     {
@@ -264,7 +270,67 @@ fn execute(command: Command, json: bool) -> Result<String> {
                 )
             })
         }
-        Command::Interactive { target } => {
+        Command::Stats => {
+            let summary = crate::modules::native_token_stats::get_local_token_usage()
+                .map_err(|_| CliError::data("Failed to read local token statistics."))?;
+            Ok(if json {
+                serde_json::to_string(&summary).unwrap_or_default()
+            } else {
+                picker::format_token_stats_human(&summary)
+            })
+        }
+        Command::Refresh(selector) => {
+            let runtime = tokio::runtime::Runtime::new()
+                .map_err(|_| CliError::data("Could not start async runtime for quota refresh."))?;
+            match selector {
+                Some(sel) => {
+                    let account_view = snapshot.select(&sel)?;
+                    let mut account = crate::modules::account::load_account(&account_view.id)
+                        .map_err(|_| CliError::missing())?;
+                    let quota = runtime
+                        .block_on(crate::modules::account::fetch_quota_with_retry(&mut account))
+                        .map_err(|_| CliError::data("Failed to refresh quota from Google API."))?;
+                    let _ = crate::modules::account::update_account_quota(&account.id, quota.clone());
+                    Ok(if json {
+                        serde_json::json!({
+                            "schema_version": 1,
+                            "account_id": account.id,
+                            "email": account.email,
+                            "refreshed": true,
+                            "quota": quota
+                        })
+                        .to_string()
+                    } else {
+                        format!("Refreshed quota for {}.", output::terminal_text(&account.email))
+                    })
+                }
+                None => {
+                    let stats = runtime
+                        .block_on(crate::modules::account::refresh_all_quotas_logic())
+                        .map_err(|_| CliError::data("Failed to batch refresh quotas."))?;
+                    Ok(if json {
+                        serde_json::json!({
+                            "schema_version": 1,
+                            "total": stats.total,
+                            "success": stats.success,
+                            "failed": stats.failed,
+                            "details": stats.details
+                        })
+                        .to_string()
+                    } else {
+                        format!(
+                            "Batch quota refresh complete: {} succeeded, {} failed (total: {}).",
+                            stats.success, stats.failed, stats.total
+                        )
+                    })
+                }
+            }
+        }
+        Command::InteractiveDashboard => {
+            picker::run_interactive_dashboard(&data_dir()?)?;
+            Ok(String::new())
+        }
+        Command::InteractiveSwitch { target } => {
             if snapshot.accounts.is_empty() {
                 return Ok("No saved accounts. Add an account in the Tools Lite GUI.".into());
             }
@@ -330,7 +396,7 @@ fn ensure_cli_switch_target(
     Ok(())
 }
 
-struct HeadlessIntegration;
+pub(crate) struct HeadlessIntegration;
 impl crate::modules::integration::SystemIntegration for HeadlessIntegration {
     async fn on_account_switch(
         &self,
@@ -396,21 +462,24 @@ mod tests {
         );
         assert_eq!(
             parse(&args(&[]), true).unwrap(),
+            (Command::InteractiveDashboard, false)
+        );
+        assert_eq!(
+            parse(&args(&["switch"]), true).unwrap(),
             (
-                Command::Interactive {
+                Command::InteractiveSwitch {
                     target: "app".into()
                 },
                 false
             )
         );
         assert_eq!(
-            parse(&args(&["switch"]), true).unwrap(),
-            (
-                Command::Interactive {
-                    target: "app".into()
-                },
-                false
-            )
+            parse_test(&["stats", "--json"]).unwrap(),
+            (Command::Stats, true)
+        );
+        assert_eq!(
+            parse_test(&["refresh"]).unwrap(),
+            (Command::Refresh(None), false)
         );
     }
     #[test]
