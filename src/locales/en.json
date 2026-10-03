@@ -249,6 +249,8 @@
     "model": "Model to monitor",
     "select_model": "Choose a model",
     "all_models": "⚡ Global lowest quota / Any model (Recommended)",
+    "model_gemini": "Gemini models (Google native)",
+    "model_claude": "Non-Gemini models (Claude / 3rd-party)",
     "reserve": "Prepare to switch at remaining quota (%)",
     "candidate_min": "Minimum backup quota (%)",
     "accounts": "Allowed backup accounts",

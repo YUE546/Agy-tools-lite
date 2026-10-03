@@ -249,6 +249,8 @@
     "model": "监测模型",
     "select_model": "选择模型",
     "all_models": "⚡ 全局最低额度 / 任意模型（推荐）",
+    "model_gemini": "Gemini 系列模型 (Google 原生)",
+    "model_claude": "非 Gemini 模型 (Claude 等第三方)",
     "reserve": "剩余额度达到此比例时准备换号（%）",
     "candidate_min": "备用账号至少剩余（%）",
     "accounts": "允许使用的备用账号",

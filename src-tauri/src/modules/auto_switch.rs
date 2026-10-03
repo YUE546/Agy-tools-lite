@@ -214,6 +214,32 @@ fn remaining(q: &QuotaData, model: &str, now: i64) -> Result<f64, &'static str> 
         }
         return min_val.ok_or("unknown_pool");
     }
+    if trimmed.eq_ignore_ascii_case("gemini") {
+        let mut min_val: Option<f64> = None;
+        for m in &q.models {
+            if m.name.to_ascii_lowercase().starts_with("gemini") {
+                if let Ok(val) = remaining_single_model(q, &m.name, now) {
+                    min_val = Some(min_val.map_or(val, |old| old.min(val)));
+                }
+            }
+        }
+        return min_val.ok_or("unknown_pool");
+    }
+    if trimmed.eq_ignore_ascii_case("claude")
+        || trimmed.eq_ignore_ascii_case("3p")
+        || trimmed.eq_ignore_ascii_case("non-gemini")
+    {
+        let mut min_val: Option<f64> = None;
+        for m in &q.models {
+            let lower = m.name.to_ascii_lowercase();
+            if lower.starts_with("claude") || lower.starts_with("gpt") {
+                if let Ok(val) = remaining_single_model(q, &m.name, now) {
+                    min_val = Some(min_val.map_or(val, |old| old.min(val)));
+                }
+            }
+        }
+        return min_val.ok_or("unknown_pool");
+    }
     remaining_single_model(q, trimmed, now)
 }
 
@@ -1124,6 +1150,8 @@ mod tests {
         assert_eq!(remaining(&quota(0.8, 0.08), "gemini-test", NOW), Ok(8.0));
         assert_eq!(remaining(&quota(0.08, 0.8), "all", NOW), Ok(8.0));
         assert_eq!(remaining(&quota(0.8, 0.08), "", NOW), Ok(8.0));
+        assert_eq!(remaining(&quota(0.08, 0.8), "gemini", NOW), Ok(8.0));
+        assert_eq!(remaining(&quota(0.08, 0.8), "claude", NOW), Err("unknown_pool"));
         let mut q = quota(0.8, 0.8);
         q.quota_groups.as_mut().unwrap()[0].buckets[0].bucket_id = "3p-weekly".into();
         assert_eq!(remaining(&q, "gemini-test", NOW), Err("unknown_pool"));
