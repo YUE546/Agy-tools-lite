@@ -16,11 +16,10 @@ export default function ThemeManager() {
     // Apply theme when config changes
     useEffect(() => {
         if (!config) return;
-
         const applyTheme = async (theme: string) => {
             const root = document.documentElement;
             const isDark = theme === 'dark';
-            const isPanel = (Boolean((window as any).__TAURI_INTERNALS__) && getCurrentWindow().label === 'menubar') || window.location.pathname === '/menubar';
+            const isPanel = (Boolean((window as any).__TAURI_INTERNALS__) && getCurrentWindow().label === 'menubar') || window.location.pathname.includes('menubar') || window.location.href.includes('menubar');
 
             // Set Tauri window background color
             // Skip on Linux due to crash with transparent windows + softbuffer
