@@ -84,7 +84,7 @@ fn apply_menu_bar_appearance(app: &tauri::AppHandle) -> Result<MenuBarAppearance
                         EffectsBuilder::new()
                             .effect(Effect::Popover)
                             .state(EffectState::Active)
-                            .radius(14.0)
+                            .radius(12.0)
                             .build(),
                     )
                     .is_ok();
@@ -361,7 +361,7 @@ fn panel_bounds(
     let height = (580.0 * scale).min((h - margin * 2.0).max(1.0));
     let px =
         (ax + aw / 2.0 - width / 2.0).clamp(x + margin, (x + w - width - margin).max(x + margin));
-    let below = ay + ah;
+    let below = (ay + ah).max(y);
     let py = if below + height <= y + h - margin {
         below
     } else {

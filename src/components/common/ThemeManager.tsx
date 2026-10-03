@@ -48,9 +48,18 @@ export default function ThemeManager() {
             if (isPanel) {
                 root.classList.add('panel-window');
                 root.style.setProperty('background-color', 'transparent', 'important');
+                root.style.setProperty('background', 'transparent', 'important');
+                document.body.classList.add('panel-window');
                 document.body.style.setProperty('background-color', 'transparent', 'important');
+                document.body.style.setProperty('background', 'transparent', 'important');
+                const rootEl = document.getElementById('root');
+                if (rootEl) {
+                    rootEl.style.setProperty('background-color', 'transparent', 'important');
+                    rootEl.style.setProperty('background', 'transparent', 'important');
+                }
             } else {
                 root.classList.remove('panel-window');
+                document.body.classList.remove('panel-window');
                 root.style.backgroundColor = isDark ? '#1d232a' : '#FAFBFC';
                 document.body.style.backgroundColor = isDark ? '#1d232a' : '#FAFBFC';
             }

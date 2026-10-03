@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Activity,
   AlertTriangle,
   Check,
   ChevronLeft,
@@ -235,7 +236,7 @@ export default function MenuBarDashboard() {
         }
 
         let cleanName = group.name;
-        if (cleanName.includes("claude-sonnet-4-6")) cleanName = "Claude 3.7 Sonnet";
+        if (cleanName.includes("claude-sonnet-4-6") || cleanName.includes("claude-3-7")) cleanName = "Claude 3.7 Sonnet";
         else if (cleanName.includes("claude-3-5")) cleanName = "Claude 3.5 Sonnet";
         else if (cleanName.includes("flash")) cleanName = "Gemini Flash";
         else if (cleanName.includes("pro")) cleanName = "Gemini Pro";
@@ -292,92 +293,86 @@ export default function MenuBarDashboard() {
 
   return (
     <div className="menubar-app">
-      {/* Top Header */}
+      {/* Top Header (CodexBar Style) */}
       <header className="mb-header">
-        <div className="mb-header-left">
-          <div className="mb-brand">
+        <div className="mb-header-top">
+          <div className="mb-brand-group">
             <span className="mb-brand-title">Antigravity</span>
             <span className="mb-tier-badge">
               {currentAccount?.quota?.subscription_tier || "PRO"}
             </span>
           </div>
+
+          <div className="mb-header-actions">
+            <button
+              type="button"
+              className="mb-action-btn"
+              title={chinese ? "刷新配额" : "Refresh quotas"}
+              onClick={() => void refresh()}
+              disabled={refreshing || !accounts.length}
+            >
+              <RefreshCw
+                size={13}
+                className={refreshing ? "animate-spin text-blue-500" : ""}
+              />
+            </button>
+            <button
+              type="button"
+              className="mb-action-btn"
+              title={chinese ? "打开仪表盘" : "Open Full Dashboard"}
+              onClick={() => openPage("dashboard")}
+            >
+              <ExternalLink size={13} />
+            </button>
+            <button
+              type="button"
+              className="mb-action-btn"
+              title={chinese ? "设置" : "Settings"}
+              onClick={() => openPage("settings")}
+            >
+              <Settings2 size={13} />
+            </button>
+            <button
+              type="button"
+              className="mb-action-btn hover-danger"
+              title={chinese ? "退出应用" : "Quit"}
+              onClick={() => request("quit_app")}
+            >
+              <LogOut size={13} />
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-header-sub">
           <div
-            className="mb-current-email"
+            className="mb-current-identity"
             title={currentAccount?.email || (chinese ? "暂无账号" : "No Account")}
           >
             <span className="mb-status-dot" />
-            <span className="mb-email-text">
+            <span className="mb-current-email-text">
               {currentAccount?.custom_label ||
                 currentAccount?.email ||
                 (chinese ? "暂无生效账号" : "No active account")}
             </span>
           </div>
-        </div>
-
-        <div className="mb-header-actions">
-          <button
-            type="button"
-            className="mb-action-btn"
-            title={chinese ? "刷新配额" : "Refresh quotas"}
-            onClick={() => void refresh()}
-            disabled={refreshing || !accounts.length}
-          >
-            <RefreshCw
-              size={14}
-              className={refreshing ? "animate-spin text-blue-500" : ""}
-            />
-          </button>
-          <button
-            type="button"
-            className="mb-action-btn"
-            title={chinese ? "打开仪表盘" : "Open Full Dashboard"}
-            onClick={() => openPage("dashboard")}
-          >
-            <ExternalLink size={14} />
-          </button>
-          <button
-            type="button"
-            className="mb-action-btn"
-            title={chinese ? "设置" : "Settings"}
-            onClick={() => openPage("settings")}
-          >
-            <Settings2 size={14} />
-          </button>
-          <button
-            type="button"
-            className="mb-action-btn hover-danger"
-            title={chinese ? "退出应用" : "Quit"}
-            onClick={() => request("quit_app")}
-          >
-            <LogOut size={14} />
-          </button>
+          <span className="mb-sync-time">{chinese ? "已同步" : "Synced"}</span>
         </div>
       </header>
+
+      <div className="mb-divider" />
 
       {/* Main Body */}
       <main className="mb-body">
         {loading ? (
           <div className="mb-empty-state">
-            <Loader2 size={20} className="animate-spin text-blue-500" />
+            <Loader2 size={18} className="animate-spin text-blue-500" />
             <span>{chinese ? "正在加载账号数据…" : "Loading accounts…"}</span>
           </div>
         ) : (
           <>
             {/* Auto Switch Alert (if monitoring or pending) */}
             {lowQuota.visible && (
-              <div
-                className="mb-card"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "7px 10px",
-                  background: "rgba(245, 158, 11, 0.1)",
-                  borderColor: "rgba(245, 158, 11, 0.25)",
-                  color: "#d97706",
-                  fontSize: "11px",
-                }}
-              >
+              <div className="mb-switch-alert">
                 <AlertTriangle size={12} className="shrink-0" />
                 <span className="truncate">
                   {translate(
@@ -392,54 +387,55 @@ export default function MenuBarDashboard() {
                 <button
                   type="button"
                   onClick={() => openPage("settings")}
-                  className="mb-card-link"
-                  style={{ marginLeft: "auto", flexShrink: 0 }}
+                  className="mb-alert-link"
                 >
                   {chinese ? "配置" : "Setup"}
                 </button>
               </div>
             )}
 
-            {/* Active / Viewed Account Quotas */}
-            <section className="mb-card">
-              <div className="mb-card-header">
-                <div className="mb-card-title">
-                  <Zap size={13} className="text-amber-500" />
+            {/* Section 1: Active / Viewed Account Quotas */}
+            <section className="mb-section">
+              <div className="mb-section-header">
+                <div className="mb-section-title">
+                  <Zap size={11} style={{ color: "#f59e0b" }} />
                   <span>
                     {isViewedActive
                       ? chinese
-                        ? "当前账号配额"
-                        : "Active Quotas"
+                        ? "模型配额"
+                        : "Model Quotas"
                       : chinese
                         ? `配额预览 · ${viewedAccount?.custom_label || viewedAccount?.email}`
                         : `Quota · ${viewedAccount?.custom_label || viewedAccount?.email}`}
                   </span>
                 </div>
-                <div className="mb-card-sub">{lastUpdated}</div>
+                <div className="mb-section-extra">{lastUpdated}</div>
               </div>
 
-              <div className="mb-quota-models">
+              <div className="mb-quota-list">
                 {activeQuotaModels.length > 0 ? (
                   activeQuotaModels.map((model) => (
                     <div key={model.id} className="mb-quota-row">
-                      <div className="mb-quota-row-top">
-                        <span className="mb-model-name" title={model.name}>
-                          {model.name}
+                      <div className="mb-quota-row-header">
+                        <div className="mb-quota-name-group">
+                          <span className="mb-quota-model-name">{model.name}</span>
                           {model.window && (
                             <span className="mb-window-tag">{model.window}</span>
                           )}
-                        </span>
-                        <span
-                          className={`mb-percentage ${getQuotaColor(model.percentage).split(" ")[0]}`}
-                        >
-                          {model.percentage !== null
-                            ? `${model.percentage}%`
-                            : "—"}
-                        </span>
+                        </div>
+                        <div className="mb-quota-row-meta">
+                          <span
+                            className={`mb-quota-percent ${getQuotaColor(model.percentage).split(" ")[0]}`}
+                          >
+                            {model.percentage !== null
+                              ? `${model.percentage}%`
+                              : "—"}
+                          </span>
+                        </div>
                       </div>
-                      <div className="mb-progress-track">
+                      <div className="mb-quota-track">
                         <div
-                          className={`mb-progress-bar ${getQuotaColor(model.percentage).split(" ")[1]}`}
+                          className={`mb-quota-bar ${getQuotaColor(model.percentage).split(" ")[1]}`}
                           style={{
                             width: `${Math.max(0, Math.min(100, model.percentage ?? 0))}%`,
                           }}
@@ -451,9 +447,9 @@ export default function MenuBarDashboard() {
                 ) : (
                   <div
                     style={{
-                      padding: "16px 0",
+                      padding: "12px 0",
                       textAlign: "center",
-                      color: "#94a3b8",
+                      color: "rgba(0,0,0,0.4)",
                       fontSize: "11px",
                     }}
                   >
@@ -470,22 +466,13 @@ export default function MenuBarDashboard() {
 
               {/* Action bar for viewed account */}
               {!isViewedActive && viewedAccount && (
-                <div
-                  style={{
-                    marginTop: "8px",
-                    paddingTop: "8px",
-                    borderTop: "1px solid rgba(0,0,0,0.06)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <span style={{ fontSize: "11px", color: "#64748b" }}>
+                <div className="mb-preview-banner">
+                  <span className="mb-preview-text">
                     {chinese ? "正在预览该账号额度" : "Previewing account quota"}
                   </span>
                   <button
                     type="button"
-                    className="mb-switch-btn"
+                    className="mb-use-account-btn"
                     disabled={!isAccountSwitchable(viewedAccount, now) || Boolean(switchingId)}
                     onClick={() => void switchAccount(viewedAccount)}
                   >
@@ -501,27 +488,48 @@ export default function MenuBarDashboard() {
               )}
 
               {isViewedActive && (
-                <div
-                  style={{
-                    marginTop: "6px",
-                    display: "flex",
-                    justifyContent: "flex-end",
-                  }}
-                >
-                  <span style={{ fontSize: "10px", color: "#10b981", fontWeight: 500 }}>
+                <div className="mb-synced-state">
+                  <Check size={11} />
+                  <span>
                     {chinese ? "当前生效账号 · 本机已同步" : "Current account recorded by Tools"}
                   </span>
                 </div>
               )}
             </section>
 
-            {/* Quick Account Switcher */}
-            <section className="mb-card mb-accounts-card">
-              <div className="mb-card-header">
-                <div className="mb-card-title">
-                  <Users size={13} className="text-blue-500" />
-                  <span>{chinese ? "账号快捷切换" : "Quick Switch"}</span>
-                  <span className="mb-badge-count">{accounts.length}</span>
+            <div className="mb-divider" />
+
+            {/* Section 2: Token Usage / Activity */}
+            <section className="mb-section" style={{ padding: "8px 14px" }}>
+              <div className="mb-section-header">
+                <div className="mb-section-title">
+                  <Activity size={11} style={{ color: "#007aff" }} />
+                  <span>{chinese ? "今日用量" : "Today's Activity"}</span>
+                </div>
+              </div>
+              <div className="mb-activity-row">
+                <span className="mb-activity-tokens">
+                  {usage
+                    ? `${formatTokens(usage.today.total_tokens)} Tokens`
+                    : "0 Tokens"}
+                </span>
+                <span className="mb-activity-reqs">
+                  {usage
+                    ? `${usage.today.request_count} ${chinese ? "次请求" : "requests"}`
+                    : "0 requests"}
+                </span>
+              </div>
+            </section>
+
+            <div className="mb-divider" />
+
+            {/* Section 3: Compact Account Switcher (CodexBar Style) */}
+            <section className="mb-accounts-section">
+              <div className="mb-section-header">
+                <div className="mb-section-title">
+                  <Users size={11} style={{ color: "#007aff" }} />
+                  <span>{chinese ? "账号切换" : "Quick Switch"}</span>
+                  <span className="mb-account-count-badge">{accounts.length}</span>
                 </div>
 
                 {totalAccountPages > 1 ? (
@@ -572,43 +580,56 @@ export default function MenuBarDashboard() {
                   return (
                     <div
                       key={account.id}
-                      className={`mb-account-item ${isSelected ? "is-active" : ""}`}
+                      className={`mb-account-row ${isSelected ? "is-selected" : ""}`}
                       onClick={() => viewAccount(account.id)}
                     >
-                      <div className="mb-account-info">
-                        <div className="mb-account-email-row">
+                      <div className="mb-account-info-left">
+                        <div className="mb-account-top-line">
                           <span
                             className={`mb-acc-dot ${isCurrent ? "active" : ""}`}
                           />
                           <span
-                            className="mb-acc-email"
+                            className="mb-acc-name"
                             title={account.email}
                           >
                             {account.custom_label || account.email}
                           </span>
-                          {account.custom_label && (
-                            <span className="mb-acc-real-email">
-                              ({account.email})
-                            </span>
-                          )}
-                        </div>
-                        <div className="mb-account-meta">
-                          <span className="mb-acc-tier">
+                          <span
+                            className="mb-tier-badge"
+                            style={{ fontSize: "8px", padding: "0 4px" }}
+                          >
                             {account.quota?.subscription_tier || "PRO"}
                           </span>
-                          {lowestQuota !== null && (
-                            <span
-                              className={`mb-acc-quota-hint ${getQuotaColor(lowestQuota).split(" ")[0]}`}
-                            >
-                              {chinese
-                                ? `最低 ${Math.round(lowestQuota)}%`
-                                : `Min ${Math.round(lowestQuota)}%`}
-                            </span>
-                          )}
                         </div>
+                        {account.custom_label && (
+                          <span
+                            className="mb-acc-sub-email"
+                            title={account.email}
+                          >
+                            {account.email}
+                          </span>
+                        )}
                       </div>
 
-                      <div className="mb-account-action">
+                      <div className="mb-account-action-right">
+                        {lowestQuota !== null && !isCurrent && (
+                          <div className="mb-headroom-group">
+                            <div className="mb-headroom-track">
+                              <div
+                                className={`mb-headroom-bar ${getQuotaColor(lowestQuota).split(" ")[1]}`}
+                                style={{
+                                  width: `${Math.max(0, Math.min(100, lowestQuota))}%`,
+                                }}
+                              />
+                            </div>
+                            <span
+                              className={`mb-headroom-percent ${getQuotaColor(lowestQuota).split(" ")[0]}`}
+                            >
+                              {Math.round(lowestQuota)}%
+                            </span>
+                          </div>
+                        )}
+
                         {isCurrent ? (
                           <span className="mb-active-pill">
                             <Check size={11} />
@@ -642,21 +663,12 @@ export default function MenuBarDashboard() {
         )}
       </main>
 
-      {/* Compact Footer */}
+      <div className="mb-divider" />
+
+      {/* Footer */}
       <footer className="mb-footer">
-        <div className="mb-usage-metric">
-          <span className="mb-usage-label">
-            {chinese ? "今日用量" : "Today"}:
-          </span>
-          <span className="mb-usage-val">
-            {usage
-              ? `${formatTokens(usage.today.total_tokens)} Tokens · ${usage.today.request_count} ${chinese ? "次请求" : "reqs"}`
-              : "0 Tokens"}
-          </span>
-        </div>
-        <div className="mb-footer-hint">
-          <span>Esc {chinese ? "关闭" : "Close"}</span>
-        </div>
+        <span>Antigravity Tools Lite</span>
+        <span>Esc {chinese ? "关闭" : "Close"}</span>
       </footer>
     </div>
   );

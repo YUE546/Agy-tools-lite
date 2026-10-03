@@ -42,15 +42,16 @@
     html:not(.panel-window) {
       background-color: #1a1f2e;
     }
-    html.panel-window {
+    html.panel-window,
+    html.panel-window body,
+    html.panel-window #root {
       background-color: transparent !important;
+      background: transparent !important;
+      overflow: hidden !important;
     }
     body {
       margin: 0;
       background-color: transparent;
-    }
-    html.panel-window body {
-      background-color: transparent !important;
     }
   </style>
 </head>
