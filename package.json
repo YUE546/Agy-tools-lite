@@ -1,7 +1,7 @@
 {
   "version": "4.7.8",
-  "name": "agy-switch",
-  "description": "agy-switch - Antigravity Account & Quota Switcher",
+  "name": "antigravity-tools",
+  "description": "Antigravity Tools",
   "type": "module",
   "private": true,
   "scripts": {

@@ -1,11 +1,11 @@
-//! agy-switch local CLI. Never initializes Tauri, a logger, or OAuth for reads.
+//! agy-switch - Antigravity Tools Lite local CLI. Never initializes Tauri, a logger, or OAuth for reads.
 mod output;
 mod switch_lock;
 
 use output::{AccountView, Snapshot};
 use std::path::{Path, PathBuf};
 
-const HELP: &str = "agy-switch - Antigravity Account & Quota Switcher CLI\n\nUsage:\n  agy-switch accounts list [--json]\n  agy-switch current [--json]\n  agy-switch quota [ACCOUNT_ID|EMAIL] [--json]\n  agy-switch switch ACCOUNT_ID|EMAIL [--target app|ide] [--json]\n  agy-switch --help\n  agy-switch --version\n\nRead commands use local cached data only and never open the GUI or refresh tokens.\n'current' is agy-switch's recorded account, not a live credential-store check.\n'switch' may refresh tokens, close/restart Antigravity, and update credentials.\nDefault target 'app' synchronizes APP credentials and an initialized agy session.\nThere is no CLI-only target: APP and agy may share the same credential store.\nQuit older instances before switching; they do not share the switch lock.\nAccounts must first be added through the GUI. ABV_DATA_DIR overrides the data directory.\n";
+const HELP: &str = "agy-switch - Antigravity Tools Lite CLI\n\nUsage:\n  agy-switch accounts list [--json]\n  agy-switch current [--json]\n  agy-switch quota [ACCOUNT_ID|EMAIL] [--json]\n  agy-switch switch ACCOUNT_ID|EMAIL [--target app|ide] [--json]\n  agy-switch --help\n  agy-switch --version\n\nRead commands use local cached data only and never open the GUI or refresh tokens.\n'current' is Tools Lite's recorded account, not a live credential-store check.\n'switch' may refresh tokens, close/restart Antigravity, and update credentials.\nDefault target 'app' synchronizes APP credentials and an initialized agy session.\nThere is no CLI-only target: APP and agy may share the same credential store.\nQuit older Tools Lite versions before switching; they do not share the switch lock.\nAccounts must first be added through the GUI. ABV_DATA_DIR overrides the data directory.\n";
 
 #[derive(Debug, PartialEq)]
 enum Command {
@@ -174,7 +174,7 @@ fn execute(command: Command, json: bool) -> Result<String> {
                 return Ok(serde_json::json!({"schema_version": 1, "accounts": snapshot.accounts, "current_target": snapshot.current_target}).to_string());
             }
             if snapshot.accounts.is_empty() {
-                return Ok("No saved accounts. Add an account in the agy-switch GUI.".into());
+                return Ok("No saved accounts. Add an account in the Tools Lite GUI.".into());
             }
             Ok(snapshot
                 .accounts
@@ -202,7 +202,7 @@ fn execute(command: Command, json: bool) -> Result<String> {
             };
             let quota = account.quota.as_ref().ok_or(CliError {
                 code: 4,
-                message: "No cached quota. Refresh this account's quota in the agy-switch GUI.",
+                message: "No cached quota. Refresh this account's quota in the Tools Lite GUI.",
             })?;
             Ok(if json {
                 serde_json::json!({"schema_version": 1, "account_id": account.id, "email": account.email, "cached": true, "quota": quota}).to_string()
@@ -261,7 +261,7 @@ fn switch_error(error: &str) -> CliError {
     if error.contains("APP") && (error.contains("updated") || error.contains("recovery failed")) {
         return CliError::data("The switch may be partially applied. Check the active accounts in Antigravity and agy before retrying.");
     }
-    CliError::data("Account switch failed; credentials may be partially updated. Check Antigravity and agy. Use the agy-switch GUI to diagnose or sign in again.")
+    CliError::data("Account switch failed; credentials may be partially updated. Check Antigravity and agy. Use the Tools Lite GUI to diagnose or sign in again.")
 }
 
 fn ensure_cli_switch_target(
