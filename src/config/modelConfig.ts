@@ -1,4 +1,6 @@
 import { Bot, BrainCircuit, Sparkles } from 'lucide-react';
+import type { ModelQuota } from '../types/account';
+import { getModelProtectionKey } from '../utils/modelCategory';
 
 const Gemini = { Color: Sparkles };
 const Claude = { Color: BrainCircuit };
@@ -351,4 +353,79 @@ export const DEFAULT_PINNED_MODELS: string[] = [
     'gemini-3.8-flash-high',
     'claude-sonnet-4-6',
 ];
+
+export interface DisplayQuotaModelItem {
+    id: string;
+    label: string;
+    protectedKey: string;
+    Icon: any;
+    data?: ModelQuota;
+}
+
+/**
+ * 获取卡片与表格统一展示的模型列表
+ * 严格对齐用户配置的 pinnedConfigIds 决定显示项，选多少个就展示多少个，绝不折叠或丢弃任何合法模型
+ */
+export function getDisplayQuotaModels(
+    accountModels: ModelQuota[] | undefined,
+    pinnedConfigIds: string[] | undefined
+): DisplayQuotaModelItem[] {
+    const pinned = (pinnedConfigIds && pinnedConfigIds.length > 0)
+        ? pinnedConfigIds
+        : DEFAULT_PINNED_MODELS;
+
+    const lowerAccountModelsMap = new Map<string, ModelQuota>();
+    for (const m of (accountModels || [])) {
+        if (m.name) {
+            lowerAccountModelsMap.set(m.name.toLowerCase().trim(), m);
+        }
+    }
+
+    const results: DisplayQuotaModelItem[] = [];
+
+    for (const selectorId of pinned) {
+        const normId = selectorId.toLowerCase().trim();
+        // 1. 优先从账号真实配额中按名字精确查找
+        let rawModel = lowerAccountModelsMap.get(normId);
+
+        // 2. 如果账号中没有完全同名项，再通过轻度归一化查找兼容别名
+        if (!rawModel) {
+            for (const [accName, accModel] of lowerAccountModelsMap.entries()) {
+                if (accName === normId || accName.replace(/-/g, '') === normId.replace(/-/g, '')) {
+                    rawModel = accModel;
+                    break;
+                }
+            }
+        }
+
+        const conf = MODEL_CONFIG[normId] || (rawModel?.name ? MODEL_CONFIG[rawModel.name.toLowerCase()] : undefined);
+
+        const fallbackLabel = normId
+            .split('-')
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ');
+
+        const label = rawModel?.display_name
+            || conf?.shortLabel
+            || conf?.label
+            || rawModel?.name
+            || fallbackLabel;
+
+        const protectedKey = getModelProtectionKey(rawModel?.name || selectorId)
+            || conf?.protectedKey
+            || selectorId;
+
+        const Icon = conf?.Icon || (normId.includes('claude') ? Claude.Color : normId.includes('gemini') ? Gemini.Color : Bot);
+
+        results.push({
+            id: rawModel?.name || selectorId,
+            label,
+            protectedKey,
+            Icon,
+            data: rawModel || ({ name: selectorId, percentage: 0 } as ModelQuota),
+        });
+    }
+
+    return sortModels(results);
+}
 

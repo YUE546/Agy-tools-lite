@@ -40,13 +40,13 @@ import {
     ArrowUp,
     ArrowDown,
 } from 'lucide-react';
-import type { Account, ModelQuota } from '../../types/account';
+import type { Account } from '../../types/account';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../utils/cn';
 
 import { useConfigStore } from '../../stores/useConfigStore';
 import { QuotaItem } from './QuotaItem';
-import { MODEL_CONFIG, sortModels, resolveQuotaModels, DEFAULT_PINNED_MODELS } from '../../config/modelConfig';
+import { getDisplayQuotaModels } from '../../config/modelConfig';
 import { categorizeModel, getModelProtectionKey } from '../../utils/modelCategory';
 import { getValidationBlockedStatusLabel } from './accountValidationStatus';
 
@@ -289,78 +289,72 @@ function AccountRowContent({
                     const shortGroupName = group.display_name
                         .replace(/ models?$/i, '')
                         .replace(/Claude and GPT/i, 'Claude/GPT');
+                    const weeklySuffix = t('accounts.quota_window_weekly_short', '周配额');
                     return {
                         id: `${group.display_name}-${b.bucket_id}`,
-                        label: b.display_name ? `${shortGroupName} (${b.display_name})` : `${shortGroupName} (周)`,
+                        label: `${shortGroupName} (${weeklySuffix})`,
                         percentage: Math.round((b.remaining_fraction || 0) * 100),
                         resetTime: b.reset_time,
                         Icon: shortGroupName.toLowerCase().includes('claude') ? Sparkles : Bot,
                     };
                 });
         });
-    }, [quotaWindow, account.quota?.quota_groups]);
+    }, [quotaWindow, account.quota?.quota_groups, t]);
 
-    // 获取要显示的模型列表 (优先使用用户显式配置的固定模型)
-    const pinnedModels = (config?.pinned_quota_models?.models && config.pinned_quota_models.models.length > 0)
-        ? config.pinned_quota_models.models
-        : DEFAULT_PINNED_MODELS;
-
-    // 根据用户勾选配置的模型决定显示哪些项
-    const uniqueLabels = new Set<string>();
-    const displayModels = sortModels(
-        resolveQuotaModels(account.quota?.models, pinnedModels).map(sel => {
-            const selectorConfig = MODEL_CONFIG[sel.selectorId.toLowerCase()];
-            const resolvedConfig = sel.model ? MODEL_CONFIG[sel.model.name.toLowerCase()] : undefined;
-            if (!selectorConfig && !sel.model) return null;
-            const label = sel.model?.display_name
-                || resolvedConfig?.label || resolvedConfig?.shortLabel
-                || selectorConfig?.label || selectorConfig?.shortLabel
-                || sel.selectorId;
-            return {
-                id: sel.model?.name.toLowerCase() ?? sel.selectorId.toLowerCase(),
-                label,
-                protectedKey: getModelProtectionKey(sel.model?.name ?? sel.selectorId) ?? resolvedConfig?.protectedKey ?? selectorConfig?.protectedKey ?? sel.selectorId,
-                data: sel.model,
-            };
-        }).filter((item): item is { id: string; label: string; protectedKey: string; data: ModelQuota | undefined } => item !== null)
-    ).filter(m => {
-            // 过滤特定的 Claude/Gemini 思考变体 (在列表页隐藏)
-            const isHiddenThinking = m.id.includes('thinking');
-
-            if (isHiddenThinking) return false;
-
-            // 基于标签去重 (例如 G3.1 Pro 只显示一次)
-            // 优先显示有配额数据的 ID
-            const labelKey = `${m.label}-${m.protectedKey}`;
-            if (uniqueLabels.has(labelKey)) {
-                return false;
-            }
-            if (m.data) {
-                uniqueLabels.add(labelKey);
-                return true;
-            }
-            return true;
-        })
-        .filter((m, index, self) => {
-        // 第二次过滤：确保即使没有数据的重复 Label 也只保留一个
-        const labelKey = `${m.label}-${m.protectedKey}`;
-        return self.findIndex(t => `${t.label}-${t.protectedKey}` === labelKey) === index;
-    });
-
+    // 获取统一解析后的展示模型列表 (严格对齐用户自定义勾选)
+    const displayModels = useMemo(() => {
+        return getDisplayQuotaModels(account.quota?.models, config?.pinned_quota_models?.models);
+    }, [config?.pinned_quota_models?.models, account.quota?.models]);
 
     return (
         <>
             {/* 邮箱列 */}
             <td className="px-2 py-1 align-middle">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <div className="flex flex-col justify-center gap-1">
                     <span className={cn(
-                        "font-medium text-sm break-all transition-colors",
+                        "font-medium text-sm break-all transition-colors leading-tight",
                         isCurrent ? "text-blue-700 dark:text-blue-400" : "text-gray-900 dark:text-base-content"
                     )} title={account.email}>
                         {account.email}
                     </span>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                        {/* 1. 订阅类型徽章 (始终置前，上下对齐) */}
+                        {(() => {
+                            const tier = (account.quota?.subscription_tier || 'free').toLowerCase();
+                            if (tier.includes('ultra')) {
+                                return (
+                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[10px] font-bold shadow-sm hover:scale-105 transition-transform cursor-default">
+                                        <Gem className="w-2.5 h-2.5 fill-current" />
+                                        {t('accounts.ultra')}
+                                    </span>
+                                );
+                            } else if (tier.includes('pro')) {
+                                return (
+                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[10px] font-bold shadow-sm hover:scale-105 transition-transform cursor-default">
+                                        <Diamond className="w-2.5 h-2.5 fill-current" />
+                                        {t('accounts.pro')}
+                                    </span>
+                                );
+                            } else {
+                                return (
+                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-400 text-[10px] font-bold shadow-sm border border-gray-200 dark:border-white/10 hover:bg-gray-200 transition-colors cursor-default">
+                                        <Circle className="w-2.5 h-2.5" />
+                                        {t('accounts.free')}
+                                    </span>
+                                );
+                            }
+                        })()}
+
+                        {/* 2. 自定义标签 */}
+                        {account.custom_label && (
+                            <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-[10px] font-bold shadow-sm border border-orange-200/50 dark:border-orange-800/50">
+                                <Tag className="w-2.5 h-2.5" />
+                                {account.custom_label}
+                            </span>
+                        )}
+
+                        {/* 3. 额外状态标签 (全部后置，不挤占 Pro 对齐位置) */}
                         {isCurrent && (
                             <span className="px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-[10px] font-bold shadow-sm border border-blue-200/50 dark:border-blue-800/50">
                                 {t('accounts.current').toUpperCase()}
@@ -385,41 +379,6 @@ function AccountRowContent({
                             <span className="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-400 text-[10px] font-bold flex items-center gap-1 shadow-sm border border-amber-200/50">
                                 <Clock className="w-2.5 h-2.5" />
                                 <span>{validationBlockedLabel}</span>
-                            </span>
-                        )}
-
-
-                        {/* 订阅类型徽章 */}
-                        {account.quota?.subscription_tier && (() => {
-                            const tier = account.quota.subscription_tier.toLowerCase();
-                            if (tier.includes('ultra')) {
-                                return (
-                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[10px] font-bold shadow-sm hover:scale-105 transition-transform cursor-default">
-                                        <Gem className="w-2.5 h-2.5 fill-current" />
-                                        {t('accounts.ultra')}
-                                    </span>
-                                );
-                            } else if (tier.includes('pro')) {
-                                return (
-                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[10px] font-bold shadow-sm hover:scale-105 transition-transform cursor-default">
-                                        <Diamond className="w-2.5 h-2.5 fill-current" />
-                                        {t('accounts.pro')}
-                                    </span>
-                                );
-                            } else {
-                                return (
-                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-400 text-[10px] font-bold shadow-sm border border-gray-200 dark:border-white/10 hover:bg-gray-200 transition-colors cursor-default">
-                                        <Circle className="w-2.5 h-2.5" />
-                                        {t('accounts.free')}
-                                    </span>
-                                );
-                            }
-                        })()}
-                        {/* 自定义标签 */}
-                        {account.custom_label && (
-                            <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-[10px] font-bold shadow-sm border border-orange-200/50 dark:border-orange-800/50">
-                                <Tag className="w-2.5 h-2.5" />
-                                {account.custom_label}
                             </span>
                         )}
                     </div>
@@ -448,12 +407,7 @@ function AccountRowContent({
                         </div>
                     </div>
                 ) : (
-                    <div className={cn(
-                        "grid gap-x-2 gap-y-1 py-0",
-                        (quotaWindow === 'weekly' && weeklyItems.length > 0)
-                            ? (weeklyItems.length === 1 ? "grid-cols-1" : "grid-cols-2")
-                            : (displayModels.length === 1 ? "grid-cols-1" : "grid-cols-2")
-                    )}>
+                    <div className="flex flex-col gap-1.5 py-0.5 w-full">
                         {quotaWindow === 'weekly' && weeklyItems.length > 0 ? (
                             weeklyItems.map((item) => (
                                 <QuotaItem
@@ -475,7 +429,7 @@ function AccountRowContent({
                                         percentage={modelData?.percentage || 0}
                                         resetTime={modelData?.reset_time}
                                         isProtected={Boolean(config?.quota_protection?.enabled && isModelProtected(account.protected_models, model.protectedKey))}
-                                        Icon={MODEL_CONFIG[model.id]?.Icon || Bot}
+                                        Icon={model.Icon || Bot}
                                     />
                                 );
                             })

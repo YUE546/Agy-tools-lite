@@ -727,6 +727,7 @@ function Accounts() {
               onRefresh={handleRefresh}
               onEditLabel={handleEditLabel}
               onDelete={handleDelete}
+              onReorder={reorderAccounts}
               quotaWindow={quotaWindow}
             />
           </div>

@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
-import { ArrowRightLeft, RefreshCw, Trash2, Lock, Ban, Diamond, Gem, Circle, Sparkles, Tag, Clock, Bot } from 'lucide-react';
-import { Account, ModelQuota } from '../../types/account';
+import { ArrowRightLeft, RefreshCw, Trash2, Lock, Ban, Diamond, Gem, Circle, Sparkles, Tag, Clock, Bot, GripVertical } from 'lucide-react';
+import { Account } from '../../types/account';
 import { cn } from '../../utils/cn';
 import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { QuotaItem } from './QuotaItem';
-import { MODEL_CONFIG, sortModels, getModelProtectionKey, resolveQuotaModels, DEFAULT_PINNED_MODELS } from '../../config/modelConfig';
+import { getDisplayQuotaModels } from '../../config/modelConfig';
 import { getValidationBlockedStatusLabel } from './accountValidationStatus';
 
 interface AccountCardProps {
@@ -20,17 +20,28 @@ interface AccountCardProps {
     onEditLabel: () => void;
     onDelete: () => void;
     quotaWindow?: '5h' | 'weekly';
+    dragHandleProps?: {
+        attributes?: any;
+        listeners?: any;
+    };
+    isDragging?: boolean;
 }
 
-// 使用统一的模型配置
-const DEFAULT_MODELS = Object.entries(MODEL_CONFIG).map(([id, config]) => ({
-    id,
-    label: config.label,
-    protectedKey: config.protectedKey,
-    Icon: config.Icon
-}));
-
-function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, isRefreshing, isSwitching = false, onSwitch, onRefresh, onEditLabel, onDelete, quotaWindow }: AccountCardProps) {
+function AccountCard({
+    account,
+    selected,
+    onSelect,
+    isCurrent: propIsCurrent,
+    isRefreshing,
+    isSwitching = false,
+    onSwitch,
+    onRefresh,
+    onEditLabel,
+    onDelete,
+    quotaWindow,
+    dragHandleProps,
+    isDragging = false,
+}: AccountCardProps) {
     const { t } = useTranslation();
     const { config } = useConfigStore();
     const isDisabled = Boolean(account.disabled);
@@ -39,56 +50,10 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
     // Use the prop directly from parent component
     const isCurrent = propIsCurrent;
 
+    // 获取统一解析后的展示模型列表 (严格对齐用户自定义勾选)
     const displayModels = useMemo(() => {
-        // Build map of friendly labels and icons from DEFAULT_MODELS
-        const iconMap = new Map(DEFAULT_MODELS.map(m => [m.id, m.Icon]));
-
-        // Get all models from account (source of truth)
-        const accountModels = account.quota?.models?.map(m => {
-            // 注意：DEFAULT_MODELS 现在应该包含 shortLabel，我们需要确保它被正确映射
-            // 但 DEFAULT_MODELS 是从 MODEL_CONFIG 生成的，我们需要确保它包含 shortLabel
-            // 这里为了安全，直接从 MODEL_CONFIG 获取
-            const fullConfig = MODEL_CONFIG[m.name.toLowerCase()];
-            return {
-                id: m.name,
-                label: m.display_name || fullConfig?.shortLabel || fullConfig?.label || m.name,
-                protectedKey: getModelProtectionKey(m.name) ?? fullConfig?.protectedKey ?? m.name,
-                Icon: iconMap.get(m.name) || Bot,
-                data: m
-            };
-        }) || [];
-
-        // Filter for pinned or defaults (respect user's explicit choice without force-injecting image models)
-        const pinned = (config?.pinned_quota_models?.models && config.pinned_quota_models.models.length > 0)
-            ? config.pinned_quota_models.models
-            : DEFAULT_PINNED_MODELS;
-
-        const selections = resolveQuotaModels(
-            accountModels.map(m => m.data),
-            pinned,
-        );
-        let models = selections
-            .map(sel => sel.model ? accountModels.find(am => am.data === sel.model) : undefined)
-            .filter((m): m is typeof accountModels[number] => m !== undefined);
-        // 也保留无配额数据的 pinned 模型（显示 0%）
-        for (const sel of selections) {
-            if (!sel.model) {
-                const selectorConfig = MODEL_CONFIG[sel.selectorId.toLowerCase()];
-                if (selectorConfig) {
-                    models = [...models, {
-                        id: sel.selectorId,
-                        label: selectorConfig.shortLabel || selectorConfig.label,
-                        protectedKey: selectorConfig.protectedKey,
-                        Icon: selectorConfig.Icon,
-                        data: { name: sel.selectorId, percentage: 0 } as ModelQuota,
-                    }];
-                }
-            }
-        }
-
-        // 应用排序并过滤过期模型
-        return sortModels(models).filter(m => m.id !== 'claude-sonnet-4-5-thinking' && m.id !== 'claude-opus-4-5-thinking');
-    }, [config, account]);
+        return getDisplayQuotaModels(account.quota?.models, config?.pinned_quota_models?.models);
+    }, [config?.pinned_quota_models?.models, account.quota?.models]);
 
     // 解析周配额项 (当处于 weekly 视图时)
     const weeklyItems = useMemo(() => {
@@ -100,10 +65,10 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                     const shortGroupName = group.display_name
                         .replace(/ models?$/i, '')
                         .replace(/Claude and GPT/i, 'Claude/GPT');
-                    const weeklySuffix = t('accounts.quota_window_weekly_short', 'Semanal');
+                    const weeklySuffix = t('accounts.quota_window_weekly_short', '周配额');
                     return {
                         id: `${group.display_name}-${b.bucket_id}`,
-                        label: b.display_name ? `${shortGroupName} (${b.display_name})` : `${shortGroupName} (${weeklySuffix})`,
+                        label: `${shortGroupName} (${weeklySuffix})`,
                         percentage: Math.round((b.remaining_fraction || 0) * 100),
                         resetTime: b.reset_time,
                         Icon: shortGroupName.toLowerCase().includes('claude') ? Sparkles : Bot,
@@ -124,18 +89,31 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
             isCurrent
                 ? "bg-blue-50/30 border-blue-200 dark:bg-blue-900/10 dark:border-blue-900/30"
                 : "bg-white dark:bg-base-100 border-gray-200 dark:border-base-300",
-            (isRefreshing || isDisabled) && "opacity-70"
+            (isRefreshing || isDisabled) && "opacity-70",
+            isDragging && "shadow-xl ring-2 ring-blue-500/30"
         )}>
 
-            {/* Header: Checkbox + Email + Badges */}
-            <div className="flex-none flex items-start gap-3 mb-2">
-                <input
-                    type="checkbox"
-                    className="mt-1 checkbox checkbox-xs rounded border-2 border-gray-400 dark:border-gray-500 checked:border-blue-600 checked:bg-blue-600 [--chkbg:theme(colors.blue.600)] [--chkfg:white]"
-                    checked={selected}
-                    onChange={() => onSelect()}
-                    onClick={(e) => e.stopPropagation()}
-                />
+            {/* Header: Grip + Checkbox + Email + Badges */}
+            <div className="flex-none flex items-start gap-2.5 mb-2">
+                <div className="flex items-center gap-1.5 mt-0.5 shrink-0">
+                    {dragHandleProps && (
+                        <div
+                            {...dragHandleProps.attributes}
+                            {...dragHandleProps.listeners}
+                            className="flex items-center justify-center w-5 h-5 rounded cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-base-200 transition-colors"
+                            title={t('accounts.drag_to_reorder', '拖拽调整账号顺序')}
+                        >
+                            <GripVertical className="w-3.5 h-3.5" />
+                        </div>
+                    )}
+                    <input
+                        type="checkbox"
+                        className="checkbox checkbox-xs rounded border-2 border-gray-400 dark:border-gray-500 checked:border-blue-600 checked:bg-blue-600 [--chkbg:theme(colors.blue.600)] [--chkfg:white]"
+                        checked={selected}
+                        onChange={() => onSelect()}
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                </div>
                 <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                     <h3 className={cn(
                         "font-semibold text-sm truncate w-full",
@@ -145,34 +123,9 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                     </h3>
                     <div className="flex items-center justify-between w-full gap-2">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                            {isCurrent && (
-                                <span className="px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[9px] font-bold shadow-sm border border-blue-200/50">
-                                    {t('accounts.current').toUpperCase()}
-                                </span>
-                            )}
-                            {isDisabled && (
-                                <span
-                                    className="px-1.5 py-0.5 rounded-md bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-rose-200/50"
-                                >
-                                    <Ban className="w-2.5 h-2.5" />
-                                    {t('accounts.disabled').toUpperCase()}
-                                </span>
-                            )}
-                            {account.quota?.is_forbidden && (
-                                <span className="px-1.5 py-0.5 rounded-md bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-red-200/50">
-                                    <Lock className="w-2.5 h-2.5" />
-                                    {t('accounts.forbidden').toUpperCase()}
-                                </span>
-                            )}
-                            {account.validation_blocked && (
-                                <span className="px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-amber-200/50">
-                                    <Clock className="w-2.5 h-2.5" />
-                                    {validationBlockedLabel.toUpperCase()}
-                                </span>
-                            )}
-                            {/* 订阅类型徽章 */}
-                            {account.quota?.subscription_tier && (() => {
-                                const tier = account.quota.subscription_tier.toLowerCase();
+                            {/* 1. 订阅类型徽章 (始终置前，上下对齐) */}
+                            {(() => {
+                                const tier = (account.quota?.subscription_tier || 'free').toLowerCase();
                                 if (tier.includes('ultra')) {
                                     return (
                                         <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[9px] font-bold shadow-sm">
@@ -196,11 +149,39 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                                     );
                                 }
                             })()}
-                            {/* 自定义标签 */}
+
+                            {/* 2. 自定义标签 */}
                             {account.custom_label && (
-                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-[9px] font-bold shadow-sm border border-orange-200/50 dark:border-orange-800/50">
+                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-[9px] font-bold shadow-sm border border-orange-200/50">
                                     <Tag className="w-2.5 h-2.5" />
                                     {account.custom_label}
+                                </span>
+                            )}
+
+                            {/* 3. 额外状态标签 (全部后置，不挤占 Pro 对齐位置) */}
+                            {isCurrent && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[9px] font-bold shadow-sm border border-blue-200/50">
+                                    {t('accounts.current').toUpperCase()}
+                                </span>
+                            )}
+                            {isDisabled && (
+                                <span
+                                    className="px-1.5 py-0.5 rounded-md bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-rose-200/50"
+                                >
+                                    <Ban className="w-2.5 h-2.5" />
+                                    {t('accounts.disabled').toUpperCase()}
+                                </span>
+                            )}
+                            {account.quota?.is_forbidden && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-red-200/50">
+                                    <Lock className="w-2.5 h-2.5" />
+                                    {t('accounts.forbidden').toUpperCase()}
+                                </span>
+                            )}
+                            {account.validation_blocked && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-amber-200/50">
+                                    <Clock className="w-2.5 h-2.5" />
+                                    {validationBlockedLabel.toUpperCase()}
                                 </span>
                             )}
                         </div>
