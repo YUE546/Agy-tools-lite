@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeftRight, Database, FlaskConical, Monitor, RefreshCw, Sun } from 'lucide-react';
+import { ArrowLeftRight, FlaskConical, Gauge, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export const SETTINGS_SECTIONS = [
-    { id: 'appearance', title: 'settings_sections.appearance', description: 'settings_sections.appearance_description', icon: Sun },
-    { id: 'startup', title: 'settings_sections.startup', description: 'settings_sections.startup_description', icon: Monitor },
-    { id: 'sync', title: 'settings_sections.sync', description: 'settings_sections.sync_description', icon: RefreshCw },
-    { id: 'lowQuota', title: 'settings_sections.low_quota', description: 'auto_switch.description', icon: ArrowLeftRight },
-    { id: 'data', title: 'settings_sections.data', description: 'settings_sections.data_description', icon: Database },
-    { id: 'experimental', title: 'settings_sections.experimental', description: 'settings_sections.experimental_description', icon: FlaskConical },
+    { id: 'general', title: 'settings_sections.general', description: 'settings_sections.general_description', icon: Settings },
+    { id: 'quota', title: 'settings_sections.quota', description: 'settings_sections.quota_description', icon: Gauge },
+    { id: 'autoSwitch', title: 'settings_sections.auto_switch', description: 'settings_sections.auto_switch_description', icon: ArrowLeftRight },
+    { id: 'advanced', title: 'settings_sections.advanced', description: 'settings_sections.advanced_description', icon: FlaskConical },
 ] as const;
 export type SettingsSection = typeof SETTINGS_SECTIONS[number]['id'];
 

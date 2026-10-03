@@ -389,17 +389,16 @@
   },
   "settings_sections": {
     "navigation": "Settings categories",
-    "appearance": "Appearance & language",
-    "appearance_description": "Choose the theme and language for Tools.",
-    "startup": "Startup & menu bar",
-    "startup_description": "Manage startup behavior, the menu bar and Dock visibility.",
-    "sync": "Accounts & background sync",
-    "sync_description": "Manage account quota refresh and current-account synchronization.",
-    "low_quota": "Low-quota switching",
-    "data": "Apps & data",
-    "data_description": "Inspect application paths, local data and usage-statistics scope.",
-    "experimental": "Experimental features",
-    "experimental_description": "Manage optional experiments and review compatibility and cautions.",
+    "general": "General Preferences",
+    "general_description": "Manage theme appearance, language, system startup, and local environment paths.",
+    "quota": "Quota & Models",
+    "quota_description": "Customize monitored quota models and configure background refresh and sync intervals.",
+    "auto_switch": "Auto Switch Policy",
+    "auto_switch_description": "Configure automatic account rotation engine, protection thresholds, and switching rules.",
+    "advanced": "Advanced & Labs",
+    "advanced_description": "Configure Antigravity official application localization injection and experimental features.",
+    "appearance_and_language": "Appearance & Language",
+    "storage_and_executables": "Storage & Core Environment",
     "config_failed": "Could not load or save application settings: {{error}}"
   }
 }

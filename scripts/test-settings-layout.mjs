@@ -45,46 +45,47 @@ const Settings = compile('../src/pages/Settings.tsx', {
     '../components/common/ToastContainer': { showToast() {} }, '@tauri-apps/plugin-dialog': { open: async () => null },
     '../components/settings/DesktopSettings': { default: 'DesktopSettings' },
     '../components/settings/AppLocalizationSettings': { default: 'AppLocalizationSettings' },
+    '../components/settings/ModelDisplaySettings': { default: 'ModelDisplaySettings' },
     '../components/autoSwitch/AutoSwitch': { AutoSwitchSettings: 'AutoSwitchSettings' },
     '../components/settings/SettingsNavigation': { ...nav, default: 'SettingsNavigation' },
     '../components/settings/SettingsLayout.css': {},
 });
 function renderSettings() { h.reset(); return Settings.default(); }
-test('six categories have one selected roving tab and matching panel targets', () => {
-    assert.deepEqual(ids, ['appearance', 'startup', 'sync', 'lowQuota', 'data', 'experimental']);
-    const tree = renderNav('appearance');
+test('four categories have one selected roving tab and matching panel targets', () => {
+    assert.deepEqual(ids, ['general', 'quota', 'autoSwitch', 'advanced']);
+    const tree = renderNav('general');
     const tabs = walk(tree, n => n.props?.role === 'tab');
-    assert.equal(tabs.length, 6); assert.equal(tabs.filter(t => t.props.tabIndex === 0).length, 1);
-    assert.equal(tabs[0].props['aria-controls'], 'settings-panel-appearance');
+    assert.equal(tabs.length, 4); assert.equal(tabs.filter(t => t.props.tabIndex === 0).length, 1);
+    assert.equal(tabs[0].props['aria-controls'], 'settings-panel-general');
 });
 test('desktop arrow/End/Home focus and select the expected categories', () => {
-    const tree = renderNav('appearance'); const tabs = walk(tree, n => n.props?.role === 'tab');
+    const tree = renderNav('general'); const tabs = walk(tree, n => n.props?.role === 'tab');
     let focused;
     tabs.forEach((tab, index) => tab.props.ref({ focus: () => { focused = ids[index]; } }));
-    for (const [index, key, expected] of [[0, 'ArrowDown', 'startup'], [0, 'ArrowUp', 'experimental'], [2, 'End', 'experimental'], [3, 'Home', 'appearance']]) {
+    for (const [index, key, expected] of [[0, 'ArrowDown', 'quota'], [0, 'ArrowUp', 'advanced'], [2, 'End', 'advanced'], [3, 'Home', 'general']]) {
         let prevented = false; tabs[index].props.onKeyDown({ key, preventDefault: () => { prevented = true; } });
         assert.equal(prevented, true); assert.equal(selected.at(-1), expected); assert.equal(focused, expected);
     }
 });
 test('narrow navigation changes orientation and uses left/right keys', () => {
     navHooks.effects[0](); narrow = true; listener();
-    const tree = renderNav('appearance'); assert.equal(tree.props['aria-orientation'], 'horizontal');
+    const tree = renderNav('general'); assert.equal(tree.props['aria-orientation'], 'horizontal');
     const tabs = walk(tree, n => n.props?.role === 'tab'); tabs[0].props.onKeyDown({ key: 'ArrowRight', preventDefault() {} });
-    assert.equal(selected.at(-1), 'startup');
+    assert.equal(selected.at(-1), 'quota');
 });
 test('all category panels remain rendered while only one is visible', () => {
     const tree = renderSettings(); const panels = walk(tree, n => n.props?.role === 'tabpanel');
-    assert.equal(panels.length, 6); assert.equal(panels.filter(p => !p.props.hidden).length, 1);
+    assert.equal(panels.length, 4); assert.equal(panels.filter(p => !p.props.hidden).length, 1);
     assert.equal(walk(tree, n => n.type === 'AutoSwitchSettings').length, 1);
-    const navigation = walk(tree, n => n.type === 'SettingsNavigation')[0]; navigation.props.onSelect('lowQuota');
+    const navigation = walk(tree, n => n.type === 'SettingsNavigation')[0]; navigation.props.onSelect('autoSwitch');
     const next = renderSettings(); const nextPanels = walk(next, n => n.props?.role === 'tabpanel');
-    assert.equal(nextPanels.length, 6); assert.equal(nextPanels.find(p => !p.props.hidden).props.id, 'settings-panel-lowQuota');
+    assert.equal(nextPanels.length, 4); assert.equal(nextPanels.find(p => !p.props.hidden).props.id, 'settings-panel-autoSwitch');
     assert.equal(walk(next, n => n.type === 'AutoSwitchSettings').length, 1);
     assert.equal(saves.length, 0); assert.equal(calls.length, 0);
 });
 test('data, startup, localization and background controls remain present', () => {
     const tree = renderSettings();
-    for (const type of ['DesktopSettings', 'AppLocalizationSettings']) assert.equal(walk(tree, n => n.type === type).length, 1);
+    for (const type of ['DesktopSettings', 'AppLocalizationSettings', 'ModelDisplaySettings']) assert.equal(walk(tree, n => n.type === type).length, 1);
     for (const id of ['refresh-interval', 'sync-interval']) assert.equal(walk(tree, n => n.props?.id === id).length, 1);
 });
 test('category scroll reset clears both scrollers without invoking config writes', () => {

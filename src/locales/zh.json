@@ -389,17 +389,16 @@
   },
   "settings_sections": {
     "navigation": "设置分类",
-    "appearance": "外观与语言",
-    "appearance_description": "调整工具界面的主题与语言。",
-    "startup": "启动与菜单栏",
-    "startup_description": "设置启动方式、菜单栏和 Dock 显示。",
-    "sync": "账号与后台同步",
-    "sync_description": "管理账号配额刷新与当前账号同步。",
-    "low_quota": "低额度换号",
-    "data": "应用与数据",
-    "data_description": "查看应用位置、本地数据与统计范围。",
-    "experimental": "实验功能",
-    "experimental_description": "管理可选实验功能，并查看兼容状态与注意事项。",
+    "general": "常规偏好",
+    "general_description": "管理界面主题、显示语言、开机启动与本地执行环境路径。",
+    "quota": "配额与模型",
+    "quota_description": "自定义卡片与列表中要监控展示的模型，并管理后台定时刷新与状态同步频率。",
+    "auto_switch": "智能换号策略",
+    "auto_switch_description": "配置低额度自动轮换引擎、配额保护阈值与账号切换规则。",
+    "advanced": "高级与实验室",
+    "advanced_description": "管理 Antigravity 官方应用原生汉化注入与实验性功能。",
+    "appearance_and_language": "界面外观与语言",
+    "storage_and_executables": "本地存储与核心环境",
     "config_failed": "无法读取或保存应用设置：{{error}}"
   }
 }

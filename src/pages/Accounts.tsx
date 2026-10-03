@@ -7,12 +7,9 @@ import {
   List,
   RefreshCw,
   Search,
-  SlidersHorizontal,
   Trash2,
-  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import AccountGrid from "../components/accounts/AccountGrid";
 import AccountTable from "../components/accounts/AccountTable";
 import AddAccountDialog from "../components/accounts/AddAccountDialog";
@@ -20,8 +17,6 @@ import ModalDialog from "../components/common/ModalDialog";
 import Pagination from "../components/common/Pagination";
 import { showToast } from "../components/common/ToastContainer";
 import { useAccountStore } from "../stores/useAccountStore";
-import { useConfigStore } from "../stores/useConfigStore";
-import ModelDisplaySettings from "../components/settings/ModelDisplaySettings";
 import { cn } from "../utils/cn";
 import { useTranslation } from "react-i18next";
 import type { Account } from "../types/account";
@@ -45,8 +40,6 @@ function Accounts() {
     reorderAccounts,
     updateAccountLabel,
   } = useAccountStore();
-  const { config } = useConfigStore();
-  const [isModelDisplayModalOpen, setIsModelDisplayModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
@@ -535,24 +528,6 @@ function Accounts() {
           </button>
         </div>
 
-        {/* 模型展示设置快捷按钮 */}
-        <button
-          className={cn(
-            "px-2.5 py-1 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 shrink-0 border shadow-xs",
-            isModelDisplayModalOpen
-              ? "bg-blue-50 border-blue-300 text-blue-600 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300 shadow-sm"
-              : "bg-gray-100 dark:bg-base-200 border-transparent text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-base-content hover:bg-gray-200/80 dark:hover:bg-base-100"
-          )}
-          onClick={() => setIsModelDisplayModalOpen(true)}
-          title={t("accounts.display_models_title", "自定义卡片与列表中要展示的模型")}
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5 text-blue-500" />
-          <span className="hidden sm:inline">{t("accounts.display_models", "展示模型")}</span>
-          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300">
-            {config?.pinned_quota_models?.models?.length || 3}
-          </span>
-        </button>
-
         {/* 过滤按钮组 - 图标化响应式 */}
         <div className="flex gap-0.5 bg-gray-100/80 dark:bg-base-200 p-1 rounded-xl border border-gray-200/50 dark:border-white/5 shrink-0">
           {/* 全部 */}
@@ -830,33 +805,7 @@ function Accounts() {
         </div>
       </ModalDialog>
 
-      {/* 模型展示设置弹窗 */}
-      {isModelDisplayModalOpen && createPortal(
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 z-0" onClick={() => setIsModelDisplayModalOpen(false)} />
-          <div className="relative z-10 w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-800 max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <SlidersHorizontal className="w-5 h-5 text-blue-500" />
-                <h3 className="font-bold text-base text-gray-900 dark:text-gray-100">
-                  {t('model_display.title', '卡片与列表展示模型')}
-                </h3>
-              </div>
-              <button
-                onClick={() => setIsModelDisplayModalOpen(false)}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
-                title={t('common.close', '关闭')}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1">
-              <ModelDisplaySettings onClose={() => setIsModelDisplayModalOpen(false)} />
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+
 
     </div>
   );
