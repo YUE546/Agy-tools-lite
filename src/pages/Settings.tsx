@@ -168,41 +168,102 @@ function Settings() {
                 {/* 2. 桌面与系统窗口 */}
                 <DesktopSettings />
 
-                {/* 3. 本地存储与环境路径 */}
-                <section className="rounded-xl border border-gray-200/80 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900/60 space-y-4">
-                    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-                        <HardDrive className="h-4 w-4 text-emerald-500" />
-                        {t('settings_sections.storage_and_executables', '本地存储与核心环境')}
-                    </h3>
-
-                    {/* 数据存储路径 */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-lg bg-gray-50/70 border border-gray-100 dark:bg-slate-800/40 dark:border-slate-800">
-                        <div className="min-w-0">
-                            <div className="text-xs font-medium text-gray-700 dark:text-gray-200">{t('local_settings.data_directory')}</div>
-                            <div className="mt-1 break-all font-mono text-xs text-gray-500 dark:text-gray-400">{dataDirPath}</div>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={openDataFolder}
-                            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-blue-400 hover:text-blue-600 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-300 dark:hover:border-blue-500 dark:hover:text-blue-300 shadow-2xs"
-                        >
-                            <FolderOpen className="h-3.5 w-3.5" />
-                            {t('local_settings.open_directory')}
-                        </button>
+                {/* 3. 数据存储与关联应用 */}
+                <section className="rounded-xl border border-gray-200/80 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900/60 space-y-5">
+                    <div>
+                        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                            <HardDrive className="h-4 w-4 text-emerald-500" />
+                            {t('settings_sections.storage_and_executables', '关联应用与数据存储')}
+                        </h3>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            {t('settings_sections.storage_and_executables_desc', '管理本机账号凭据存储位置与外部关联客户端的识别路径。')}
+                        </p>
                     </div>
 
-                    {/* 可执行路径探测 */}
-                    <div className="space-y-3">
-                        {(['antigravity_executable', 'antigravity_ide_executable'] as const).map((field) => (
-                            <div key={field} className="rounded-lg border border-gray-100 bg-gray-50/70 p-3.5 dark:border-slate-800/80 dark:bg-slate-800/40">
-                                <div className="text-xs font-medium text-gray-700 dark:text-gray-200">{field === 'antigravity_executable' ? 'Antigravity CLI' : 'Antigravity IDE'}</div>
-                                <div className="mt-1 break-all font-mono text-xs text-gray-500 dark:text-gray-400">{config?.[field] || t('local_settings.automatic_detection')}</div>
-                                <div className="mt-2.5 flex gap-3">
-                                    <button type="button" disabled={!config} onClick={() => chooseExecutable(field)} className="text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50">{t('local_settings.choose_executable')}</button>
-                                    {config?.[field] && <button type="button" onClick={() => updateConfig({ [field]: undefined })} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">{t('local_settings.reset_detection')}</button>}
+                    {/* 卡片 1：本地数据存储 */}
+                    <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-4 dark:border-slate-800/80 dark:bg-slate-800/40">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
+                                    <Database className="h-3.5 w-3.5 text-blue-500" />
+                                    {t('local_settings.data_directory', '本地数据存储')}
+                                </div>
+                                <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                                    {t('local_settings.data_directory_desc', '保存多账号配置、加密凭证与配额缓存。所有数据仅存储于本机，绝不上传云端。')}
+                                </p>
+                                <div className="mt-2 inline-block rounded bg-white px-2 py-1 font-mono text-xs text-gray-600 dark:bg-slate-900/80 dark:text-gray-300 border border-gray-200/60 dark:border-slate-700/60 break-all">
+                                    {dataDirPath}
                                 </div>
                             </div>
-                        ))}
+                            <button
+                                type="button"
+                                onClick={openDataFolder}
+                                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:border-blue-400 hover:text-blue-600 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-200 dark:hover:border-blue-500 dark:hover:text-blue-300 shadow-2xs"
+                            >
+                                <FolderOpen className="h-3.5 w-3.5" />
+                                {t('local_settings.open_directory', '在访达中打开')}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* 卡片 2：关联客户端路径 */}
+                    <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-4 dark:border-slate-800/80 dark:bg-slate-800/40 space-y-3">
+                        <div>
+                            <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
+                                <Monitor className="h-3.5 w-3.5 text-indigo-500" />
+                                {t('local_settings.application_paths', '关联客户端路径')}
+                            </div>
+                            <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                                {t('local_settings.application_paths_desc', '账号切换时用于注入登录凭据并重启应用。系统默认自动识别，无需手动配置。')}
+                            </p>
+                        </div>
+
+                        <div className="space-y-2.5 pt-1">
+                            {([
+                                { field: 'antigravity_executable', nameKey: 'app_label', defaultName: 'AntiGravity 桌面应用', descKey: 'app_desc', defaultDesc: '用于桌面应用账号与会话无缝切换' },
+                                { field: 'antigravity_ide_executable', nameKey: 'ide_label', defaultName: 'AntiGravity IDE', descKey: 'ide_desc', defaultDesc: '用于独立 IDE 客户端会话同步' },
+                            ] as const).map(({ field, nameKey, defaultName, descKey, defaultDesc }) => {
+                                const isCustom = Boolean(config?.[field]);
+                                return (
+                                    <div key={field} className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-white dark:bg-slate-900/60 border border-gray-200/60 dark:border-slate-700/60">
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{t(`local_settings.${nameKey}`, defaultName)}</span>
+                                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${isCustom ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'}`}>
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${isCustom ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                                                    {isCustom ? t('local_settings.custom_path', '已自定义路径') : t('local_settings.automatic_detection', '已自动识别')}
+                                                </span>
+                                            </div>
+                                            <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+                                                {t(`local_settings.${descKey}`, defaultDesc)}
+                                            </p>
+                                            <div className="mt-1 font-mono text-[11px] text-gray-500 dark:text-gray-400 break-all">
+                                                {config?.[field] || t('local_settings.auto_detect_note', '默认自动识别（推荐）')}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <button
+                                                type="button"
+                                                disabled={!config}
+                                                onClick={() => chooseExecutable(field)}
+                                                className="rounded px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:opacity-50"
+                                            >
+                                                {t('local_settings.choose_executable', '自定义路径…')}
+                                            </button>
+                                            {isCustom && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => updateConfig({ [field]: undefined })}
+                                                    className="rounded px-2.5 py-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                                                >
+                                                    {t('local_settings.reset_detection', '重置为自动')}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                 </section>
             </div>

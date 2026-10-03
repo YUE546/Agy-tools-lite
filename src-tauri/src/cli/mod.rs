@@ -1,11 +1,12 @@
 //! agy-switch - Antigravity Tools Lite local CLI. Never initializes Tauri, a logger, or OAuth for reads.
 mod output;
+mod picker;
 mod switch_lock;
 
 use output::{AccountView, Snapshot};
 use std::path::{Path, PathBuf};
 
-const HELP: &str = "agy-switch - Antigravity Tools Lite CLI\n\nUsage:\n  agy-switch accounts list [--json]\n  agy-switch current [--json]\n  agy-switch quota [ACCOUNT_ID|EMAIL] [--json]\n  agy-switch switch ACCOUNT_ID|EMAIL [--target app|ide] [--json]\n  agy-switch --help\n  agy-switch --version\n\nRead commands use local cached data only and never open the GUI or refresh tokens.\n'current' is Tools Lite's recorded account, not a live credential-store check.\n'switch' may refresh tokens, close/restart Antigravity, and update credentials.\nDefault target 'app' synchronizes APP credentials and an initialized agy session.\nThere is no CLI-only target: APP and agy may share the same credential store.\nQuit older Tools Lite versions before switching; they do not share the switch lock.\nAccounts must first be added through the GUI. ABV_DATA_DIR overrides the data directory.\n";
+const HELP: &str = "agy-switch - Antigravity Tools Lite CLI\n\nUsage:\n  agy-switch                         Interactive account picker (TUI)\n  agy-switch accounts list [--json]\n  agy-switch current [--json]\n  agy-switch quota [ACCOUNT_ID|EMAIL] [--json]\n  agy-switch switch [ACCOUNT_ID|EMAIL] [--target app|ide] [--json]\n  agy-switch --help\n  agy-switch --version\n\nRead commands use local cached data only and never open the GUI or refresh tokens.\n'current' is Tools Lite's recorded account, not a live credential-store check.\n'switch' may refresh tokens, close/restart Antigravity, and update credentials.\nDefault target 'app' synchronizes APP credentials and an initialized agy session.\nThere is no CLI-only target: APP and agy may share the same credential store.\nQuit older Tools Lite versions before switching; they do not share the switch lock.\nAccounts must first be added through the GUI. ABV_DATA_DIR overrides the data directory.\n";
 
 #[derive(Debug, PartialEq)]
 enum Command {
@@ -15,6 +16,7 @@ enum Command {
     Current,
     Quota(Option<String>),
     Switch { selector: String, target: String },
+    Interactive { target: String },
 }
 
 #[derive(Debug)]
@@ -43,7 +45,18 @@ impl CliError {
     }
 }
 
-fn parse(args: &[String]) -> Result<(Command, bool)> {
+fn is_tty() -> bool {
+    #[cfg(unix)]
+    unsafe {
+        libc::isatty(libc::STDIN_FILENO) == 1 && libc::isatty(libc::STDOUT_FILENO) == 1
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
+fn parse(args: &[String], interactive: bool) -> Result<(Command, bool)> {
     let json = args.iter().any(|arg| arg == "--json");
     if args.iter().filter(|arg| arg.as_str() == "--json").count() > 1 {
         return Err(CliError::usage());
@@ -60,6 +73,9 @@ fn parse(args: &[String]) -> Result<(Command, bool)> {
         args.remove(0);
     }
     let command = match args.as_slice() {
+        [] if interactive && !json => Command::Interactive {
+            target: "app".into(),
+        },
         [] | ["--help"] | ["-h"] | ["help"] => Command::Help,
         ["--version"] | ["-V"] => Command::Version,
         ["list"] => Command::List,
@@ -67,6 +83,16 @@ fn parse(args: &[String]) -> Result<(Command, bool)> {
         ["quota"] => Command::Quota(None),
         ["quota", selector] if !selector.starts_with('-') => {
             Command::Quota(Some((*selector).into()))
+        }
+        ["switch"] if interactive && !json => Command::Interactive {
+            target: "app".into(),
+        },
+        ["switch", "--target", target]
+            if interactive && !json && matches!(*target, "app" | "ide") =>
+        {
+            Command::Interactive {
+                target: (*target).into(),
+            }
         }
         ["switch", selector] if !selector.starts_with('-') => Command::Switch {
             selector: (*selector).into(),
@@ -110,6 +136,7 @@ pub fn run_if_requested() -> Option<i32> {
         let _ = AttachConsole(u32::MAX);
     }
     let json = args.iter().any(|arg| arg == "--json");
+    let interactive = is_tty() && !json;
     let strings: std::result::Result<Vec<String>, _> = args
         .into_iter()
         .skip(1)
@@ -117,11 +144,13 @@ pub fn run_if_requested() -> Option<i32> {
         .collect();
     let result = strings
         .map_err(|_| CliError::usage())
-        .and_then(|args| parse(&args))
+        .and_then(|args| parse(&args, interactive))
         .and_then(|(command, json)| execute(command, json));
     Some(match result {
         Ok(output) => {
-            println!("{output}");
+            if !output.is_empty() {
+                println!("{output}");
+            }
             0
         }
         Err(error) => {
@@ -235,6 +264,33 @@ fn execute(command: Command, json: bool) -> Result<String> {
                 )
             })
         }
+        Command::Interactive { target } => {
+            if snapshot.accounts.is_empty() {
+                return Ok("No saved accounts. Add an account in the Tools Lite GUI.".into());
+            }
+            let selected_account = match picker::select_account_interactive(&snapshot.accounts) {
+                Some(acc) => acc,
+                None => return Ok(String::new()),
+            };
+            let runtime = tokio::runtime::Runtime::new()
+                .map_err(|_| CliError::data("Could not start the account-switch runtime."))?;
+            let target_ide = match target.as_str() {
+                "ide" => Some("ide"),
+                _ => None,
+            };
+            runtime
+                .block_on(crate::modules::account::switch_account(
+                    &selected_account.id,
+                    target_ide,
+                    &HeadlessIntegration,
+                ))
+                .map_err(|error| switch_error(&error))?;
+            Ok(format!(
+                "Switched {} (target: {}). Start a new agy command to use the updated session.",
+                output::terminal_text(&selected_account.email),
+                target
+            ))
+        }
         _ => unreachable!(),
     }
 }
@@ -311,26 +367,47 @@ mod tests {
     fn args(args: &[&str]) -> Vec<String> {
         args.iter().map(|arg| (*arg).into()).collect()
     }
+    fn parse_test(args_slice: &[&str]) -> Result<(Command, bool)> {
+        parse(&args(args_slice), false)
+    }
     #[test]
     fn parses_commands_and_json() {
         assert_eq!(
-            parse(&args(&["accounts", "list", "--json"])).unwrap(),
+            parse_test(&["accounts", "list", "--json"]).unwrap(),
             (Command::List, true)
         );
         assert_eq!(
-            parse(&args(&["--json", "current"])).unwrap(),
+            parse_test(&["--json", "current"]).unwrap(),
             (Command::Current, true)
         );
         assert_eq!(
-            parse(&args(&["--cli", "quota", "a@example.invalid"])).unwrap(),
+            parse_test(&["--cli", "quota", "a@example.invalid"]).unwrap(),
             (Command::Quota(Some("a@example.invalid".into())), false)
         );
         assert_eq!(
-            parse(&args(&["switch", "abc", "--target", "ide"])).unwrap(),
+            parse_test(&["switch", "abc", "--target", "ide"]).unwrap(),
             (
                 Command::Switch {
                     selector: "abc".into(),
                     target: "ide".into()
+                },
+                false
+            )
+        );
+        assert_eq!(
+            parse(&args(&[]), true).unwrap(),
+            (
+                Command::Interactive {
+                    target: "app".into()
+                },
+                false
+            )
+        );
+        assert_eq!(
+            parse(&args(&["switch"]), true).unwrap(),
+            (
+                Command::Interactive {
+                    target: "app".into()
                 },
                 false
             )
@@ -348,7 +425,7 @@ mod tests {
             &["switch", "a", "extra"],
             &["--wat"],
         ] {
-            assert_eq!(parse(&args(input)).unwrap_err().code, 2);
+            assert_eq!(parse_test(input).unwrap_err().code, 2);
         }
     }
     #[test]
