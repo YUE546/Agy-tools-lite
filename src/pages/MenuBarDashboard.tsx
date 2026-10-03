@@ -541,13 +541,13 @@ export default function MenuBarDashboard() {
           className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors text-left w-full"
         >
           <Info size={13} className="text-gray-400 shrink-0" />
-          <span>{chinese ? "关于 Antigravity Tools Lite" : "About Antigravity Tools Lite"}</span>
+          <span>{chinese ? "关于 agy-switch" : "About agy-switch"}</span>
         </button>
 
         {showAbout && (
           <div className="p-2 text-[10px] text-gray-500 dark:text-gray-400 bg-black/[0.03] dark:bg-white/[0.04] rounded-lg border border-black/[0.05] dark:border-white/[0.08] my-0.5">
-            <p className="font-semibold text-gray-800 dark:text-gray-200">Antigravity Tools Lite v4.7.8</p>
-            <p className="mt-0.5">macOS Native Menu Bar AI Assistant</p>
+            <p className="font-semibold text-gray-800 dark:text-gray-200">agy-switch v4.7.8</p>
+            <p className="mt-0.5">Antigravity Account & Quota Switcher</p>
           </div>
         )}
 
