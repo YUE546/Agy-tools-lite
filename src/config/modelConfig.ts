@@ -268,74 +268,44 @@ export const getModelConfig = (modelId: string): ModelConfig | undefined => {
 };
 
 /**
- * 模型排序权重配置
- * 数字越小，优先级越高
+ * 获取模型的排序权重（动态识别版本号，确保未来新模型自动优先排序）
  */
-const MODEL_SORT_WEIGHTS = {
-    // 系列权重 (第一优先级)
-    series: {
-        'gemini-3': 100,
-        'gemini-2.5': 200,
-        'gemini-2': 300,
-        'claude': 400,
-    },
-    // 性能级别权重 (第二优先级)
-    tier: {
-        'pro': 10,
-        'flash': 20,
-        'lite': 30,
-        'opus': 5,
-        'sonnet': 10,
-    },
-    // 特殊后缀权重 (第三优先级)
-    suffix: {
-        'thinking': 1,
-        'image': 2,
-        'high': 0,
-        'low': 3,
-    }
-};
-
-/**
- * 获取模型的排序权重
- */
-function getModelSortWeight(modelId: string): number {
+export function getModelSortWeight(modelId: string): number {
     const id = modelId.toLowerCase();
     let weight = 0;
 
-    // 1. 系列权重 (x1000)
-    if (id.startsWith('gemini-3')) {
-        weight += MODEL_SORT_WEIGHTS.series['gemini-3'] * 1000;
-    } else if (id.startsWith('gemini-2.5')) {
-        weight += MODEL_SORT_WEIGHTS.series['gemini-2.5'] * 1000;
-    } else if (id.startsWith('gemini-2')) {
-        weight += MODEL_SORT_WEIGHTS.series['gemini-2'] * 1000;
-    } else if (id.startsWith('claude')) {
-        weight += MODEL_SORT_WEIGHTS.series['claude'] * 1000;
+    // 1. 系列权重 (动态匹配 Gemini 版本，新版本自动优先)
+    const geminiVer = id.match(/^gemini-(\d+(\.\d+)?)/);
+    if (geminiVer) {
+        const v = parseFloat(geminiVer[1]);
+        // 动态计算：版本越高权重数字越小，如 4.0 -> 50000, 3.8 -> 54000, 3.1 -> 68000, 2.5 -> 80000
+        weight += Math.max(10000, Math.round(130000 - v * 20000));
+    } else if (id.includes('claude')) {
+        weight += 200000;
+    } else {
+        weight += 300000;
     }
 
-    // 2. 性能级别权重 (x100)
-    if (id.includes('pro')) {
-        weight += MODEL_SORT_WEIGHTS.tier['pro'] * 100;
+    // 2. 性能级别权重
+    if (id.includes('opus')) {
+        weight += 500;
+    } else if (id.includes('pro') || id.includes('sonnet')) {
+        weight += 1000;
     } else if (id.includes('flash')) {
-        weight += MODEL_SORT_WEIGHTS.tier['flash'] * 100;
+        weight += 2000;
     } else if (id.includes('lite')) {
-        weight += MODEL_SORT_WEIGHTS.tier['lite'] * 100;
-    } else if (id.includes('opus')) {
-        weight += MODEL_SORT_WEIGHTS.tier['opus'] * 100;
-    } else if (id.includes('sonnet')) {
-        weight += MODEL_SORT_WEIGHTS.tier['sonnet'] * 100;
+        weight += 3000;
     }
 
-    // 3. 特殊后缀权重 (x10)
-    if (id.includes('thinking')) {
-        weight += MODEL_SORT_WEIGHTS.suffix['thinking'] * 10;
+    // 3. 特殊后缀权重
+    if (id.includes('high')) {
+        weight += 0;
+    } else if (id.includes('thinking')) {
+        weight += 10;
     } else if (id.includes('image')) {
-        weight += MODEL_SORT_WEIGHTS.suffix['image'] * 10;
-    } else if (id.includes('high')) {
-        weight += MODEL_SORT_WEIGHTS.suffix['high'] * 10;
+        weight += 20;
     } else if (id.includes('low')) {
-        weight += MODEL_SORT_WEIGHTS.suffix['low'] * 10;
+        weight += 30;
     }
 
     return weight;

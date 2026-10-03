@@ -1,40 +1,52 @@
 import { useMemo, useState } from 'react';
-import { Bot, BrainCircuit, Check, Layers, RotateCcw, Sparkles } from 'lucide-react';
+import { Bot, BrainCircuit, Check, RefreshCw, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useAccountStore } from '../../stores/useAccountStore';
-import { DEFAULT_PINNED_MODELS, MODEL_CONFIG } from '../../config/modelConfig';
+import { DEFAULT_PINNED_MODELS, MODEL_CONFIG, getModelSortWeight } from '../../config/modelConfig';
 import { getModelDisplayName } from '../../utils/modelCategory';
 import { showToast } from '../common/ToastContainer';
 
 interface ModelOption {
     id: string;
     label: string;
-    group: 'gemini-3' | 'claude' | 'gemini-2.5' | 'other' | 'dynamic';
+    group: 'gemini' | 'claude' | 'other';
     iconType: 'gemini' | 'claude' | 'bot';
     tag?: string;
 }
 
-const KNOWN_MODELS: ModelOption[] = [
-    // Gemini 3 系列
-    { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', group: 'gemini-3', iconType: 'gemini', tag: 'PRO' },
-    { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)', group: 'gemini-3', iconType: 'gemini', tag: 'FLASH' },
-    { id: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image', group: 'gemini-3', iconType: 'gemini', tag: 'IMAGE' },
-    { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', group: 'gemini-3', iconType: 'gemini', tag: 'LITE' },
-    { id: 'gemini-3-flash', label: 'Gemini 3 Flash', group: 'gemini-3', iconType: 'gemini', tag: 'FLASH' },
-
-    // Claude 系列
+// 兜底基准模型
+const BASELINE_MODELS: ModelOption[] = [
+    { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', group: 'gemini', iconType: 'gemini', tag: 'PRO' },
+    { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)', group: 'gemini', iconType: 'gemini', tag: 'FLASH' },
+    { id: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image', group: 'gemini', iconType: 'gemini', tag: 'IMAGE' },
+    { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', group: 'gemini', iconType: 'gemini', tag: 'LITE' },
+    { id: 'gemini-3-flash', label: 'Gemini 3 Flash', group: 'gemini', iconType: 'gemini', tag: 'FLASH' },
+    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', group: 'gemini', iconType: 'gemini', tag: 'PRO' },
+    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', group: 'gemini', iconType: 'gemini', tag: 'FLASH' },
     { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)', group: 'claude', iconType: 'claude', tag: 'SONNET' },
     { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 (Thinking)', group: 'claude', iconType: 'claude', tag: 'OPUS' },
-
-    // Gemini 2.5 系列
-    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', group: 'gemini-2.5', iconType: 'gemini', tag: 'PRO' },
-    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', group: 'gemini-2.5', iconType: 'gemini', tag: 'FLASH' },
-    { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', group: 'gemini-2.5', iconType: 'gemini', tag: 'LITE' },
-
-    // 其他
     { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', group: 'other', iconType: 'bot', tag: 'OPENAI' },
 ];
+
+function detectModelGroup(id: string): 'gemini' | 'claude' | 'other' {
+    const lower = id.toLowerCase();
+    if (lower.includes('claude') || lower.includes('opus') || lower.includes('sonnet')) return 'claude';
+    if (lower.includes('gemini') || lower.includes('imagen')) return 'gemini';
+    return 'other';
+}
+
+function detectModelTag(id: string, label: string): string | undefined {
+    const combined = (id + ' ' + label).toUpperCase();
+    if (combined.includes('THINKING')) return 'THINKING';
+    if (combined.includes('IMAGE')) return 'IMAGE';
+    if (combined.includes('PRO')) return 'PRO';
+    if (combined.includes('FLASH')) return 'FLASH';
+    if (combined.includes('LITE')) return 'LITE';
+    if (combined.includes('OPUS')) return 'OPUS';
+    if (combined.includes('SONNET')) return 'SONNET';
+    return undefined;
+}
 
 interface ModelDisplaySettingsProps {
     onClose?: () => void;
@@ -43,43 +55,59 @@ interface ModelDisplaySettingsProps {
 
 export default function ModelDisplaySettings({ onClose, embedded = false }: ModelDisplaySettingsProps) {
     const { t } = useTranslation();
-    const { config, saveConfig, showAllQuotas, toggleShowAllQuotas } = useConfigStore();
+    const { config, saveConfig } = useConfigStore();
     const accounts = useAccountStore(state => state.accounts);
-    const [saving, setSaving] = useState(false);
+    const refreshAllQuotas = useAccountStore(state => state.refreshAllQuotas);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
-    // Current pinned list
+    // 当前用户勾选的模型列表
     const currentPinned = useMemo(() => {
         const configured = config?.pinned_quota_models?.models;
         if (configured && configured.length > 0) return configured;
         return DEFAULT_PINNED_MODELS;
     }, [config?.pinned_quota_models?.models]);
 
-    // Discover any additional models from existing accounts
+    // 实时从所有账号中提取真实活跃模型
     const allModels = useMemo(() => {
-        const knownIds = new Set(KNOWN_MODELS.map(m => m.id.toLowerCase()));
-        const dynamicModels: ModelOption[] = [];
+        const map = new Map<string, ModelOption>();
 
+        // 1. 优先提取当前所有账号真实返回的活跃模型列表
         for (const account of accounts) {
             for (const m of account.quota?.models || []) {
-                const norm = m.name.toLowerCase();
-                if (!knownIds.has(norm)) {
-                    knownIds.add(norm);
+                if (!m.name) continue;
+                const id = m.name;
+                const norm = id.toLowerCase();
+                if (!map.has(norm)) {
                     const cfg = MODEL_CONFIG[norm];
-                    const label = m.display_name || cfg?.label || getModelDisplayName(m) || m.name;
-                    const isClaude = norm.includes('claude');
-                    const isGemini = norm.includes('gemini');
-                    dynamicModels.push({
-                        id: m.name,
+                    const label = m.display_name || cfg?.label || getModelDisplayName(m) || id;
+                    const group = detectModelGroup(id);
+                    const iconType: ModelOption['iconType'] = group === 'claude' ? 'claude' : group === 'gemini' ? 'gemini' : 'bot';
+                    map.set(norm, {
+                        id,
                         label,
-                        group: 'dynamic',
-                        iconType: isClaude ? 'claude' : isGemini ? 'gemini' : 'bot',
-                        tag: isClaude ? 'CLAUDE' : isGemini ? 'GEMINI' : 'OTHER',
+                        group,
+                        iconType,
+                        tag: detectModelTag(id, label),
                     });
                 }
             }
         }
 
-        return [...KNOWN_MODELS, ...dynamicModels];
+        // 2. 兜底补齐基准模型
+        for (const bm of BASELINE_MODELS) {
+            const norm = bm.id.toLowerCase();
+            if (!map.has(norm)) {
+                map.set(norm, bm);
+            }
+        }
+
+        // 3. 动态排序
+        return Array.from(map.values()).sort((a, b) => {
+            const weightA = getModelSortWeight(a.id);
+            const weightB = getModelSortWeight(b.id);
+            if (weightA !== weightB) return weightA - weightB;
+            return a.label.localeCompare(b.label);
+        });
     }, [accounts]);
 
     const handleToggleModel = async (modelId: string) => {
@@ -97,7 +125,6 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
         }
 
         try {
-            setSaving(true);
             await saveConfig({
                 ...config,
                 pinned_quota_models: { models: next }
@@ -105,33 +132,35 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
             showToast(t('model_display.saved', '已更新卡片展示模型'), 'success');
         } catch (err) {
             showToast(String(err), 'error');
-        } finally {
-            setSaving(false);
         }
     };
 
-    const handleApplyPreset = async (preset: string[]) => {
+    const handleSelectAll = async () => {
         if (!config) return;
+        const allIds = allModels.map(m => m.id);
+        const isAllSelected = allIds.every(id => currentPinned.includes(id));
+        const next = isAllSelected ? [DEFAULT_PINNED_MODELS[0]] : allIds;
         try {
-            setSaving(true);
-            if (showAllQuotas) {
-                toggleShowAllQuotas();
-            }
             await saveConfig({
                 ...config,
-                pinned_quota_models: { models: preset }
+                pinned_quota_models: { models: next }
             }, true);
             showToast(t('model_display.saved', '已更新卡片展示模型'), 'success');
         } catch (err) {
             showToast(String(err), 'error');
-        } finally {
-            setSaving(false);
         }
     };
 
-    const handleSetShowAll = (showAll: boolean) => {
-        if (showAllQuotas !== showAll) {
-            toggleShowAllQuotas();
+    const handleRefreshLiveModels = async () => {
+        if (isRefreshing) return;
+        setIsRefreshing(true);
+        try {
+            await refreshAllQuotas();
+            showToast(t('model_display.models_refreshed', '模型列表已更新'), 'success');
+        } catch (err) {
+            showToast(String(err), 'error');
+        } finally {
+            setIsRefreshing(false);
         }
     };
 
@@ -148,71 +177,19 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
     };
 
     const groups: { key: ModelOption['group']; title: string }[] = [
-        { key: 'gemini-3', title: t('model_display.group_gemini_3', 'Gemini 3 系列') },
-        { key: 'claude', title: t('model_display.group_claude', 'Claude 系列') },
-        { key: 'gemini-2.5', title: t('model_display.group_gemini_25', 'Gemini 2.5 系列') },
-        { key: 'other', title: t('model_display.group_other', '其他系列') },
-        { key: 'dynamic', title: t('model_display.group_dynamic', '账号中检测到的其他可用模型') },
+        { key: 'gemini', title: t('model_display.group_gemini', 'Gemini 系列模型 (Google 原生)') },
+        { key: 'claude', title: t('model_display.group_claude', 'Claude 系列模型 (Anthropic)') },
+        { key: 'other', title: t('model_display.group_other', '其他系列模型') },
     ];
 
+    const isAllSelected = allModels.length > 0 && allModels.every(m => currentPinned.includes(m.id));
+
     return (
-        <div className="space-y-5">
-            {/* 模式选择：精选固定 vs 展示全部 */}
+        <div className="space-y-4">
             <section className="rounded-xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                    {t('model_display.mode', '展示模式')}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button
-                        type="button"
-                        onClick={() => handleSetShowAll(false)}
-                        className={`flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all ${!showAllQuotas
-                            ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-500/15 dark:border-blue-500 ring-1 ring-blue-500/20'
-                            : 'border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/40'
-                            }`}
-                    >
-                        <span className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${!showAllQuotas ? 'border-blue-600 bg-blue-600' : 'border-gray-300 dark:border-slate-600'}`}>
-                            {!showAllQuotas && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                        </span>
-                        <div>
-                            <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                                {t('model_display.mode_pinned', '精选固定模型 (推荐)')}
-                            </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
-                                {t('model_display.mode_pinned_desc', '仅展示下方勾选的常用核心模型，保持卡片与列表清爽')}
-                            </div>
-                        </div>
-                    </button>
-
-                    <button
-                        type="button"
-                        onClick={() => handleSetShowAll(true)}
-                        className={`flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all ${showAllQuotas
-                            ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-500/15 dark:border-blue-500 ring-1 ring-blue-500/20'
-                            : 'border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/40'
-                            }`}
-                    >
-                        <span className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${showAllQuotas ? 'border-blue-600 bg-blue-600' : 'border-gray-300 dark:border-slate-600'}`}>
-                            {showAllQuotas && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                        </span>
-                        <div>
-                            <div className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
-                                <Layers className="w-3.5 h-3.5 text-purple-500" />
-                                {t('model_display.mode_all', '展示全部可用配额模型')}
-                            </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
-                                {t('model_display.mode_all_desc', '平铺展示当前账号所拥有的所有可用模型配额')}
-                            </div>
-                        </div>
-                    </button>
-                </div>
-            </section>
-
-            {/* 精选模型勾选区 (在精选模式下高亮，在全部模式下可预先配置) */}
-            <section className={`rounded-xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/60 transition-opacity ${showAllQuotas ? 'opacity-60' : 'opacity-100'}`}>
-                {/* 顶部工具条：已选数量 + 预设快捷按钮 */}
+                {/* 顶部操作栏：已选数量 + 全选/取消全选 + 实时刷新模型 */}
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-100 dark:border-slate-800">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2.5">
                         <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
                             {t('model_display.selected_models', '自定义展示模型')}
                         </span>
@@ -221,28 +198,28 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
                         </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className="flex items-center gap-2">
                         <button
                             type="button"
-                            disabled={saving}
-                            onClick={() => handleApplyPreset(DEFAULT_PINNED_MODELS)}
-                            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1"
+                            onClick={handleSelectAll}
+                            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
                         >
-                            <RotateCcw className="w-3 h-3 text-blue-500" />
-                            {t('model_display.preset_recommended', '⚡ 核心推荐')}
+                            {isAllSelected ? t('model_display.deselect_all', '取消全选') : t('model_display.select_all', '全选')}
                         </button>
                         <button
                             type="button"
-                            disabled={saving}
-                            onClick={() => handleApplyPreset(['gemini-3.1-pro-high', 'gemini-3.8-flash-high', 'gemini-3.1-flash-image', 'claude-sonnet-4-6'])}
-                            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                            disabled={isRefreshing}
+                            onClick={handleRefreshLiveModels}
+                            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5"
+                            title={t('model_display.refresh_models', '从账号重新获取最新的模型列表')}
                         >
-                            {t('model_display.preset_all_gemini', '常用组合 (含绘图)')}
+                            <RefreshCw className={`w-3 h-3 text-blue-500 ${isRefreshing ? 'animate-spin' : ''}`} />
+                            <span>{isRefreshing ? t('model_display.refreshing_models', '正在获取最新模型...') : t('model_display.refresh_models', '刷新最新模型')}</span>
                         </button>
                     </div>
                 </div>
 
-                {/* 分组列表 */}
+                {/* 分组模型列表 */}
                 <div className="space-y-4">
                     {groups.map(group => {
                         const groupModels = allModels.filter(m => m.group === group.key);
@@ -300,11 +277,11 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-gray-100 dark:border-slate-800 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                    💡 {t('model_display.hint', '勾选或取消勾选后实时保存生效。账号卡片与表格将按照你的配置展示对应的配额进度与重置倒计时。')}
+                    💡 {t('model_display.hint', '勾选或取消勾选后实时保存生效。账号卡片与表格将按照你勾选的模型展示对应配额与倒计时。')}
                 </div>
             </section>
 
-            {/* 关闭按钮 (如果不是内嵌页面) */}
+            {/* 完成关闭按钮 (如果不是内嵌设置页面) */}
             {!embedded && onClose && (
                 <div className="flex justify-end pt-2">
                     <button

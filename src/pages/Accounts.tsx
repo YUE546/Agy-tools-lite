@@ -45,7 +45,7 @@ function Accounts() {
     reorderAccounts,
     updateAccountLabel,
   } = useAccountStore();
-  const { config, showAllQuotas } = useConfigStore();
+  const { config } = useConfigStore();
   const [isModelDisplayModalOpen, setIsModelDisplayModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
@@ -549,7 +549,7 @@ function Accounts() {
           <SlidersHorizontal className="w-3.5 h-3.5 text-blue-500" />
           <span className="hidden sm:inline">{t("accounts.display_models", "展示模型")}</span>
           <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300">
-            {showAllQuotas ? t("accounts.all_models_badge", "全部") : (config?.pinned_quota_models?.models?.length || 3)}
+            {config?.pinned_quota_models?.models?.length || 3}
           </span>
         </button>
 

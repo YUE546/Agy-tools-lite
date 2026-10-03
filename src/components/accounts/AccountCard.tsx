@@ -32,7 +32,7 @@ const DEFAULT_MODELS = Object.entries(MODEL_CONFIG).map(([id, config]) => ({
 
 function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, isRefreshing, isSwitching = false, onSwitch, onRefresh, onEditLabel, onDelete, quotaWindow }: AccountCardProps) {
     const { t } = useTranslation();
-    const { config, showAllQuotas } = useConfigStore();
+    const { config } = useConfigStore();
     const isDisabled = Boolean(account.disabled);
     const validationBlockedLabel = getValidationBlockedStatusLabel(account.validation_blocked_reason, t);
 
@@ -58,43 +58,37 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
             };
         }) || [];
 
-        let models: typeof accountModels;
+        // Filter for pinned or defaults (respect user's explicit choice without force-injecting image models)
+        const pinned = (config?.pinned_quota_models?.models && config.pinned_quota_models.models.length > 0)
+            ? config.pinned_quota_models.models
+            : DEFAULT_PINNED_MODELS;
 
-        if (showAllQuotas) {
-            models = accountModels;
-        } else {
-            // Filter for pinned or defaults (respect user's explicit choice without force-injecting image models)
-            const pinned = (config?.pinned_quota_models?.models && config.pinned_quota_models.models.length > 0)
-                ? config.pinned_quota_models.models
-                : DEFAULT_PINNED_MODELS;
-
-            const selections = resolveQuotaModels(
-                accountModels.map(m => m.data),
-                pinned,
-            );
-            models = selections
-                .map(sel => sel.model ? accountModels.find(am => am.data === sel.model) : undefined)
-                .filter((m): m is typeof accountModels[number] => m !== undefined);
-            // 也保留无配额数据的 pinned 模型（显示 0%）
-            for (const sel of selections) {
-                if (!sel.model) {
-                    const selectorConfig = MODEL_CONFIG[sel.selectorId.toLowerCase()];
-                    if (selectorConfig) {
-                        models = [...models, {
-                            id: sel.selectorId,
-                            label: selectorConfig.shortLabel || selectorConfig.label,
-                            protectedKey: selectorConfig.protectedKey,
-                            Icon: selectorConfig.Icon,
-                            data: { name: sel.selectorId, percentage: 0 } as ModelQuota,
-                        }];
-                    }
+        const selections = resolveQuotaModels(
+            accountModels.map(m => m.data),
+            pinned,
+        );
+        let models = selections
+            .map(sel => sel.model ? accountModels.find(am => am.data === sel.model) : undefined)
+            .filter((m): m is typeof accountModels[number] => m !== undefined);
+        // 也保留无配额数据的 pinned 模型（显示 0%）
+        for (const sel of selections) {
+            if (!sel.model) {
+                const selectorConfig = MODEL_CONFIG[sel.selectorId.toLowerCase()];
+                if (selectorConfig) {
+                    models = [...models, {
+                        id: sel.selectorId,
+                        label: selectorConfig.shortLabel || selectorConfig.label,
+                        protectedKey: selectorConfig.protectedKey,
+                        Icon: selectorConfig.Icon,
+                        data: { name: sel.selectorId, percentage: 0 } as ModelQuota,
+                    }];
                 }
             }
         }
 
         // 应用排序并过滤过期模型
-        return sortModels(models).filter(m => m.id !== 'claude-sonnet-4-6-thinking' && m.id !== 'claude-sonnet-4-5-thinking' && m.id !== 'claude-opus-4-5-thinking');
-    }, [config, account, showAllQuotas]);
+        return sortModels(models).filter(m => m.id !== 'claude-sonnet-4-5-thinking' && m.id !== 'claude-opus-4-5-thinking');
+    }, [config, account]);
 
     // 解析周配额项 (当处于 weekly 视图时)
     const weeklyItems = useMemo(() => {

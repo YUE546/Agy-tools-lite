@@ -276,7 +276,7 @@ function AccountRowContent({
     quotaWindow,
 }: AccountRowContentProps) {
     const { t } = useTranslation();
-    const { config, showAllQuotas } = useConfigStore();
+    const { config } = useConfigStore();
     const validationBlockedLabel = getValidationBlockedStatusLabel(account.validation_blocked_reason, t);
 
     // 解析周配额项 (当处于 weekly 视图时)
@@ -305,35 +305,24 @@ function AccountRowContent({
         ? config.pinned_quota_models.models
         : DEFAULT_PINNED_MODELS;
 
-    // 根据 show_all 状态决定显示哪些模型
+    // 根据用户勾选配置的模型决定显示哪些项
     const uniqueLabels = new Set<string>();
     const displayModels = sortModels(
-        (showAllQuotas
-            ? (account.quota?.models || []).map(m => {
-                const config = MODEL_CONFIG[m.name.toLowerCase()];
-                const label = m.display_name || config?.label || config?.shortLabel || m.name;
-                return {
-                    id: m.name.toLowerCase(),
-                    label: label,
-                    protectedKey: config?.protectedKey || m.name.toLowerCase(),
-                    data: m
-                };
-            })
-            : resolveQuotaModels(account.quota?.models, pinnedModels).map(sel => {
-                const selectorConfig = MODEL_CONFIG[sel.selectorId.toLowerCase()];
-                const resolvedConfig = sel.model ? MODEL_CONFIG[sel.model.name.toLowerCase()] : undefined;
-                if (!selectorConfig && !sel.model) return null;
-                const label = sel.model?.display_name
-                    || resolvedConfig?.label || resolvedConfig?.shortLabel
-                    || selectorConfig?.label || selectorConfig?.shortLabel
-                    || sel.selectorId;
-                return {
-                    id: sel.model?.name.toLowerCase() ?? sel.selectorId.toLowerCase(),
-                    label,
-                    protectedKey: getModelProtectionKey(sel.model?.name ?? sel.selectorId) ?? resolvedConfig?.protectedKey ?? selectorConfig?.protectedKey ?? sel.selectorId,
-                    data: sel.model,
-                };
-            }).filter((item): item is { id: string; label: string; protectedKey: string; data: ModelQuota | undefined } => item !== null)
+        resolveQuotaModels(account.quota?.models, pinnedModels).map(sel => {
+            const selectorConfig = MODEL_CONFIG[sel.selectorId.toLowerCase()];
+            const resolvedConfig = sel.model ? MODEL_CONFIG[sel.model.name.toLowerCase()] : undefined;
+            if (!selectorConfig && !sel.model) return null;
+            const label = sel.model?.display_name
+                || resolvedConfig?.label || resolvedConfig?.shortLabel
+                || selectorConfig?.label || selectorConfig?.shortLabel
+                || sel.selectorId;
+            return {
+                id: sel.model?.name.toLowerCase() ?? sel.selectorId.toLowerCase(),
+                label,
+                protectedKey: getModelProtectionKey(sel.model?.name ?? sel.selectorId) ?? resolvedConfig?.protectedKey ?? selectorConfig?.protectedKey ?? sel.selectorId,
+                data: sel.model,
+            };
+        }).filter((item): item is { id: string; label: string; protectedKey: string; data: ModelQuota | undefined } => item !== null)
     ).filter(m => {
             // 过滤特定的 Claude/Gemini 思考变体 (在列表页隐藏)
             const isHiddenThinking = m.id.includes('thinking');
@@ -352,7 +341,7 @@ function AccountRowContent({
             }
             return true;
         })
-    ).filter((m, index, self) => {
+        .filter((m, index, self) => {
         // 第二次过滤：确保即使没有数据的重复 Label 也只保留一个
         const labelKey = `${m.label}-${m.protectedKey}`;
         return self.findIndex(t => `${t.label}-${t.protectedKey}` === labelKey) === index;
