@@ -1,0 +1,72 @@
+[package]
+name = "antigravity-tools"
+version = "4.7.8"
+description = "Antigravity Tools Lite - headless WebUI service"
+authors = ["you"]
+license = "CC-BY-NC-SA-4.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "antigravity_tools_lib"
+crate-type = ["rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+uuid = { version = "1.10", features = ["v4", "serde"] }
+chrono = "0.4"
+dirs = "5.0"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+base64 = "0.22"
+sysinfo = "0.31"
+sys-locale = "0.3.2"
+tokio = { version = "1", features = ["full"] }
+url = "2.5.7"
+image = { version = "0.25.9", default-features = false, features = ["png", "webp"] }
+thiserror = "2.0.17"
+
+futures = "0.3"
+tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+rand = "0.8"
+regex = "1.12.2"
+once_cell = "1.19"
+libc = "0.2"
+tracing-appender = "0.2.4"
+tracing-log = "0.2.0"
+plist = "1.7"
+rquest = { version = "5.1.0", features = ["json"] }
+rquest-util = "2.2.1"
+
+# WebUI 服务层（无 WebView，前端 dist 由 axum 静态托管；静态文件为自研 handler，
+# 不用 tower-http——云效交叉环境对其 feature 解析不稳定，见 2026-10-03 流水线踩坑）
+axum = { version = "0.8", features = ["multipart"] }
+mime_guess = "2"
+async-stream = "0.3"
+percent-encoding = "2"
+
+# Windows 系统托盘（独立线程 + Win32 消息泵，无 tauri 运行时）
+[target.'cfg(target_os = "windows")'.dependencies]
+tray-icon = { version = "0.21", default-features = false }
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSAccessibility"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+secret-service = { version = "5.2", features = ["rt-tokio-crypto-rust"] }
+
+[dev-dependencies]
+tempfile = "3.10"
+
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 1

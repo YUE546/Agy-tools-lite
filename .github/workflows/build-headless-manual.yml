@@ -1,0 +1,97 @@
+name: Build Headless Service
+
+on:
+  push:
+    branches: [headless]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-2025
+    env:
+      # boring-sys2(BoringSSL)的 cmake 配置阶段:
+      # 必须强制 Ninja——runner 上有 VS,cmake 会默认选 VS 生成器,
+      # 而 VS 生成器不支持交叉工具链文件(mingw 编译器会被忽略)。
+      CMAKE_GENERATOR: Ninja
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (GNU target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Ensure MinGW-w64
+        shell: pwsh
+        run: |
+          if (-not (Get-Command x86_64-w64-mingw32-gcc.exe -ErrorAction SilentlyContinue)) {
+            if (-not (Test-Path "C:\mingw64\bin\x86_64-w64-mingw32-gcc.exe")) {
+              choco install mingw -y --no-progress
+            }
+          }
+          $candidates = @("C:\mingw64\bin", "$env:ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin")
+          foreach ($dir in $candidates) {
+            if (Test-Path "$dir\x86_64-w64-mingw32-gcc.exe") {
+              Add-Content $env:GITHUB_PATH $dir
+              break
+            }
+          }
+
+      - name: Install NASM and Ninja
+        shell: pwsh
+        run: |
+          choco install nasm ninja -y --no-progress
+          Add-Content $env:GITHUB_PATH "$env:ProgramFiles\NASM"
+
+      - name: Report toolchain
+        shell: pwsh
+        run: |
+          cargo --version; rustc --version
+          gcc --version | Select-Object -First 1
+          nasm -v; ninja --version; cmake --version | Select-Object -First 1
+          go version
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build service binary
+        shell: pwsh
+        env:
+          # runner 预装 LLVM(含 libclang.dll),boring-sys2 的 bindgen 需要
+          LIBCLANG_PATH: C:\Program Files\LLVM\bin
+        run: cargo build --release --no-default-features --target x86_64-pc-windows-gnu --manifest-path src-tauri/Cargo.toml
+
+      - name: Assemble release package
+        shell: pwsh
+        run: |
+          $exe = "src-tauri/target/x86_64-pc-windows-gnu/release/antigravity-tools.exe"
+          if (-not (Test-Path $exe)) { throw "binary not found: $exe" }
+          New-Item -ItemType Directory -Force -Path package/dist | Out-Null
+          Copy-Item $exe package/
+          Copy-Item -Recurse -Force dist/* package/dist/
+          Copy-Item release/start-webui.bat, release/start-webui.sh, release/README.md package/
+
+          # mingw 运行时 DLL 兜底:全盘候选根目录搜索,失败必须可见
+          $roots = @("C:\mingw64", "$env:ProgramData\chocolatey\lib\mingw", "C:\Program Files\mingw-w64") | Where-Object { Test-Path $_ }
+          foreach ($dll in @("libwinpthread-1.dll", "libgcc_s_seh-1.dll", "libstdc++-6.dll", "libatomic-1.dll", "libssp-0.dll")) {
+            $src = Get-ChildItem -Path $roots -Recurse -Filter $dll -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($src) { Copy-Item $src.FullName package/; Write-Host "copied $dll <- $($src.FullName)" }
+            else { Write-Warning "missing runtime DLL: $dll" }
+          }
+          Compress-Archive -Path package/* -DestinationPath antigravity-tools-lite-service.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: antigravity-tools-lite-service-windows
+          path: antigravity-tools-lite-service.zip
+          if-no-files-found: error

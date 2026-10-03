@@ -1,0 +1,36 @@
+node_modules/
+dist/
+dist-ssr/
+.vite/
+src-tauri/target/
+src-tauri/gen/
+artifacts/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+src-tauri/.env
+environment/
+
+# Logs and operating-system files
+logs/
+.logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Browser acceptance artifacts
+test-results/
+playwright-report/
+
+# Local cargo mirror config (CI sets its own)
+.cargo/
