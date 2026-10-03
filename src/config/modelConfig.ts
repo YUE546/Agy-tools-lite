@@ -128,6 +128,14 @@ export const MODEL_CONFIG: Record<string, ModelConfig> = {
         group: 'Gemini 3',
         tags: ['flash'],
     },
+    'gemini-3.7-flash-tiered': {
+        label: 'Gemini 3.7 Flash Tiered',
+        shortLabel: 'G3.7 Tiered',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'tiered'],
+    },
     'gemini-3.1-flash-lite': {
         label: 'Gemini 3.1 Flash Lite',
         shortLabel: 'G3.1 Lite',
@@ -400,15 +408,35 @@ export function getDisplayQuotaModels(
 
         const conf = MODEL_CONFIG[normId] || (rawModel?.name ? MODEL_CONFIG[rawModel.name.toLowerCase()] : undefined);
 
-        const fallbackLabel = normId
-            .split('-')
-            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-            .join(' ');
+        const formatName = (str: string) => {
+            return str
+                .split('-')
+                .map(part => {
+                    const p = part.toLowerCase();
+                    if (p === 'gpt') return 'GPT';
+                    if (p === 'oss') return 'OSS';
+                    if (p === 'high') return '(High)';
+                    if (p === 'low') return '(Low)';
+                    if (p === 'medium') return '(Medium)';
+                    if (p === 'thinking') return '(Thinking)';
+                    return part.charAt(0).toUpperCase() + part.slice(1);
+                })
+                .join(' ')
+                .replace(/\s+\(/g, ' (');
+        };
 
-        const label = rawModel?.display_name
-            || conf?.shortLabel
+        const fallbackLabel = formatName(normId);
+
+        // 仅在明确具备可读显示名时采纳，避免原始全小写连字符透传
+        const cleanDisplayName = rawModel?.display_name && rawModel.display_name !== rawModel.name && !rawModel.display_name.includes('-')
+            ? rawModel.display_name
+            : undefined;
+
+        const label = cleanDisplayName
             || conf?.label
-            || rawModel?.name
+            || conf?.shortLabel
+            || (rawModel?.display_name ? formatName(rawModel.display_name) : undefined)
+            || (rawModel?.name ? formatName(rawModel.name) : undefined)
             || fallbackLabel;
 
         const protectedKey = getModelProtectionKey(rawModel?.name || selectorId)

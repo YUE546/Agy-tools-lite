@@ -81,7 +81,7 @@ function SortableAccountCard({
     };
 
     return (
-        <div ref={setNodeRef} style={style as React.CSSProperties} className="h-full">
+        <div ref={setNodeRef} style={style as React.CSSProperties} className="h-full flex flex-col">
             <AccountCard
                 account={account}
                 selected={selected}
@@ -165,7 +165,7 @@ function AccountGrid({
             onDragEnd={handleDragEnd}
         >
             <SortableContext items={accountIds} strategy={rectSortingStrategy}>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 auto-rows-fr items-stretch">
                     {accounts.map((account) => (
                         <SortableAccountCard
                             key={account.id}

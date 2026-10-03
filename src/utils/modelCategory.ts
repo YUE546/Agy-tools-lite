@@ -33,6 +33,8 @@ const DEFAULT_MODEL_LABELS: Record<string, string> = {
     'gemini-3.8-flash-medium': 'Gemini 3.8 Flash (Medium)',
     'gemini-3.8-flash-low': 'Gemini 3.8 Flash (Low)',
     'gemini-3.7-flash-high': 'Gemini 3.7 Flash (High)',
+    'gemini-3.7-flash': 'Gemini 3.7 Flash',
+    'gemini-3.7-flash-tiered': 'Gemini 3.7 Flash Tiered',
     'gemini-3.6-flash-high': 'Gemini 3.6 Flash (High)',
     'gemini-3.5-flash': 'Gemini 3.5 Flash',
     'gemini-3-flash': 'Gemini 3 Flash',

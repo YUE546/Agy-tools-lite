@@ -85,7 +85,7 @@ function AccountCard({
 
     return (
         <div className={cn(
-            "flex flex-col p-3 rounded-xl border transition-all hover:shadow-md",
+            "h-full w-full flex flex-col p-3 rounded-xl border transition-all hover:shadow-md",
             isCurrent
                 ? "bg-blue-50/30 border-blue-200 dark:bg-blue-900/10 dark:border-blue-900/30"
                 : "bg-white dark:bg-base-100 border-gray-200 dark:border-base-300",
@@ -194,9 +194,9 @@ function AccountCard({
 
 
             {/* 配额展示 */}
-            <div className="flex-1 px-2 mb-2 overflow-y-auto scrollbar-none">
+            <div className="flex-1 px-2 mb-2 flex flex-col justify-center overflow-y-auto scrollbar-none">
                 {isDisabled || account.quota?.is_forbidden || account.validation_blocked ? (
-                    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 h-full py-4 text-center">
+                    <div className="flex flex-col items-center justify-center gap-1.5 h-full py-6 text-center my-auto">
                         <div className={cn(
                             "flex items-center gap-1.5",
                             account.validation_blocked ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"
@@ -208,7 +208,7 @@ function AccountCard({
                         </div>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 gap-2 content-start">
+                    <div className="grid grid-cols-1 gap-2 content-start my-auto">
                         {quotaWindow === 'weekly' && weeklyItems.length > 0 ? (
                             weeklyItems.map((item) => (
                                 <QuotaItem
@@ -236,7 +236,7 @@ function AccountCard({
             </div>
 
             {/* Footer: Actions Only */}
-            <div className="flex-none flex items-center justify-center pt-2 pb-1 border-t border-gray-100 dark:border-base-200">
+            <div className="flex-none flex items-center justify-center pt-2 pb-1 border-t border-gray-100 dark:border-base-200 mt-auto">
                 <div className="flex items-center justify-center gap-2 w-full">
                     <button
                         className={`p-1.5 rounded-lg transition-all ${(isSwitching || isDisabled) ? 'text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/10 cursor-not-allowed' : 'text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
