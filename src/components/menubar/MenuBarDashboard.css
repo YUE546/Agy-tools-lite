@@ -1,14 +1,14 @@
 /* Compact system-menu density, informed by CodexBar's flat quota menu.
    Both views are bounded. Long account/quota collections use pages, never scroll. */
 .menubar-app.mb-native {
-  --mb-bg: #e9ecef;
-  --mb-fg: #1f252c;
-  --mb-muted: #626a75;
-  --mb-line: #ccd1d7;
-  --mb-hover: #e9e9e9;
-  --mb-green: #3f8298;
-  --mb-red: #c55353;
-  --mb-yellow: #b48b3d;
+  --mb-bg: #f8fafc;
+  --mb-fg: #0f172a;
+  --mb-muted: #64748b;
+  --mb-line: #e2e8f0;
+  --mb-hover: #f1f5f9;
+  --mb-green: #10b981;
+  --mb-red: #ef4444;
+  --mb-yellow: #f59e0b;
   box-sizing: border-box;
   width: 100%;
   height: 100dvh;
@@ -20,20 +20,21 @@
   font:
     12px -apple-system,
     BlinkMacSystemFont,
+    "SF Pro Text",
     "Segoe UI",
     sans-serif;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
 .dark .menubar-app.mb-native {
-  --mb-bg: #282c32;
-  --mb-fg: #f2f4f7;
-  --mb-muted: #aeb6c1;
-  --mb-line: #414143;
-  --mb-hover: #39393c;
-  --mb-green: #78b49e;
-  --mb-red: #dd8787;
-  --mb-yellow: #cba669;
+  --mb-bg: #1c222c;
+  --mb-fg: #f8fafc;
+  --mb-muted: #94a3b8;
+  --mb-line: #334155;
+  --mb-hover: #27303f;
+  --mb-green: #34d399;
+  --mb-red: #f87171;
+  --mb-yellow: #fbbf24;
 }
 .mb-native * {
   box-sizing: border-box;
@@ -70,15 +71,28 @@
 .mb-native-product {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
   line-height: 18px;
+  letter-spacing: -0.01em;
 }
 .mb-native-product > span {
+  display: inline-flex;
+  align-items: center;
   font-size: 10px;
-  font-weight: 400;
-  color: var(--mb-muted);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+.dark .mb-native-product > span {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.35);
 }
 .mb-native-account {
   display: flex;
@@ -228,26 +242,35 @@
   white-space: nowrap;
   color: var(--mb-muted);
   flex: none;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.dark .mb-native-window {
+  background: rgba(255, 255, 255, 0.08);
 }
 .mb-native-quota-title > strong {
   font-size: 13px;
-  font-weight: 550;
+  font-weight: 600;
   flex: none;
 }
 .mb-native-progress {
-  height: 4px;
-  min-height: 4px;
+  height: 6px;
+  min-height: 6px;
   overflow: hidden;
-  border-radius: 3px;
-  background: var(--mb-line);
-  margin: 5px 0;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.07);
+  margin: 6px 0;
+}
+.dark .mb-native-progress {
+  background: rgba(255, 255, 255, 0.1);
 }
 .mb-native-progress > span {
   height: 100%;
   display: block;
   background: currentColor;
-  border-radius: 3px;
-  transition: width 0.2s;
+  border-radius: 9999px;
+  transition: width 0.25s ease-out;
 }
 .mb-native-progress.unknown {
   background: repeating-linear-gradient(
@@ -535,14 +558,14 @@
 /* Native NSVisualEffectView provides the macOS desktop blur. The CSS tint
    preserves text contrast; browser previews can only simulate this material. */
 .menubar-app.mb-native.is-material {
-  --mb-bg: rgba(220, 226, 232, 0.38);
-  --mb-line: rgba(80, 92, 109, 0.2);
-  backdrop-filter: blur(24px) saturate(135%);
-  -webkit-backdrop-filter: blur(24px) saturate(135%);
+  --mb-bg: rgba(248, 250, 252, 0.65);
+  --mb-line: rgba(203, 213, 225, 0.45);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
 }
 .dark .menubar-app.mb-native.is-material {
-  --mb-bg: rgba(25, 31, 39, 0.5);
-  --mb-line: rgba(230, 237, 247, 0.16);
+  --mb-bg: rgba(28, 34, 44, 0.72);
+  --mb-line: rgba(51, 65, 85, 0.45);
 }
 .menubar-app.mb-native.is-high-contrast {
   --mb-bg: #e9ecef;

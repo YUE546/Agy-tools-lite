@@ -92,6 +92,7 @@ export default function MenuBarDashboard() {
   }, []);
   const operationLock = useRef(false);
   const generation = useRef(0);
+  const initialMount = useRef(true);
   const reload = useCallback(async () => {
     const requestId = ++generation.current;
     if (!isTauri()) {
@@ -105,11 +106,14 @@ export default function MenuBarDashboard() {
       ]);
       if (requestId !== generation.current) return;
       setAccounts(saved);
-      setCurrent(
-        active
-          ? saved.find((account) => account.id === active.id) || active
-          : null,
-      );
+      const activeAccount = active
+        ? saved.find((account) => account.id === active.id) || active
+        : null;
+      setCurrent(activeAccount);
+      if (initialMount.current && activeAccount) {
+        initialMount.current = false;
+        setSelectedAccountId(activeAccount.id);
+      }
       setNow(Date.now());
     } catch (e) {
       if (requestId === generation.current) setError(errorText(e));
