@@ -645,7 +645,7 @@ export default function MenuBarDashboard() {
                         health === "unavailable" ||
                         remaining === null
                           ? "—"
-                          : `${remaining}%`}
+                          : `${Math.round(remaining)}%`}
                       </small>
                     </span>
                   </button>
@@ -734,19 +734,19 @@ export default function MenuBarDashboard() {
                         <span
                           className="is-usable"
                           style={{
-                            width: `${(pool.usable / (pool.total || 1)) * 100}%`,
+                            width: `${Math.round((pool.usable / (pool.total || 1)) * 100)}%`,
                           }}
                         />
                         <span
                           className="is-low"
                           style={{
-                            width: `${(pool.low / (pool.total || 1)) * 100}%`,
+                            width: `${Math.round((pool.low / (pool.total || 1)) * 100)}%`,
                           }}
                         />
                         <span
                           className="is-unverified"
                           style={{
-                            width: `${(pool.unknown / (pool.total || 1)) * 100}%`,
+                            width: `${Math.round((pool.unknown / (pool.total || 1)) * 100)}%`,
                           }}
                         />
                       </div>
@@ -848,8 +848,8 @@ export default function MenuBarDashboard() {
                             </span>
                           )}
                         </div>
-                        <strong>
-                          {row.remaining === null ? "—" : `${row.remaining}%`}
+                        <strong className={classForQuota(row.remaining)}>
+                          {row.remaining === null ? "—" : `${Math.round(row.remaining)}%`}
                         </strong>
                       </div>
                       <div
@@ -858,11 +858,11 @@ export default function MenuBarDashboard() {
                           row.remaining === null ? undefined : "progressbar"
                         }
                         aria-label={`${row.group} ${row.label} ${t.remaining}`}
-                        aria-valuenow={row.remaining ?? undefined}
+                        aria-valuenow={row.remaining !== null ? Math.round(row.remaining) : undefined}
                         aria-valuemin={0}
                         aria-valuemax={100}
                       >
-                        <span style={{ width: `${row.remaining ?? 0}%` }} />
+                        <span style={{ width: `${Math.max(0, Math.min(100, Math.round(row.remaining ?? 0)))}%` }} />
                       </div>
                       <div
                         className="mb-native-reset"

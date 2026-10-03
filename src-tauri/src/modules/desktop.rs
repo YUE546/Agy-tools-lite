@@ -84,7 +84,7 @@ fn apply_menu_bar_appearance(app: &tauri::AppHandle) -> Result<MenuBarAppearance
                         EffectsBuilder::new()
                             .effect(Effect::Popover)
                             .state(EffectState::Active)
-                            .radius(10.0)
+                            .radius(14.0)
                             .build(),
                     )
                     .is_ok();
@@ -358,18 +358,18 @@ fn panel_bounds(
     let (x, y, w, h) = area;
     let margin = 8.0 * scale;
     let width = (380.0 * scale).min((w - margin * 2.0).max(1.0));
-    let height = (480.0 * scale).min((h - margin * 2.0).max(1.0));
+    let height = (580.0 * scale).min((h - margin * 2.0).max(1.0));
     let px =
         (ax + aw / 2.0 - width / 2.0).clamp(x + margin, (x + w - width - margin).max(x + margin));
-    let below = ay + ah + margin;
+    let below = ay + ah;
     let py = if below + height <= y + h - margin {
         below
     } else {
-        ay - height - margin
+        ay - height
     };
     (
         px,
-        py.clamp(y + margin, (y + h - height - margin).max(y + margin)),
+        py.clamp(y, (y + h - height).max(y)),
         width,
         height,
     )
@@ -389,7 +389,7 @@ pub fn toggle_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Re
             let builder =
                 WebviewWindowBuilder::new(app, DASHBOARD_LABEL, WebviewUrl::App("menubar".into()))
                     .title("Antigravity · Quick Dashboard")
-                    .inner_size(380.0, 480.0)
+                    .inner_size(380.0, 580.0)
                     .resizable(false)
                     .decorations(false)
                     .visible(false)
@@ -625,7 +625,7 @@ mod tests {
             1.0,
         );
         assert!(x >= -792.0 && x + w <= -8.0);
-        assert!(y >= -2.0 && y + h <= 522.0);
+        assert!(y >= -10.0 && y + h <= 530.0);
     }
     #[test]
     fn popover_scales_and_opens_above_bottom_tray() {
@@ -635,7 +635,7 @@ mod tests {
             2.0,
         );
         assert_eq!(w, 760.0);
-        assert_eq!(h, 960.0);
-        assert!(x + w <= 2864.0 && y + h < 1760.0);
+        assert_eq!(h, 1160.0);
+        assert!(x + w <= 2864.0 && y + h <= 1760.0);
     }
 }
