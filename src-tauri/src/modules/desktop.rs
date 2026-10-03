@@ -84,7 +84,7 @@ fn apply_menu_bar_appearance(app: &tauri::AppHandle) -> Result<MenuBarAppearance
                         EffectsBuilder::new()
                             .effect(Effect::Popover)
                             .state(EffectState::Active)
-                            .radius(12.0)
+                            .radius(20.0)
                             .build(),
                     )
                     .is_ok();
@@ -357,11 +357,11 @@ fn panel_bounds(
     let (ax, ay, aw, ah) = anchor;
     let (x, y, w, h) = area;
     let margin = 8.0 * scale;
-    let width = (380.0 * scale).min((w - margin * 2.0).max(1.0));
-    let height = (580.0 * scale).min((h - margin * 2.0).max(1.0));
+    let width = (350.0 * scale).min((w - margin * 2.0).max(1.0));
+    let height = (640.0 * scale).min((h - margin * 2.0).max(1.0));
     let px =
         (ax + aw / 2.0 - width / 2.0).clamp(x + margin, (x + w - width - margin).max(x + margin));
-    let below = (ay + ah).max(y);
+    let below = if ah > 0.0 { ay + ah + 2.0 * scale } else { (ay + ah).max(y) };
     let py = if below + height <= y + h - margin {
         below
     } else {
@@ -389,7 +389,7 @@ pub fn toggle_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Re
             let builder =
                 WebviewWindowBuilder::new(app, DASHBOARD_LABEL, WebviewUrl::App("menubar".into()))
                     .title("Antigravity · Quick Dashboard")
-                    .inner_size(380.0, 580.0)
+                    .inner_size(350.0, 640.0)
                     .resizable(false)
                     .decorations(false)
                     .visible(false)
@@ -634,8 +634,8 @@ mod tests {
             (0.0, 0.0, 2880.0, 1760.0),
             2.0,
         );
-        assert_eq!(w, 760.0);
-        assert_eq!(h, 1160.0);
+        assert_eq!(w, 700.0);
+        assert_eq!(h, 1280.0);
         assert!(x + w <= 2864.0 && y + h <= 1760.0);
     }
 }
