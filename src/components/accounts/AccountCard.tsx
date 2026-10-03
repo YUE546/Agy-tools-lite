@@ -5,7 +5,7 @@ import { cn } from '../../utils/cn';
 import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { QuotaItem } from './QuotaItem';
-import { MODEL_CONFIG, sortModels, getModelProtectionKey, resolveQuotaModels, ensurePinnedImageSelector } from '../../config/modelConfig';
+import { MODEL_CONFIG, sortModels, getModelProtectionKey, resolveQuotaModels, DEFAULT_PINNED_MODELS } from '../../config/modelConfig';
 import { getValidationBlockedStatusLabel } from './accountValidationStatus';
 
 interface AccountCardProps {
@@ -63,35 +63,32 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
         if (showAllQuotas) {
             models = accountModels;
         } else {
-            // Filter for pinned or defaults
-            const pinned = config?.pinned_quota_models?.models;
-            if (pinned && pinned.length > 0) {
-                const selections = resolveQuotaModels(
-                    accountModels.map(m => m.data),
-                    ensurePinnedImageSelector(pinned),
-                );
-                models = selections
-                    .map(sel => sel.model ? accountModels.find(am => am.data === sel.model) : undefined)
-                    .filter((m): m is typeof accountModels[number] => m !== undefined);
-                // 也保留无配额数据的 pinned 模型（显示 0%）
-                for (const sel of selections) {
-                    if (!sel.model) {
-                        const selectorConfig = MODEL_CONFIG[sel.selectorId.toLowerCase()];
-                        if (selectorConfig) {
-                            models = [...models, {
-                                id: sel.selectorId,
-                                label: selectorConfig.shortLabel || selectorConfig.label,
-                                protectedKey: selectorConfig.protectedKey,
-                                Icon: selectorConfig.Icon,
-                                data: { name: sel.selectorId, percentage: 0 } as ModelQuota,
-                            }];
-                        }
+            // Filter for pinned or defaults (respect user's explicit choice without force-injecting image models)
+            const pinned = (config?.pinned_quota_models?.models && config.pinned_quota_models.models.length > 0)
+                ? config.pinned_quota_models.models
+                : DEFAULT_PINNED_MODELS;
+
+            const selections = resolveQuotaModels(
+                accountModels.map(m => m.data),
+                pinned,
+            );
+            models = selections
+                .map(sel => sel.model ? accountModels.find(am => am.data === sel.model) : undefined)
+                .filter((m): m is typeof accountModels[number] => m !== undefined);
+            // 也保留无配额数据的 pinned 模型（显示 0%）
+            for (const sel of selections) {
+                if (!sel.model) {
+                    const selectorConfig = MODEL_CONFIG[sel.selectorId.toLowerCase()];
+                    if (selectorConfig) {
+                        models = [...models, {
+                            id: sel.selectorId,
+                            label: selectorConfig.shortLabel || selectorConfig.label,
+                            protectedKey: selectorConfig.protectedKey,
+                            Icon: selectorConfig.Icon,
+                            data: { name: sel.selectorId, percentage: 0 } as ModelQuota,
+                        }];
                     }
                 }
-            } else {
-                // Default fallback: show known default models, plus we show all dynamic pinned models
-                // 暂时退化：如果没有 config 就不阻拦了？不，没有 pinned 就显示内置+有 display_name 的。
-                models = accountModels.filter(m => DEFAULT_MODELS.some(d => d.id === m.id) || m.data.display_name);
             }
         }
 

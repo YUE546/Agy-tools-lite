@@ -46,7 +46,7 @@ import { cn } from '../../utils/cn';
 
 import { useConfigStore } from '../../stores/useConfigStore';
 import { QuotaItem } from './QuotaItem';
-import { MODEL_CONFIG, sortModels, resolveQuotaModels, ensurePinnedImageSelector } from '../../config/modelConfig';
+import { MODEL_CONFIG, sortModels, resolveQuotaModels, DEFAULT_PINNED_MODELS } from '../../config/modelConfig';
 import { categorizeModel, getModelProtectionKey } from '../../utils/modelCategory';
 import { getValidationBlockedStatusLabel } from './accountValidationStatus';
 
@@ -300,10 +300,10 @@ function AccountRowContent({
         });
     }, [quotaWindow, account.quota?.quota_groups]);
 
-    // 获取要显示的模型列表
-    const pinnedModels = ensurePinnedImageSelector(
-        config?.pinned_quota_models?.models || Object.keys(MODEL_CONFIG),
-    );
+    // 获取要显示的模型列表 (优先使用用户显式配置的固定模型)
+    const pinnedModels = (config?.pinned_quota_models?.models && config.pinned_quota_models.models.length > 0)
+        ? config.pinned_quota_models.models
+        : DEFAULT_PINNED_MODELS;
 
     // 根据 show_all 状态决定显示哪些模型
     const uniqueLabels = new Set<string>();

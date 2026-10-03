@@ -8,6 +8,7 @@ import { showToast } from '../components/common/ToastContainer';
 import { open } from '@tauri-apps/plugin-dialog';
 import DesktopSettings from '../components/settings/DesktopSettings';
 import AppLocalizationSettings from '../components/settings/AppLocalizationSettings';
+import ModelDisplaySettings from '../components/settings/ModelDisplaySettings';
 import { AutoSwitchSettings } from '../components/autoSwitch/AutoSwitch';
 import SettingsNavigation, { SETTINGS_SECTIONS, SettingsSection } from '../components/settings/SettingsNavigation';
 import '../components/settings/SettingsLayout.css';
@@ -154,6 +155,8 @@ function Settings() {
                         })}
                     </div>
                 </section>
+
+                <ModelDisplaySettings embedded />
             </div>
         ),
         startup: <DesktopSettings />,

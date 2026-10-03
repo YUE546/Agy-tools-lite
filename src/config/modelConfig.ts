@@ -78,6 +78,46 @@ export const MODEL_CONFIG: Record<string, ModelConfig> = {
         group: 'Gemini 3',
         tags: ['flash'],
     },
+    'gemini-3.8-flash-high': {
+        label: 'Gemini 3.8 Flash (High)',
+        shortLabel: 'G3.8 Flash',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'high'],
+    },
+    'gemini-3.8-flash-medium': {
+        label: 'Gemini 3.8 Flash (Medium)',
+        shortLabel: 'G3.8 Flash',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'medium'],
+    },
+    'gemini-3.8-flash-low': {
+        label: 'Gemini 3.8 Flash (Low)',
+        shortLabel: 'G3.8 Flash',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'low'],
+    },
+    'gemini-3.7-flash-high': {
+        label: 'Gemini 3.7 Flash (High)',
+        shortLabel: 'G3.7 Flash',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'high'],
+    },
+    'gemini-3.6-flash-high': {
+        label: 'Gemini 3.6 Flash (High)',
+        shortLabel: 'G3.6 Flash',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'high'],
+    },
     'gemini-3.7-flash': {
         label: 'Gemini 3.7 Flash',
         shortLabel: 'G3.7 Flash',
@@ -335,3 +375,10 @@ export {
     type ModelCategory,
     type QuotaModelSelection,
 } from '../utils/modelCategory';
+
+export const DEFAULT_PINNED_MODELS: string[] = [
+    'gemini-3.1-pro-high',
+    'gemini-3.8-flash-high',
+    'claude-sonnet-4-6',
+];
+

@@ -142,6 +142,9 @@
     "quota_window_weekly": "7-day quota",
     "quota_window_weekly_short": "Weekly",
     "quota_protected": "Protected",
+    "display_models": "Display Models",
+    "display_models_title": "Customize models shown on cards and tables",
+    "all_models_badge": "All",
     "add": {
       "title": "Add Account",
       "tabs": {
@@ -360,6 +363,28 @@
       "operation_superseded": "A newer setting replaced this request. Check the current status."
     },
     "translated": "{{count}} static labels currently translated"
+  },
+  "model_display": {
+    "title": "Model Quota Display",
+    "description": "Customize which model quotas are displayed on account cards and tables. Pin your favorite core models or expand to show all available quotas.",
+    "mode": "Display Mode",
+    "mode_pinned": "Pinned Models (Recommended)",
+    "mode_pinned_desc": "Only display selected models on cards for a clean, focused view",
+    "mode_all": "Show All Model Quotas",
+    "mode_all_desc": "Display all models available in the account (including all variants)",
+    "selected_models": "Selected Models",
+    "selected_count": "{{count}} selected",
+    "preset_recommended": "⚡ Core Preset",
+    "preset_all_gemini": "Common + Image",
+    "preset_clear": "Clear",
+    "group_gemini_3": "Gemini 3 Series",
+    "group_claude": "Claude Series",
+    "group_gemini_25": "Gemini 2.5 Series",
+    "group_other": "Other Models",
+    "group_dynamic": "Other Models in Accounts",
+    "empty_tip": "Select at least 1 model, or switch to 'Show All Model Quotas' above",
+    "saved": "Display models updated",
+    "hint": "Selected models will immediately update their quota bars and reset countdowns on cards."
   },
   "settings_sections": {
     "navigation": "Settings categories",

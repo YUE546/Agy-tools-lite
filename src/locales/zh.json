@@ -142,6 +142,9 @@
     "quota_window_weekly": "7 天配额",
     "quota_window_weekly_short": "周配额",
     "quota_protected": "受保护",
+    "display_models": "展示模型",
+    "display_models_title": "自定义卡片与列表中要展示的模型",
+    "all_models_badge": "全部",
     "add": {
       "title": "添加新账号",
       "tabs": {
@@ -360,6 +363,28 @@
       "operation_superseded": "较新的设置操作已替代本次请求，请查看当前状态。"
     },
     "translated": "当前已汉化 {{count}} 个固定标签"
+  },
+  "model_display": {
+    "title": "卡片与列表展示模型",
+    "description": "自定义账号卡片与列表中要常驻展示的配额模型。你可以自由勾选常用核心模型，或一键展开展示账号拥有的全部模型。",
+    "mode": "展示模式",
+    "mode_pinned": "精选固定模型 (推荐)",
+    "mode_pinned_desc": "仅在卡片上展示你勾选的常用核心模型，界面清爽整洁",
+    "mode_all": "展示全部可用配额模型",
+    "mode_all_desc": "平铺展示当前账号所拥有的所有可用模型配额",
+    "selected_models": "自定义展示模型",
+    "selected_count": "已选 {{count}} 个",
+    "preset_recommended": "⚡ 核心推荐",
+    "preset_all_gemini": "常用组合 (含绘图)",
+    "preset_clear": "清空",
+    "group_gemini_3": "Gemini 3 系列",
+    "group_claude": "Claude 系列",
+    "group_gemini_25": "Gemini 2.5 系列",
+    "group_other": "其他系列",
+    "group_dynamic": "账号中检测到的其他可用模型",
+    "empty_tip": "请至少勾选 1 个模型，或者选择上方『展示全部可用配额模型』",
+    "saved": "已更新卡片展示模型",
+    "hint": "勾选或取消勾选后实时保存生效。账号卡片与表格将按照你的配置展示对应的配额进度与重置倒计时。"
   },
   "settings_sections": {
     "navigation": "设置分类",
