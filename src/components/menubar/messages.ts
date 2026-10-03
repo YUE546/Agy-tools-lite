@@ -50,9 +50,9 @@ export const menuBarMessages = {
     dockUnknown: "Dock state is uncertain; the saved preference is shown. Retry the toggle or quit and reopen",
     dockHint:
       "Keep the app in the menu bar. Reopen it from Applications or Spotlight at any time.",
-    background: "Start in the background at login",
+    background: "Start minimized (Menu bar only)",
     backgroundHint:
-      "Show only the menu bar when launched at login. Opening the app yourself always shows the main window.",
+      "Do not open the main window on startup; stay quietly in the top menu bar.",
     nativeOnly: "Available in the installed desktop app",
     releaseOnly: "Launch at login is available in installed release builds",
     macOnly: "macOS only",
@@ -123,8 +123,8 @@ export const menuBarMessages = {
     dock: "隐藏 Dock 图标",
     dockUnknown: "Dock 状态未确认；这里显示已保存的偏好。请重试开关或退出后重新打开",
     dockHint: "应用保留在菜单栏中，随时可从「应用程序」或 Spotlight 重新打开。",
-    background: "登录启动时在后台运行",
-    backgroundHint: "登录启动时只显示菜单栏；手动打开应用仍会显示主窗口。",
+    background: "静默启动（仅驻留菜单栏）",
+    backgroundHint: "启动时不主动弹出主窗口，仅驻留顶部菜单栏；需要时点击图标即可查看。",
     nativeOnly: "请在已安装的桌面应用中设置",
     releaseOnly: "开机自启动仅在已安装的正式版本中可用",
     macOnly: "仅限 macOS",

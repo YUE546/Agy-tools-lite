@@ -102,7 +102,7 @@ export default function DesktopSettings() {
       key: "start_minimized",
       title: t.background,
       hint: t.backgroundHint,
-      disabled: !status?.tray_available || !status.launch_at_login,
+      disabled: !status?.tray_available,
     },
     {
       key: "hide_dock_icon",

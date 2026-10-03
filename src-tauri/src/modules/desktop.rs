@@ -305,7 +305,7 @@ pub fn initialize(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 fn start_hidden(autostart: bool, minimized: bool, available: bool) -> bool {
-    autostart && minimized && available
+    (autostart || minimized) && available
 }
 
 pub fn show_main(app: &tauri::AppHandle) -> Result<(), String> {
@@ -611,7 +611,7 @@ mod tests {
                 for tray in [false, true] {
                     assert_eq!(
                         start_hidden(autostart, minimized, tray),
-                        autostart && minimized && tray
+                        (autostart || minimized) && tray
                     );
                 }
             }

@@ -148,12 +148,12 @@ test('narrow keyboard wraps and Tab enters only the selected mounted panel', asy
     expect(await page.locator('[role="tabpanel"][hidden]').count()).toBe(5);
 });
 
-test('startup dependencies and saved background preference survive category changes', async ({ page }) => {
+test('startup preferences and saved background preference survive category changes', async ({ page }) => {
     await page.locator('#settings-tab-startup').click();
     const login = page.locator('#desktop-launch_at_login');
     const background = page.locator('#desktop-start_minimized');
     const dock = page.locator('#desktop-hide_dock_icon');
-    await expect(background).toBeDisabled(); await expect(background).toHaveAttribute('aria-checked', 'false');
+    await expect(background).toBeEnabled(); await expect(background).toHaveAttribute('aria-checked', 'false');
     await login.click(); await expect(login).toHaveAttribute('aria-checked', 'true'); await expect(background).toBeEnabled();
     await dock.click(); await expect(dock).toHaveAttribute('aria-checked', 'true');
     await page.locator('#settings-tab-data').click(); await page.locator('#settings-tab-startup').click();
@@ -162,11 +162,11 @@ test('startup dependencies and saved background preference survive category chan
     for (const value of ['true', 'false', 'true']) {
         await expect(background).toBeEnabled(); await background.click(); await expect(background).toHaveAttribute('aria-checked', value);
     }
-    // Disabling login disables editing; it does not clear the saved background preference.
+    // Disabling login does not disable background editing; preferences remain independent.
     await login.click(); await expect(login).toHaveAttribute('aria-checked', 'false');
-    await expect(background).toBeDisabled(); await expect(background).toHaveAttribute('aria-checked', 'true');
+    await expect(background).toBeEnabled(); await expect(background).toHaveAttribute('aria-checked', 'true');
     await page.locator('#settings-tab-data').click(); await page.locator('#settings-tab-startup').click();
-    await expect(background).toBeDisabled(); await expect(background).toHaveAttribute('aria-checked', 'true');
+    await expect(background).toBeEnabled(); await expect(background).toHaveAttribute('aria-checked', 'true');
     const config = await page.evaluate(() => (window as any).__TAURI_INTERNALS__.invoke('load_config'));
     expect(config.desktop).toEqual({ launch_at_login: false, hide_dock_icon: false, start_minimized: true });
     const writes = await page.evaluate(() => (window as any).__settingsFixture.calls.filter((c: any) => c.command === 'set_desktop_preferences'));
