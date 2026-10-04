@@ -542,6 +542,34 @@ fn open_browser(url: &str) {
 }
 
 #[cfg(unix)]
+struct AlternateScreenGuard;
+
+#[cfg(unix)]
+impl AlternateScreenGuard {
+    fn enter() -> Option<Self> {
+        unsafe {
+            if libc::isatty(libc::STDIN_FILENO) == 1 && libc::isatty(libc::STDOUT_FILENO) == 1 {
+                print!("\x1b[?1049h\x1b[2J\x1b[H");
+                let _ = io::stdout().flush();
+                Some(Self)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for AlternateScreenGuard {
+    fn drop(&mut self) {
+        unsafe {
+            let seq = b"\x1b[?1049l\x1b[?25h";
+            let _ = libc::write(libc::STDOUT_FILENO, seq.as_ptr() as *const libc::c_void, seq.len());
+        }
+    }
+}
+
+#[cfg(unix)]
 struct RawTerminal {
     orig: libc::termios,
 }
@@ -820,7 +848,7 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
         };
 
         let default_none = match lang {
-            Lang::Zh => "5小时: 暂无\n周线:  暂无".to_string(),
+            Lang::Zh => "5小时: 暂无\n周限:  暂无".to_string(),
             Lang::En => "5-Hour: None\nWeekly: None".to_string(),
         };
         let mut gemini_quota = default_none.clone();
@@ -829,7 +857,7 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
         if let Some(q) = &acc.quota {
             if q.is_forbidden {
                 gemini_quota = match lang {
-                    Lang::Zh => "5小时: 受限\n周线:  需重登".into(),
+                    Lang::Zh => "5小时: 受限\n周限:  需重登".into(),
                     Lang::En => "5-Hour: Forbidden\nWeekly: Relogin".into(),
                 };
                 claude_quota = gemini_quota.clone();
@@ -846,7 +874,7 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
                                 Lang::Zh => "5小时: ",
                                 Lang::En => "5-Hour: ",
                             };
-                            if cd.is_empty() || pct >= 100 {
+                            if cd.is_empty() {
                                 format!("{}{}%", prefix, pct)
                             } else {
                                 format!("{}{}% ({})", prefix, pct, cd)
@@ -863,17 +891,17 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
                             let pct = (wb.remaining_fraction * 100.0).round() as i32;
                             let cd = format_quota_countdown(&wb.reset_time, lang);
                             let prefix = match lang {
-                                Lang::Zh => "周线:  ",
+                                Lang::Zh => "周限:  ",
                                 Lang::En => "Weekly: ",
                             };
-                            if cd.is_empty() || pct >= 100 {
+                            if cd.is_empty() {
                                 format!("{}{}%", prefix, pct)
                             } else {
                                 format!("{}{}% ({})", prefix, pct, cd)
                             }
                         }
                         None => match lang {
-                            Lang::Zh => "周线:  100%".to_string(),
+                            Lang::Zh => "周限:  100%".to_string(),
                             Lang::En => "Weekly: 100%".to_string(),
                         },
                     };
@@ -888,7 +916,7 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
             } else {
                 for m in &q.models {
                     let text = match lang {
-                        Lang::Zh => format!("5小时: {}%\n周线:  -", m.percentage),
+                        Lang::Zh => format!("5小时: {}%\n周限:  -", m.percentage),
                         Lang::En => format!("5-Hour: {}%\nWeekly: -", m.percentage),
                     };
                     if m.name.to_lowercase().contains("gemini") {
@@ -1181,6 +1209,9 @@ pub fn format_token_stats_human(
 }
 
 pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
+    #[cfg(unix)]
+    let _alt_screen = AlternateScreenGuard::enter();
+
     loop {
         let lang = Lang::current(root);
         let snapshot = Snapshot::read(root).unwrap_or(Snapshot {
@@ -1234,27 +1265,25 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
             Lang::Zh => (
                 "选择功能:",
                 vec![
-                    "1. 切换账号      选择生效账号与同步目标 (桌面应用 / 独立环境)",
-                    "2. 配额详情      查看各模型配额余量与重置倒计时",
-                    "3. 用量统计      本地 Token 消耗、预期费用与模型分布",
-                    "4. 刷新配额      联网同步 Google API 最新额度",
-                    "5. 添加账号      通过 Google OAuth 授权绑定新账号",
-                    "6. 账号管理      修改备注标签、切换启用状态或删除账号",
-                    "7. 环境状态      关联应用与本地存储状态",
+                    "1. 账号与配额    切换当前生效账号、查看各模型详细配额与重置倒计时",
+                    "2. 用量统计      本地 Token 消耗、预期费用与模型分布",
+                    "3. 刷新配额      联网同步 Google API 最新额度",
+                    "4. 添加账号      通过 Google OAuth 授权绑定新账号",
+                    "5. 账号管理      修改备注标签、切换启用状态或删除账号",
+                    "6. 环境状态      关联应用与本地存储状态",
                     "0. 退出控制台    退出当前工具",
                 ],
             ),
             Lang::En => (
                 "Select Command:",
                 vec![
-                    "1. Switch        Switch active account and session target (App / IDE)",
-                    "2. Quotas        View model quotas and reset countdowns",
-                    "3. Statistics    Inspect local token usage, estimated cost & models",
-                    "4. Refresh       Fetch live quotas from Google API",
-                    "5. Add Account   Authorize new Google account via OAuth",
-                    "6. Manage        Edit labels, toggle status, or remove accounts",
-                    "7. Status        Inspect linked applications and storage",
-                    "0. Exit          Quit agy-switch",
+                    "1. Accounts & Quotas   Switch active account, inspect model quotas & reset countdowns",
+                    "2. Statistics          Inspect local token usage, estimated cost & models",
+                    "3. Refresh             Fetch live quotas from Google API",
+                    "4. Add Account         Authorize new Google account via OAuth",
+                    "5. Manage              Edit labels, toggle status, or remove accounts",
+                    "6. Status              Inspect linked applications and storage",
+                    "0. Exit                Quit agy-switch",
                 ],
             ),
         };
@@ -1262,14 +1291,13 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
         let choice = select_menu_interactive(title, &menu_items, 0, lang);
 
         match choice {
-            Some(0) => show_account_switcher(root, &snapshot, lang),
-            Some(1) => show_quota_details(&snapshot, lang),
-            Some(2) => show_token_statistics(lang),
-            Some(3) => show_refresh_quotas(&snapshot, lang),
-            Some(4) => show_add_account(lang),
-            Some(5) => show_manage_accounts(&snapshot, lang),
-            Some(6) => show_system_status(&snapshot, root, lang),
-            Some(7) | None => {
+            Some(0) => show_accounts_and_quotas_hub(root, &snapshot, lang),
+            Some(1) => show_token_statistics(lang),
+            Some(2) => show_refresh_quotas(&snapshot, lang),
+            Some(3) => show_add_account(lang),
+            Some(4) => show_manage_accounts(&snapshot, lang),
+            Some(5) => show_system_status(&snapshot, root, lang),
+            Some(6) | None => {
                 let exit_msg = match lang {
                     Lang::Zh => "\n已退出 agy-switch 控制台。\n",
                     Lang::En => "\nExited agy-switch.\n",
@@ -1283,168 +1311,211 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
     Ok(())
 }
 
-fn show_account_switcher(_root: &Path, snapshot: &Snapshot, lang: Lang) {
-    if snapshot.accounts.is_empty() {
-        let msg = match lang {
-            Lang::Zh => "\n\x1b[33m暂无已保存账号，请使用 [5] 添加 Google 账号。\x1b[0m",
-            Lang::En => "\n\x1b[33mNo saved accounts. Use [5] to add a Google account.\x1b[0m",
-        };
-        println!("{}", msg);
-        wait_for_key(lang);
-        return;
-    }
-
-    print!("\x1b[2J\x1b[H");
-    let header = match lang {
-        Lang::Zh => "切换当前生效账号",
-        Lang::En => "Switch Active Account",
-    };
-    println!("\x1b[1m{}\x1b[0m\n", header);
-
-    let selected = match select_account_interactive(&snapshot.accounts, lang) {
-        Some(acc) => acc,
-        None => return,
-    };
-
-    print!("\x1b[2J\x1b[H");
-    let target_header = match lang {
-        Lang::Zh => format!("已选择账号: \x1b[1;32m{}\x1b[0m\n", selected.email),
-        Lang::En => format!("Selected account: \x1b[1;32m{}\x1b[0m\n", selected.email),
-    };
-    println!("{}", target_header);
-
-    let (title, target_items) = match lang {
-        Lang::Zh => (
-            "选择生效目标:",
-            vec![
-                "1. AntiGravity 桌面应用与命令行 (同步生效)",
-                "2. AntiGravity 独立环境 (专属通道)",
-                "0. 取消并返回",
-            ],
-        ),
-        Lang::En => (
-            "Select Target:",
-            vec![
-                "1. Desktop App and CLI (Default sync)",
-                "2. Dedicated IDE Channel",
-                "0. Cancel",
-            ],
-        ),
-    };
-
-    let target_choice = select_menu_interactive(title, &target_items, 0, lang);
-
-    let target_ide = match target_choice {
-        Some(0) => None,
-        Some(1) => Some("ide"),
-        _ => return,
-    };
-
-    let wait_msg = match lang {
-        Lang::Zh => "\n正在执行账号切换并同步会话...",
-        Lang::En => "\nSwitching account and synchronizing session...",
-    };
-    println!("{}", wait_msg);
-
-    let runtime = match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt,
-        Err(e) => {
-            let err_msg = match lang {
-                Lang::Zh => format!("\x1b[31m启动异步运行时失败: {}\x1b[0m", e),
-                Lang::En => format!("\x1b[31mFailed to start async runtime: {}\x1b[0m", e),
-            };
-            println!("{}", err_msg);
-            wait_for_key(lang);
-            return;
-        }
-    };
-
-    match runtime.block_on(crate::modules::account::switch_account(
-        &selected.id,
-        target_ide,
-        &HeadlessIntegration,
-    )) {
-        Ok(_) => {
-            let succ_msg = match lang {
-                Lang::Zh => format!(
-                    "\x1b[1;32m✓ 账号切换成功: {}\x1b[0m (目标: {})\n提示: 请在终端开启新的 agy 命令以使用最新会话。\n",
-                    selected.email,
-                    target_ide.unwrap_or("app")
-                ),
-                Lang::En => format!(
-                    "\x1b[1;32m✓ Successfully switched to: {}\x1b[0m (target: {})\nHint: Start a new agy command to use the updated session.\n",
-                    selected.email,
-                    target_ide.unwrap_or("app")
-                ),
-            };
-            println!("{}", succ_msg);
-
-        }
-        Err(err) => {
-            let fail_msg = match lang {
-                Lang::Zh => format!("\x1b[31m账号切换失败: {}\x1b[0m", err),
-                Lang::En => format!("\x1b[31mAccount switch failed: {}\x1b[0m", err),
-            };
-            println!("{}", fail_msg);
-        }
-    }
-    wait_for_key(lang);
+enum HubAction {
+    Switch(usize),
+    ViewDetails(usize),
+    Back,
 }
 
-fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
+fn select_account_hub_action(
+    accounts: &[AccountView],
+    selected: &mut usize,
+    lang: Lang,
+) -> HubAction {
+    #[cfg(unix)]
+    {
+        if let Some(_raw) = RawTerminal::enter() {
+            let mut stdout = io::stdout();
+
+            let _ = write!(stdout, "\x1b[?25l");
+            let _ = stdout.flush();
+
+            let note = match lang {
+                Lang::Zh => "* 标注为当前生效账号",
+                Lang::En => "* indicates active account",
+            };
+            let prompt_text = match lang {
+                Lang::Zh => "操作: (↑/↓ 移动光标  |  回车 切换该账号  |  V 查看详细模型进度  |  数字键直选  |  0/Q 返回)",
+                Lang::En => "Action: (↑/↓ Navigate  |  Enter Switch  |  V Model Details  |  Numbers  |  0/Q Back)",
+            };
+
+            let render = |sel: usize, initial: bool| {
+                let mut out = io::stdout();
+                let table_str = build_accounts_table(accounts, lang, Some(sel)).render();
+                let table_lines = table_str.lines().count();
+                let total_lines = table_lines + 3;
+
+                if !initial {
+                    let _ = write!(out, "\x1b[{}A", total_lines);
+                }
+
+                for line in table_str.lines() {
+                    let _ = writeln!(out, "\x1b[2K\r{}", line);
+                }
+                let _ = writeln!(out, "\x1b[2K\r\x1b[90m{}\x1b[0m\n", note);
+                let _ = writeln!(out, "\x1b[2K\r\x1b[1m{}\x1b[0m", prompt_text);
+                let _ = write!(out, "\x1b[2K\r");
+                let _ = out.flush();
+            };
+
+            render(*selected, true);
+
+            loop {
+                match read_key_action() {
+                    KeyAction::Up => {
+                        *selected = if *selected > 0 {
+                            *selected - 1
+                        } else {
+                            accounts.len() - 1
+                        };
+                        render(*selected, false);
+                    }
+                    KeyAction::Down => {
+                        *selected = if *selected + 1 < accounts.len() {
+                            *selected + 1
+                        } else {
+                            0
+                        };
+                        render(*selected, false);
+                    }
+                    KeyAction::SelectIndex(idx) => {
+                        if idx < accounts.len() {
+                            *selected = idx;
+                            render(*selected, false);
+                        }
+                    }
+                    KeyAction::Enter => {
+                        return HubAction::Switch(*selected);
+                    }
+                    KeyAction::Char('v') | KeyAction::Char('V') | KeyAction::Char('d') | KeyAction::Char('D') | KeyAction::Char(' ') => {
+                        return HubAction::ViewDetails(*selected);
+                    }
+                    KeyAction::Char('0') | KeyAction::Cancel => {
+                        return HubAction::Back;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    HubAction::Back
+}
+
+fn show_accounts_and_quotas_hub(_root: &Path, snapshot: &Snapshot, lang: Lang) {
     if snapshot.accounts.is_empty() {
         let msg = match lang {
-            Lang::Zh => "\n\x1b[33m暂无已保存账号。\x1b[0m",
-            Lang::En => "\n\x1b[33mNo saved accounts.\x1b[0m",
+            Lang::Zh => "\n\x1b[33m暂无已保存账号，请使用主菜单 [4] 添加 Google 账号。\x1b[0m",
+            Lang::En => "\n\x1b[33mNo saved accounts. Use [4] in main menu to add a Google account.\x1b[0m",
         };
         println!("{}", msg);
         wait_for_key(lang);
         return;
     }
+
+    let mut selected = snapshot.accounts.iter().position(|a| a.is_current).unwrap_or(0);
 
     loop {
         print!("\x1b[2J\x1b[H");
         let header = match lang {
-            Lang::Zh => "全部账号配额总览",
-            Lang::En => "All Accounts Quota Overview",
+            Lang::Zh => "账号与配额中心",
+            Lang::En => "Accounts & Quotas Hub",
         };
         println!("\x1b[1m{}\x1b[0m\n", header);
 
-        print!("{}", build_accounts_table(&snapshot.accounts, lang, None).render());
+        let action = select_account_hub_action(&snapshot.accounts, &mut selected, lang);
 
-        let note = match lang {
-            Lang::Zh => "* 标注为当前生效账号",
-            Lang::En => "* indicates active account",
-        };
-        println!("\x1b[90m{}\x1b[0m\n", note);
+        match action {
+            HubAction::Switch(idx) => {
+                let target_acc = &snapshot.accounts[idx];
+                print!("\x1b[2J\x1b[H");
+                let target_header = match lang {
+                    Lang::Zh => format!("已选择账号: \x1b[1;32m{}\x1b[0m\n", target_acc.email),
+                    Lang::En => format!("Selected account: \x1b[1;32m{}\x1b[0m\n", target_acc.email),
+                };
+                println!("{}", target_header);
 
-        let mut items = Vec::new();
-        for (i, acc) in snapshot.accounts.iter().enumerate() {
-            let label = match &acc.custom_label {
-                Some(l) if !l.trim().is_empty() => format!(" ({})", l.trim()),
-                _ => String::new(),
-            };
-            let current = if acc.is_current { " *" } else { "" };
-            items.push(format!("{}. {}{}{}", i + 1, acc.email, label, current));
-        }
-        let back_label = match lang {
-            Lang::Zh => "0. 返回主菜单",
-            Lang::En => "0. Back to main menu",
-        };
-        items.push(back_label.into());
+                let (title, target_items) = match lang {
+                    Lang::Zh => (
+                        "选择生效目标:",
+                        vec![
+                            "1. AntiGravity 桌面应用与命令行 (同步生效)",
+                            "2. AntiGravity 独立环境 (专属通道)",
+                            "0. 取消并返回",
+                        ],
+                    ),
+                    Lang::En => (
+                        "Select Target:",
+                        vec![
+                            "1. Desktop App and CLI (Default sync)",
+                            "2. Dedicated IDE Channel",
+                            "0. Cancel",
+                        ],
+                    ),
+                };
 
-        let title = match lang {
-            Lang::Zh => "选择账号下钻查看各模型详细进度条:",
-            Lang::En => "Select account to inspect granular model progress bars:",
-        };
-        let str_items: Vec<&str> = items.iter().map(String::as_str).collect();
-        let sel = select_menu_interactive(title, &str_items, 0, lang);
+                let target_choice = select_menu_interactive(title, &target_items, 0, lang);
+                let target_ide = match target_choice {
+                    Some(0) => None,
+                    Some(1) => Some("ide"),
+                    _ => continue,
+                };
 
-        match sel {
-            Some(idx) if idx < snapshot.accounts.len() => {
+                let wait_msg = match lang {
+                    Lang::Zh => "\n正在执行账号切换并同步会话...",
+                    Lang::En => "\nSwitching account and synchronizing session...",
+                };
+                println!("{}", wait_msg);
+
+                let runtime = match tokio::runtime::Runtime::new() {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        let err_msg = match lang {
+                            Lang::Zh => format!("\x1b[31m启动异步运行时失败: {}\x1b[0m", e),
+                            Lang::En => format!("\x1b[31mFailed to start async runtime: {}\x1b[0m", e),
+                        };
+                        println!("{}", err_msg);
+                        wait_for_key(lang);
+                        continue;
+                    }
+                };
+
+                match runtime.block_on(crate::modules::account::switch_account(
+                    &target_acc.id,
+                    target_ide,
+                    &HeadlessIntegration,
+                )) {
+                    Ok(_) => {
+                        let succ_msg = match lang {
+                            Lang::Zh => format!(
+                                "\x1b[1;32m✓ 账号切换成功: {}\x1b[0m (目标: {})\n提示: 请在终端开启新的 agy 命令以使用最新会话。\n",
+                                target_acc.email,
+                                target_ide.unwrap_or("app")
+                            ),
+                            Lang::En => format!(
+                                "\x1b[1;32m✓ Successfully switched to: {}\x1b[0m (target: {})\nHint: Start a new agy command to use the updated session.\n",
+                                target_acc.email,
+                                target_ide.unwrap_or("app")
+                            ),
+                        };
+                        println!("{}", succ_msg);
+                        wait_for_key(lang);
+                        break;
+                    }
+                    Err(err) => {
+                        let fail_msg = match lang {
+                            Lang::Zh => format!("\x1b[31m账号切换失败: {}\x1b[0m", err),
+                            Lang::En => format!("\x1b[31mAccount switch failed: {}\x1b[0m", err),
+                        };
+                        println!("{}", fail_msg);
+                        wait_for_key(lang);
+                    }
+                }
+            }
+            HubAction::ViewDetails(idx) => {
                 show_single_account_quota(&snapshot.accounts[idx], lang);
             }
-            _ => break,
+            HubAction::Back => break,
         }
     }
 }
