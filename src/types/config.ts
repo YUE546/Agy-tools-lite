@@ -7,7 +7,20 @@ export interface DesktopPreferences {
 export type MenuBarQuotaScope = 'all' | 'gemini' | 'other';
 export interface MenuBarPreferences {
     quota_scope: MenuBarQuotaScope;
+    display_scope?: MenuBarQuotaScope;
+    hide_unavailable?: boolean;
+    label_style?: 'email_then_label' | 'label_then_email' | 'email_only';
+    actions_leading?: boolean;
+    show_aggregate?: boolean;
+    show_session?: boolean;
+    show_weekly?: boolean;
+    show_icons?: boolean;
+    green_above?: number;
+    red_below?: number;
 }
+export const DEFAULT_MENU_BAR_PREFERENCES = { quota_scope: 'all', display_scope: 'gemini', hide_unavailable: true,
+    label_style: 'email_then_label', actions_leading: true, show_aggregate: true, show_session: true, show_weekly: true,
+    show_icons: true, green_above: 60, red_below: 20 } as const satisfies MenuBarPreferences;
 
 export interface QuotaProtectionConfig {
     enabled: boolean;

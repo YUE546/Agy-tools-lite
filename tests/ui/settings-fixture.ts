@@ -37,7 +37,7 @@ export function setupSettingsFixture(options: { theme?: string; language?: strin
             if (command === 'get_current_account') return copy(accounts[0]);
             if (command === 'get_desktop_settings') return copy(desktop);
             if (command === 'set_desktop_preferences') { desktop = { ...desktop, ...args.patch }; general.desktop = { launch_at_login: desktop.launch_at_login, hide_dock_icon: desktop.hide_dock_icon, start_minimized: desktop.start_minimized }; return copy(desktop); }
-            if (command === 'set_menu_bar_preferences') { general.menu_bar.quota_scope = args.quotaScope; return copy(general.menu_bar); }
+            if (command === 'set_menu_bar_preferences') { general.menu_bar = { ...general.menu_bar, ...args.patch, ...(args.quotaScope ? { quota_scope: args.quotaScope } : {}) }; return copy(general.menu_bar); }
             if (command === 'set_window_theme' || command === 'set_window_language') return null;
             if (command === 'plugin:event|listen') return callback++;
             if (command.startsWith('plugin:window|')) {

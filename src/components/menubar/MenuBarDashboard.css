@@ -16,7 +16,7 @@
 .menubar-app button:focus-visible { outline: 2px solid #007aff; outline-offset: 2px; }
 .menubar-app button:disabled { cursor: default; opacity: .45; }
 .mb-header { display: flex; align-items: center; justify-content: space-between; flex: none; }
-.mb-eyebrow { font-size: 9px; font-weight: 600; letter-spacing: 1.9px; color: var(--mb-muted); }
+.mb-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .1px; color: var(--mb-muted); }
 .mb-header h1 { font-size: 22px; font-weight: 650; letter-spacing: -.7px; margin: 1px 0 0; }
 .mb-header-actions { display: flex; gap: 4px; }
 .mb-header-actions button { padding: 7px; display: flex; }
@@ -28,12 +28,17 @@
 .mb-availability { margin-left: auto; color: var(--mb-muted); font-size: 11px; }
 .mb-aggregate small { display: block; margin-top: 3px; font-size: 10px; color: var(--mb-muted); }
 .mb-meter { height: 5px; border-radius: 5px; overflow: hidden; background: var(--mb-track); flex: 1; min-width: 0; }
-.mb-meter > span { height: 100%; display: block; border-radius: inherit; background: #0a84ff; }
-.mb-meter.low > span { background: #e28529; }
+.mb-meter > span { height: 100%; display: block; border-radius: inherit; background: #23a467; }
+.mb-meter.warning > span { background: #d9a400; }
+.mb-meter.critical > span { background: #e34e4e; }
 .mb-meter.unknown { opacity: .65; }
 .mb-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.mb-account-heading { display: flex; justify-content: space-between; color: var(--mb-muted); font-size: 10px; margin-bottom: 4px; flex: none; }
+.mb-account-heading { display: flex; flex-direction: column; gap: 5px; color: var(--mb-muted); font-size: 10px; margin-bottom: 4px; flex: none; }
 .mb-account-heading span:first-child { font-weight: 600; }
+.mb-account-heading nav { display: flex; gap: 5px; }
+.mb-account-heading nav button { display: flex; gap: 4px; align-items: center; justify-content: center; flex: 1; border: 1px solid var(--mb-line); padding: 3px; }
+.mb-account-heading nav button[aria-pressed="true"] { color: #007aff; background: var(--mb-hover); }
+.mb-account-identity.actions-leading .mb-account-switch { order: -1; }
 .mb-accounts { flex: 1; min-height: 0; }
 .mb-account-row { height: 56px; box-sizing: border-box; padding: 4px 0; border-bottom: 1px solid var(--mb-line); }
 .mb-account-row:last-child { border-bottom: 0; }
@@ -41,7 +46,7 @@
 .mb-account-identity > button:first-child { display: flex; gap: 6px; align-items: baseline; min-width: 0; padding: 1px 3px; margin-left: -3px; text-align: left; }
 .mb-account-identity > button:first-child > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .mb-account-identity small { font-size: 9px; color: var(--mb-muted); white-space: nowrap; max-width: 95px; overflow: hidden; text-overflow: ellipsis; }
-.menubar-app .mb-account-switch { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 3px 7px; font-size: 10px; flex: none; color: #007aff; }
+.menubar-app .mb-account-switch { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 3px 7px; font-size: 10px; flex: none; color: #007aff; border: 1px solid var(--mb-line); background: var(--mb-hover); }
 .dark .menubar-app .mb-account-switch { color: #66b2ff; }
 .mb-account-row.current .mb-account-switch:disabled { color: #168453; opacity: 1; }
 .dark .mb-account-row.current .mb-account-switch:disabled { color: #66d6a0; }
@@ -50,7 +55,6 @@
 .mb-account-window > span { width: 34px; color: var(--mb-muted); flex: none; }
 .mb-mini { display: flex; gap: 5px; align-items: center; min-width: 0; flex: 1; }
 .mb-mini strong { width: 30px; text-align: right; font-size: 10px; font-weight: 500; }
-.mb-mini.other .mb-meter:not(.low) > span { background: #a48068; }
 .mb-mini .mb-meter { height: 3px; }
 .mb-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; height: 28px; flex: none; color: var(--mb-muted); font-size: 10px; }
 .mb-pagination button { display: flex; padding: 5px; }

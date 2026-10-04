@@ -1,8 +1,13 @@
 import { dashboardPools, type DashboardAccount, type DashboardSnapshot, type DashboardPool } from './accountDashboard';
-import type { MenuBarQuotaScope } from '../types/config';
+import { DEFAULT_MENU_BAR_PREFERENCES, type MenuBarPreferences, type MenuBarQuotaScope } from '../types/config';
 
 export type QuotaWindow = '5h' | 'weekly';
 export type QuotaFamily = 'gemini' | 'other';
+export function quotaTone(value: number | null, preferences: MenuBarPreferences): 'healthy' | 'warning' | 'critical' | 'unknown' {
+  if (value === null || !Number.isFinite(value) || value < 0 || value > 100) return 'unknown';
+  if (value > (preferences.green_above ?? DEFAULT_MENU_BAR_PREFERENCES.green_above)) return 'healthy';
+  return value < (preferences.red_below ?? DEFAULT_MENU_BAR_PREFERENCES.red_below) ? 'critical' : 'warning';
+}
 export type MenuBarSnapshot = Omit<DashboardSnapshot, 'current_identity_source'> & {
   current_identity_source: 'tools_record' | 'running_app' | 'unavailable';
 };

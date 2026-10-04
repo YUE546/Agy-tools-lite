@@ -85,18 +85,22 @@ pub fn set_saved_desktop_preferences(preferences: &DesktopPreferences) -> Result
 }
 
 pub fn set_menu_bar_preferences(
-    scope: crate::models::config::MenuBarQuotaScope,
+    patch: crate::models::config::MenuBarPreferencesPatch,
 ) -> Result<crate::models::config::MenuBarPreferences, String> {
-    set_menu_bar_preferences_at(&get_data_dir()?.join(CONFIG_FILE), scope)
+    patch_menu_bar_preferences_at(&get_data_dir()?.join(CONFIG_FILE), patch)
 }
 
+#[cfg(test)]
 fn set_menu_bar_preferences_at(
     path: &Path,
     scope: crate::models::config::MenuBarQuotaScope,
 ) -> Result<crate::models::config::MenuBarPreferences, String> {
+    patch_menu_bar_preferences_at(path, crate::models::config::MenuBarPreferencesPatch { quota_scope: Some(scope), ..Default::default() })
+}
+fn patch_menu_bar_preferences_at(path: &Path, patch: crate::models::config::MenuBarPreferencesPatch) -> Result<crate::models::config::MenuBarPreferences, String> {
     let _guard = lock_config()?;
     let mut config = read_config_unlocked(path)?.unwrap_or_default();
-    config.menu_bar.quota_scope = scope;
+    patch.apply(&mut config.menu_bar)?;
     write_config_unlocked(path, &config)?;
     Ok(config.menu_bar)
 }
@@ -104,6 +108,31 @@ fn set_menu_bar_preferences_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn menu_patches_preserve_other_preferences_and_survive_stale_general_saves() {
+        use crate::models::config::{MenuBarPreferencesPatch, MenuBarQuotaScope};
+        let root = tempfile::tempdir().unwrap(); let path = root.path().join(CONFIG_FILE);
+        let stale = load_config_at(&path).unwrap();
+        patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { display_scope: Some(MenuBarQuotaScope::Other), green_above: Some(75), ..Default::default() }).unwrap();
+        patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { hide_unavailable: Some(false), ..Default::default() }).unwrap();
+        save_config_at(&path, &stale).unwrap();
+        let actual = load_config_at(&path).unwrap().menu_bar;
+        assert_eq!(actual.display_scope, MenuBarQuotaScope::Other); assert_eq!(actual.green_above, 75);
+        assert!(!actual.hide_unavailable); assert!(actual.actions_leading);
+        let before = fs::read(&path).unwrap();
+        assert!(patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { red_below: Some(80), ..Default::default() }).is_err());
+        assert!(patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { show_session: Some(false), show_weekly: Some(false), ..Default::default() }).is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+    #[test]
+    fn legacy_menu_preferences_receive_new_defaults() {
+        use crate::models::config::{MenuBarPreferences, MenuBarQuotaScope, MenuBarLabelStyle};
+        let actual: MenuBarPreferences = serde_json::from_str(r#"{"quota_scope":"other"}"#).unwrap();
+        assert_eq!(actual.quota_scope, MenuBarQuotaScope::Other); assert_eq!(actual.display_scope, MenuBarQuotaScope::Gemini);
+        assert_eq!(actual.label_style, MenuBarLabelStyle::EmailThenLabel);
+        assert!(actual.hide_unavailable && actual.actions_leading && actual.show_session && actual.show_weekly);
+        assert_eq!((actual.red_below, actual.green_above), (20, 60));
+    }
 
     #[test]
     fn menu_bar_scope_survives_stale_settings_and_preserves_desktop_preferences() {

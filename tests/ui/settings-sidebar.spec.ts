@@ -14,6 +14,22 @@ test('three retained panels preserve fields and localization is absent', async (
   await expect(page.getByLabel('菜单栏聚合额度')).toBeEnabled();
   await expect(page.getByText(/App 汉化|实验功能/)).toHaveCount(0);
 });
+test('menu display preferences save partial patches and retain one quota window', async ({ page }) => {
+  await expect(page.getByLabel('账号名称格式')).toHaveValue('email_then_label');
+  await expect(page.getByLabel('隐藏失效和禁用账号')).toBeChecked();
+  await page.getByLabel('账号区默认系列').selectOption('other');
+  await expect(page.getByLabel('账号区默认系列')).toHaveValue('other');
+  await page.getByLabel('显示 5 小时额度').uncheck();
+  await expect(page.getByLabel('显示 5 小时额度')).not.toBeChecked();
+  await expect(page.getByLabel('显示 5 小时额度')).toBeEnabled();
+  await expect(page.getByLabel('显示周额度')).toBeDisabled();
+  await page.getByLabel('显示 5 小时额度').check();
+  await expect(page.getByLabel('显示周额度')).toBeEnabled();
+  await page.getByLabel('绿色额度阈值').fill('75'); await page.getByLabel('绿色额度阈值').blur();
+  await expect.poll(() => page.evaluate(() => (window as any).__settingsFixture.calls.filter((call: any) => call.command === 'set_menu_bar_preferences' || call.cmd === 'set_menu_bar_preferences').at(-1)?.args?.patch)).toEqual({ green_above: 75 });
+  await expect(page.getByLabel('账号区默认系列')).toHaveValue('other');
+  await page.getByLabel('红色额度阈值').fill('90'); await page.getByLabel('红色额度阈值').blur(); await expect(page.getByLabel('红色额度阈值')).toHaveValue('20');
+});
 test('number edits and account choices auto-save and survive navigation', async ({ page }) => {
   await page.locator('#settings-tab-autoSwitch').click(); const reserve = page.locator('#auto-switch-reserve');
   await reserve.fill('13'); await page.locator('#auto-switch-model').selectOption('gemini'); await page.getByLabel('backup@example.invalid', { exact: true }).check();

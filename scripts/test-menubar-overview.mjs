@@ -6,8 +6,9 @@ const compile = path => ts.transpileModule(readFileSync(new URL(path, import.met
 }).outputText;
 const url = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const dependency = url(compile('../src/utils/accountDashboard.ts'));
-const source = compile('../src/utils/menuBarOverview.ts').replaceAll("'./accountDashboard'", JSON.stringify(dependency));
-const { menuBarAccount, aggregateMenuBar, quotaDisplay } = await import(url(source));
+const config = url(compile('../src/types/config.ts'));
+const source = compile('../src/utils/menuBarOverview.ts').replaceAll("'./accountDashboard'", JSON.stringify(dependency)).replaceAll("'../types/config'", JSON.stringify(config));
+const { menuBarAccount, aggregateMenuBar, quotaDisplay, quotaTone } = await import(url(source));
 const now = Date.parse('2026-10-04T12:00:00Z');
 const clone = value => structuredClone(value);
 function account(id, gemini = [.8,.6], other = [.4,.2]) {
@@ -86,5 +87,9 @@ test('real small fractions stay positive and are displayed without claiming zero
 });
 test('normalization and aggregation do not mutate saved observations',()=>{
   const a=account('a');const original=JSON.stringify(a);aggregateMenuBar(views([a]),'all','weekly');assert.equal(JSON.stringify(a),original);
+});
+test('quota color boundaries and customized cutoffs',()=>{
+  for (const [value,tone] of [[19,'critical'],[20,'warning'],[60,'warning'],[61,'healthy'],[null,'unknown'],[NaN,'unknown']]) assert.equal(quotaTone(value,{quota_scope:'all'}),tone);
+  assert.equal(quotaTone(70,{quota_scope:'all',green_above:80,red_below:30}),'warning');
 });
 console.log(`Menu bar aggregation: ${passed} passed`);

@@ -39,9 +39,12 @@ pub async fn get_menu_bar_snapshot(
 #[tauri::command]
 pub async fn set_menu_bar_preferences(
     app: tauri::AppHandle,
-    quota_scope: crate::models::config::MenuBarQuotaScope,
+    quota_scope: Option<crate::models::config::MenuBarQuotaScope>,
+    patch: Option<crate::models::config::MenuBarPreferencesPatch>,
 ) -> Result<crate::models::config::MenuBarPreferences, String> {
-    let preferences = tokio::task::spawn_blocking(move || modules::config::set_menu_bar_preferences(quota_scope))
+    let mut patch = patch.unwrap_or_default();
+    if let Some(scope) = quota_scope { patch.quota_scope = Some(scope); }
+    let preferences = tokio::task::spawn_blocking(move || modules::config::set_menu_bar_preferences(patch))
         .await.map_err(|_| "settings_task_failed".to_string())??;
     app.emit("menubar://preferences-updated", &preferences).map_err(|e| e.to_string())?;
     app.emit("config://updated", ()).map_err(|e| e.to_string())?;

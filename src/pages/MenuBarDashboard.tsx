@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowLeftRight, Check, ChevronLeft, ChevronRight, CircleHelp, Loader2, LogOut, RefreshCw, Settings, Users } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, Check, ChevronLeft, ChevronRight, CircleHelp, Loader2, LogOut, RefreshCw, Settings, Users, Sparkles, Brain } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import { request } from '../utils/request';
@@ -8,13 +8,15 @@ import { useConfigStore } from '../stores/useConfigStore';
 import { aggregateMenuBar, menuBarAccount, quotaDisplay, reportedQuotaDetails, type MenuBarSnapshot, type QuotaReason, type QuotaWindow } from '../utils/menuBarOverview';
 import { MenuBarSwitchDetails, useMenuBarSwitchStatus } from '../components/menubar/LowQuotaStatus';
 import '../components/menubar/MenuBarDashboard.css';
+import { DEFAULT_MENU_BAR_PREFERENCES, type MenuBarPreferences, type MenuBarQuotaScope } from '../types/config';
+import { quotaTone } from '../utils/menuBarOverview';
 
 interface Appearance { native_material: boolean; reduced_transparency: boolean; high_contrast: boolean; material_kind?: string }
 interface Usage { today: { total_tokens: number; request_count: number } }
 const tokens = (value: number) => value >= 1e6 ? (value / 1e6).toFixed(1) + 'M' : value >= 1e3 ? (value / 1e3).toFixed(1) + 'K' : String(value);
-function Meter({ value, label }: { value: number | null; label: string }) {
+function Meter({ value, label, preferences }: { value: number | null; label: string; preferences: MenuBarPreferences }) {
   if (value === null) return <div className="mb-meter unknown" role="img" aria-label={label + ': —'} />;
-  return <div className={'mb-meter ' + (value === null ? 'unknown' : value <= 10 ? 'low' : '')} role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={value ?? undefined} aria-valuetext={quotaDisplay(value)}>
+  return <div className={'mb-meter ' + quotaTone(value, preferences)} role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={value ?? undefined} aria-valuetext={quotaDisplay(value)}>
     <span style={{ width: String(value ?? 0) + '%' }} />
   </div>;
 }
@@ -41,7 +43,14 @@ export default function MenuBarDashboard() {
   const generation = useRef(0);
   const operation = useRef(false);
   const mounted = useRef(true);
-  const scope = config?.menu_bar?.quota_scope ?? 'all';
+  const preferences = useMemo(() => ({ ...DEFAULT_MENU_BAR_PREFERENCES, ...config?.menu_bar }), [config?.menu_bar]);
+  const scope = preferences.quota_scope;
+  const periods: QuotaWindow[] = [...(preferences.show_session ? ['5h' as const] : []), ...(preferences.show_weekly ? ['weekly' as const] : [])];
+  const families = preferences.display_scope === 'all' ? ['gemini', 'other'] as const : [preferences.display_scope];
+  const setFamily = async (display_scope: MenuBarQuotaScope) => {
+    try { const next = await request<MenuBarPreferences>('set_menu_bar_preferences', { patch: { display_scope } }); useConfigStore.setState(state => ({ config: state.config ? { ...state.config, menu_bar: next } : null })); }
+    catch { setError(zh ? '保存显示系列失败，请重试' : 'Could not save the display family. Retry.'); }
+  };
   const scopeName = scope === 'gemini' ? 'Gemini' : scope === 'other' ? 'Claude / GPT' : zh ? '全部系列' : 'All families';
   const windowName = (window: QuotaWindow) => window === '5h' ? zh ? '5 小时' : '5 hours' : zh ? '每周' : 'Weekly';
   const reasonName = (reason: QuotaReason | null) => reason ? ({
@@ -99,11 +108,11 @@ export default function MenuBarDashboard() {
   useLayoutEffect(() => {
     if (!content.current) return;
     const element = content.current;
-    const measure = () => { setCapacity(Math.max(1, Math.floor((element.clientHeight - (Math.floor((element.clientHeight - 22) / 56) >= (snapshot?.accounts.length ?? 0) ? 22 : 50)) / 56))); setDetailCapacity(Math.max(1, Math.floor((element.clientHeight - 98) / 50))); };
+    const measure = () => { setCapacity(Math.max(1, Math.floor((element.clientHeight - (Math.floor((element.clientHeight - 56) / 56) >= (snapshot?.accounts.length ?? 0) ? 56 : 84)) / 56))); setDetailCapacity(Math.max(1, Math.floor((element.clientHeight - 98) / 50))); };
     const observer = new ResizeObserver(measure); observer.observe(element); measure();
     return () => observer.disconnect();
   }, [detail, loading, snapshot?.accounts.length]);
-  const accounts = useMemo(() => (snapshot?.accounts || []).map(account => menuBarAccount(account, now, config?.refresh_interval)), [snapshot, now, config?.refresh_interval]);
+  const accounts = useMemo(() => (snapshot?.accounts || []).map(account => menuBarAccount(account, now, config?.refresh_interval)).filter(view => !preferences.hide_unavailable || view.switchable), [snapshot, now, config?.refresh_interval, preferences.hide_unavailable]);
   const threshold = lowQuota.config?.reserve_percentage ?? config?.quota_protection.threshold_percentage ?? 10;
   const aggregate = (window: QuotaWindow) => aggregateMenuBar(accounts, scope, window, threshold);
   const pageCount = Math.max(1, Math.ceil(accounts.length / capacity));
@@ -140,31 +149,30 @@ export default function MenuBarDashboard() {
   </nav>;
   return <div className={'menubar-app ' + (appearance?.native_material ? 'native-material' : 'opaque-material') + (appearance?.high_contrast ? ' high-contrast' : '')} data-material={appearance?.material_kind || (appearance?.native_material ? 'vibrancy' : 'opaque')}>
     <header className="mb-header">
-      <div><span className="mb-eyebrow">ANTIGRAVITY</span><h1>{detail ? detail === 'switch' ? zh ? '自动切号' : 'Auto-switch' : detail === 'about' ? zh ? '关于' : 'About' : zh ? '账号详情' : 'Account details' : zh ? '额度总览' : 'Quota overview'}</h1></div>
+      <div><span className="mb-eyebrow">AntiGravity tool lite</span><h1>{detail ? detail === 'switch' ? zh ? '自动切号' : 'Auto-switch' : detail === 'about' ? zh ? '关于' : 'About' : zh ? '账号详情' : 'Account details' : zh ? '额度总览' : 'Quota overview'}</h1></div>
       <div className="mb-header-actions">{detail && <button aria-label={zh ? '返回总览' : 'Back to overview'} onClick={() => setDetail(null)}><ArrowLeft size={16} /></button>}<button aria-label={zh ? '刷新全部额度' : 'Refresh all quotas'} disabled={busy || loading} onClick={() => void refresh()}><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /></button><button aria-label={zh ? '偏好设置' : 'Settings'} onClick={() => openPage('settings')}><Settings size={16} /></button></div>
     </header>
-    {!detail && <section className="mb-overview" aria-label={zh ? '聚合额度' : 'Aggregate quotas'}>
-      <div className="mb-overview-heading"><span>{scopeName}</span><span>{zh ? '平均剩余' : 'Mean remaining'}</span></div>
-      {(['5h', 'weekly'] as const).map(window => { const data = aggregate(window); return <div className="mb-aggregate" key={window}>
-        <div><span>{windowName(window)}</span><strong>{quotaDisplay(data.remaining)}</strong><span className="mb-availability" title={(zh ? '有效数据 ' : 'Reported ') + data.covered + '/' + data.total}>{zh ? '可用 ' : 'Available '}{data.usable}/{data.total}</span></div><Meter value={data.remaining} label={scopeName + ' ' + windowName(window)} />
+    {!detail && preferences.show_aggregate && <section className="mb-overview" aria-label={zh ? '聚合额度' : 'Aggregate quotas'}>
+      <div className="mb-overview-heading"><span>{zh ? '整体额度' : 'Overall quotas'} · {scopeName}</span><span>{zh ? '平均剩余' : 'Mean remaining'}</span></div>
+      {periods.map(window => { const data = aggregate(window); return <div className="mb-aggregate" key={window}>
+        <div><span>{windowName(window)}</span><span className="mb-availability" title={(zh ? '有效数据 ' : 'Reported ') + data.covered + '/' + data.total}>{zh ? '可用 ' : 'Available '}{data.usable}/{data.total}</span><span>{zh ? '剩余' : 'Remaining'} <strong>{quotaDisplay(data.remaining)}</strong></span></div><Meter preferences={preferences} value={data.remaining} label={scopeName + ' ' + windowName(window)} />
       </div>; })}
     </section>}
     {(error || notice) && <div className={'mb-message ' + (error ? 'error' : '')} role={error ? 'alert' : 'status'}>{error || notice}{error && !refreshing && <button onClick={() => void reload()}>{zh ? '重试读取' : 'Retry read'}</button>}</div>}
     {!detail && lowQuota.visible && <button className="mb-switch-banner" aria-label={zh ? '查看低额度换号详情' : 'View auto-switch details'} onClick={() => setDetail('switch')}><ArrowLeftRight size={13} /><span>{lowQuota.readError ? t('auto_switch.status_failed') : t('auto_switch.reasons.' + (lowQuota.status?.reason || 'checking'), { defaultValue: t('auto_switch.reasons.state_unavailable') })}</span><ChevronRight size={12} /></button>}
     <div className="mb-content" ref={content}>
-      {detail === 'switch' ? <MenuBarSwitchDetails state={lowQuota} openSettings={() => openPage('settings')} /> : detail === 'about' ? <div className="mb-empty"><h2>Antigravity Tools Lite 4.7.8</h2><p>{zh ? '账号、额度与本地用量' : 'Accounts, quotas and local usage'}</p></div> : selected ? <>
+      {detail === 'switch' ? <MenuBarSwitchDetails state={lowQuota} openSettings={() => openPage('settings')} /> : detail === 'about' ? <div className="mb-empty"><h2>AntiGravity tool lite 4.7.8</h2><p>{zh ? '账号、额度与本地用量' : 'Accounts, quotas and local usage'}</p><button onClick={() => void request('plugin:opener|open_url', { url: 'https://github.com/anglee0323/antigravity-tools-lite' })}>GitHub ↗</button></div> : selected ? <>
         <div className="mb-detail-title"><strong>{selected.account.custom_label || selected.account.email}</strong><span>{selected.account.email}</span><small>{zh ? '缓存快照 · ' : 'Cached snapshot · '}{selected.account.quota?.last_updated ? new Date(selected.account.quota.last_updated * 1000).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }) : '—'}</small></div>
-        <div className="mb-detail-rows">{details.length ? details.slice(visibleDetailPage * detailCapacity, (visibleDetailPage + 1) * detailCapacity).map((row, index) => <div className="mb-detail-row" key={row.key + index}><div><span title={row.name}>{row.name}</span><small>{row.source === 'model' ? zh ? '模型快照' : 'Model snapshot' : row.window === 'weekly' ? windowName('weekly') : row.window === '5h' ? windowName('5h') : row.window}</small><strong>{quotaDisplay(row.remaining)}</strong></div><div><Meter value={row.remaining} label={row.name + ' ' + row.window} /><small>{resetLabel(row.resetTime)}</small></div></div>) : <div className="mb-empty">{reasonName(selected.windows.weekly.gemini.reason)}</div>}</div>
+        <div className="mb-detail-rows">{details.length ? details.slice(visibleDetailPage * detailCapacity, (visibleDetailPage + 1) * detailCapacity).map((row, index) => <div className="mb-detail-row" key={row.key + index}><div><span title={row.name}>{row.name}</span><small>{row.source === 'model' ? zh ? '模型快照' : 'Model snapshot' : row.window === 'weekly' ? windowName('weekly') : row.window === '5h' ? windowName('5h') : row.window}</small><strong>{quotaDisplay(row.remaining)}</strong></div><div><Meter preferences={preferences} value={row.remaining} label={row.name + ' ' + row.window} /><small>{resetLabel(row.resetTime)}</small></div></div>) : <div className="mb-empty">{reasonName(selected.windows.weekly.gemini.reason)}</div>}</div>
         {detailPages > 1 && pager(visibleDetailPage, detailPages, setDetailPage)}
       </> : detail ? <div className="mb-empty">{zh ? '账号已移除' : 'Account removed'}</div> : <>
-        <div className="mb-account-heading"><span>{zh ? '账号' : 'Accounts'} · {snapshot?.indexed_total ?? '—'}</span><span>Gemini / Claude · GPT</span></div>
+        <div className="mb-account-heading"><span>{zh ? '账号' : 'Accounts'} · {accounts.length}</span><nav aria-label={zh ? '账号显示系列' : 'Account family'}>{(['gemini', 'other', 'all'] as const).map(family => <button key={family} aria-pressed={preferences.display_scope === family} onClick={() => void setFamily(family)}>{preferences.show_icons && (family === 'other' ? <Brain size={12} /> : <Sparkles size={12} />)}{family === 'gemini' ? 'Gemini' : family === 'other' ? zh ? '非 Gemini' : 'Non-Gemini' : zh ? '全部' : 'All'}</button>)}</nav></div>
         <div className="mb-accounts">{loading ? <div className="mb-empty"><Loader2 size={18} className="animate-spin" />{zh ? '正在读取' : 'Loading'}</div> : !accounts.length ? <div className="mb-empty">{error ? zh ? '暂无可读取的数据' : 'Data unavailable' : zh ? '添加账号后显示额度' : 'Add accounts to see quotas'}<button onClick={() => openPage('accounts')}>{zh ? '管理账号' : 'Manage accounts'}</button></div> : visible.map(view => {
           const account = view.account; const current = account.id === snapshot?.current_account_id;
           const label = account.custom_label || account.name || account.email.split('@')[0];
-          const reason = view.windows.weekly.gemini.reason || view.windows.weekly.other.reason;
           return <article className={'mb-account-row ' + (current ? 'current' : '')} key={account.id}>
-            <div className="mb-account-identity"><button title={account.email} aria-label={(zh ? '查看 ' : 'Inspect ') + label} onClick={() => { setDetail(account.id); setDetailPage(0); }}><span>{label}</span><small>{reason ? reasonName(reason) : account.quota?.subscription_tier || account.email}</small></button><button className="mb-account-switch" aria-label={(zh ? '切换到 ' : 'Switch to ') + label} title={current ? snapshot?.current_identity_source === 'running_app' ? zh ? '运行中的 App 已确认' : 'Verified running app' : zh ? 'Tools 保存的账号' : 'Saved Tools account' : zh ? '切换并重新打开 App' : 'Switch and reopen app'} disabled={current || busy || !view.switchable || lowQuota.readError} onClick={() => void switchAccount(account.id)}>{switching === account.id ? <Loader2 size={12} className="animate-spin" /> : current ? <Check size={12} /> : <ArrowLeftRight size={12} />}{current ? zh ? '当前' : 'Current' : zh ? '切换' : 'Switch'}</button></div>
-            <div className="mb-account-quotas">{(['5h', 'weekly'] as const).map(window => <div className="mb-account-window" key={window}><span>{windowName(window)}</span>{(['gemini', 'other'] as const).map(family => { const quota = view.windows[window][family]; return <div className={'mb-mini ' + family} title={reasonName(quota.reason) || quota.resets.map(resetLabel).join(' · ')} key={family}><Meter value={quota.remaining} label={label + ' ' + (family === 'gemini' ? 'Gemini' : 'Claude / GPT') + ' ' + windowName(window)} /><strong>{quotaDisplay(quota.remaining)}</strong></div>; })}</div>)}</div>
+            <div className={'mb-account-identity ' + (preferences.actions_leading ? 'actions-leading' : '')}><button title={account.email} aria-label={(zh ? '查看 ' : 'Inspect ') + label} onClick={() => { setDetail(account.id); setDetailPage(0); }}><span>{preferences.label_style === 'label_then_email' && account.custom_label ? account.custom_label : account.email}</span><small>{preferences.label_style === 'email_only' ? '' : preferences.label_style === 'label_then_email' && account.custom_label ? account.email : account.custom_label ? '· ' + account.custom_label : ''}</small></button><button className="mb-account-switch" aria-label={(zh ? '切换到 ' : 'Switch to ') + label} title={current ? snapshot?.current_identity_source === 'running_app' ? zh ? '运行中的 App 已确认' : 'Verified running app' : zh ? 'Tools 保存的账号' : 'Saved Tools account' : zh ? '切换并重新打开 App' : 'Switch and reopen app'} disabled={current || busy || !view.switchable || lowQuota.readError} onClick={() => void switchAccount(account.id)}>{switching === account.id ? <Loader2 size={12} className="animate-spin" /> : current ? <Check size={12} /> : <ArrowLeftRight size={12} />}{current ? zh ? '当前' : 'Current' : zh ? '切换' : 'Switch'}</button></div>
+            <div className="mb-account-quotas">{periods.map(window => <div className="mb-account-window" key={window}><span>{windowName(window)}</span>{families.map(family => { const quota = view.windows[window][family]; return <div className={'mb-mini ' + family} title={reasonName(quota.reason) || quota.resets.map(resetLabel).join(' · ')} key={family}><Meter preferences={preferences} value={quota.remaining} label={label + ' ' + (family === 'gemini' ? 'Gemini' : 'Claude / GPT') + ' ' + windowName(window)} /><strong>{quotaDisplay(quota.remaining)}</strong></div>; })}</div>)}</div>
           </article>;
         })}</div>
         {pageCount > 1 && pager(visiblePage, pageCount, setPage)}

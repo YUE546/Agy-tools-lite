@@ -3,6 +3,29 @@
 use super::account_dashboard::DashboardEntry;
 use crate::models::config::MenuBarQuotaScope;
 use std::collections::HashMap;
+use crate::models::config::{MenuBarPreferences, MenuBarLabelStyle};
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum QuotaTone { Healthy, Warning, Critical, Unknown }
+pub fn quota_tone(value: Option<f64>, preferences: &MenuBarPreferences) -> QuotaTone {
+    match value { Some(value) if value.is_finite() && (0.0..=100.0).contains(&value) => {
+        if value > f64::from(preferences.green_above) { QuotaTone::Healthy }
+        else if value < f64::from(preferences.red_below) { QuotaTone::Critical } else { QuotaTone::Warning }
+    }, _ => QuotaTone::Unknown }
+}
+pub fn visible_account(account: &DashboardEntry, preferences: &MenuBarPreferences, now: i64) -> bool {
+    !preferences.hide_unavailable || (account.read_status == "loaded" && !account.disabled
+        && !account.quota.as_ref().is_some_and(|quota| quota.is_forbidden)
+        && !(account.validation_blocked && account.validation_blocked_until.is_none_or(|until| until > now)))
+}
+pub fn identity_parts(account: &DashboardEntry, preferences: &MenuBarPreferences) -> (String, String) {
+    let note = account.custom_label.as_deref().unwrap_or("").trim();
+    match preferences.label_style {
+        MenuBarLabelStyle::LabelThenEmail if !note.is_empty() => (note.into(), account.email.clone()),
+        MenuBarLabelStyle::EmailThenLabel if !note.is_empty() && note != account.email => (account.email.clone(), note.into()),
+        _ => (account.email.clone(), String::new()),
+    }
+}
 
 pub fn account_windows(account: &DashboardEntry, now: i64, freshness_minutes: i32) -> [[Option<f64>; 2]; 2] {
     let unavailable = account.read_status != "loaded" || account.disabled
@@ -61,6 +84,16 @@ pub fn percent(value: Option<f64>) -> String {
     match value { None => "—".into(), Some(value) if value > 0.0 && value < 1.0 => "<1%".into(),
         Some(value) if value > 99.0 && value < 100.0 => ">99%".into(), Some(value) => format!("{value:.0}%") }
 }
+pub fn reset_summary(value: &str, now: i64, zh: bool) -> String {
+    let Ok(time) = chrono::DateTime::parse_from_rfc3339(value) else { return if zh { "重置时间未报告" } else { "Reset not reported" }.into(); };
+    let seconds = time.timestamp() - now;
+    if seconds <= 0 { return if zh { "已到重置时间，请刷新" } else { "Reset due; refresh" }.into(); }
+    let minutes = (seconds + 59) / 60;
+    let remaining = if minutes >= 1440 { format!("{}d {}h", minutes / 1440, minutes % 1440 / 60) }
+        else if minutes >= 60 { format!("{}h {}m", minutes / 60, minutes % 60) }
+        else { format!("{minutes}m") };
+    if zh { format!("{remaining} 后重置") } else { format!("Resets in {remaining}") }
+}
 
 #[cfg(test)]
 mod tests {
@@ -75,6 +108,44 @@ mod tests {
         DashboardEntry { id: "synthetic".into(), email: "test@example.invalid".into(), name: None, custom_label: None,
             read_status: "loaded", read_error: None, disabled: false, validation_blocked: false, validation_blocked_until: None, protected_models: vec![],
             quota: Some(ReadOnlyQuota { last_updated: 1_790_000_000, is_forbidden: false, subscription_tier: None, provenance: "observed", models: vec![], groups: Some(groups) }) }
+    }
+    #[test] fn quota_colors_include_both_boundaries_in_yellow() {
+        let preferences = MenuBarPreferences::default();
+        for (value, tone) in [(0.0, QuotaTone::Critical), (19.9, QuotaTone::Critical), (20.0, QuotaTone::Warning), (60.0, QuotaTone::Warning), (60.1, QuotaTone::Healthy), (100.0, QuotaTone::Healthy)] {
+            assert_eq!(quota_tone(Some(value), &preferences), tone);
+        }
+        for value in [None, Some(f64::NAN), Some(-1.0), Some(101.0)] { assert_eq!(quota_tone(value, &preferences), QuotaTone::Unknown); }
+        let custom = MenuBarPreferences { green_above: 80, red_below: 30, ..preferences };
+        assert_eq!(quota_tone(Some(70.0), &custom), QuotaTone::Warning);
+    }
+    #[test] fn reset_labels_are_short_and_never_expose_raw_timestamps() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-05T00:00:00Z").unwrap().timestamp();
+        assert_eq!(reset_summary("2026-10-07T03:00:00Z", now, true), "2d 3h 后重置");
+        assert_eq!(reset_summary("2026-10-05T00:00:01Z", now, false), "Resets in 1m");
+        assert_eq!(reset_summary("bad", now, true), "重置时间未报告");
+        assert_eq!(reset_summary("2026-10-05T00:00:00Z", now, true), "已到重置时间，请刷新");
+    }
+    #[test] fn visibility_hides_invalid_accounts_without_hiding_missing_quota() {
+        let preferences = MenuBarPreferences::default(); let mut account = account();
+        account.quota = None;
+        assert!(visible_account(&account, &preferences, 100));
+        account.disabled = true; assert!(!visible_account(&account, &preferences, 100));
+        assert!(visible_account(&account, &MenuBarPreferences { hide_unavailable: false, ..preferences.clone() }, 100));
+        account.disabled = false; account.validation_blocked = true;
+        account.validation_blocked_until = Some(101); assert!(!visible_account(&account, &preferences, 100));
+        account.validation_blocked_until = Some(100); assert!(visible_account(&account, &preferences, 100));
+        account.read_status = "failed"; assert!(!visible_account(&account, &preferences, 100));
+        account = self::account(); account.quota.as_mut().unwrap().is_forbidden = true;
+        assert!(!visible_account(&account, &preferences, 100));
+    }
+    #[test] fn email_precedes_note_by_default_and_formats_are_selectable() {
+        let mut account = account(); account.custom_label = Some("  Account one  ".into());
+        let mut preferences = MenuBarPreferences::default();
+        assert_eq!(identity_parts(&account, &preferences), (account.email.clone(), "Account one".into()));
+        preferences.label_style = MenuBarLabelStyle::LabelThenEmail;
+        assert_eq!(identity_parts(&account, &preferences), ("Account one".into(), account.email.clone()));
+        preferences.label_style = MenuBarLabelStyle::EmailOnly;
+        assert_eq!(identity_parts(&account, &preferences), (account.email.clone(), String::new()));
     }
     #[test] fn families_and_windows_never_borrow_missing_data() {
         let mut account = account();
