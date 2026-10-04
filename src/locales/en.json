@@ -254,7 +254,7 @@
   "auto_switch": {
     "title": "Low-quota account switching",
     "description": "Prepare a backup account when the reserve threshold is reached. To protect active sessions and task integrity, credentials are safe-committed only after relevant clients exit. This tool never force-stops tasks.",
-    "enable": "Enable low-quota switching (takes effect after saving)",
+    "enable": "Enable low-quota switching",
     "mode": "Switch Trigger",
     "mode_wait": "Switch after tasks finish",
     "mode_stop": "Stop first, then switch",
