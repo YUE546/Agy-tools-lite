@@ -171,7 +171,9 @@ impl Table {
         for row in &self.rows {
             for (i, cell) in row.iter().enumerate() {
                 if i < num_cols {
-                    col_widths[i] = col_widths[i].max(display_width(cell));
+                    for line in cell.lines() {
+                        col_widths[i] = col_widths[i].max(display_width(line));
+                    }
                 }
             }
         }
@@ -240,32 +242,58 @@ impl Table {
         }
         out.push_str("┤\n");
 
+        let has_multiline = self.rows.iter().any(|r| r.iter().any(|c| c.contains('\n')));
+
         // Data rows
-        for row in &self.rows {
-            out.push_str("\r│");
-            for (i, cell) in row.iter().enumerate() {
-                out.push(' ');
-                let clean = strip_ansi(cell);
-                let w = col_widths[i];
-                let formatted = if display_width(&clean) > w {
-                    let truncated = truncate_display_width(&clean, w);
-                    if self.align_right.get(i).copied().unwrap_or(false) {
-                        pad_left(&truncated, w)
-                    } else {
-                        pad_right(&truncated, w)
+        for (row_idx, row) in self.rows.iter().enumerate() {
+            if has_multiline && row_idx > 0 {
+                out.push_str("\r├");
+                for (i, w) in col_widths.iter().enumerate() {
+                    out.push_str(&"─".repeat(*w + 2));
+                    if i + 1 < num_cols {
+                        out.push('┼');
                     }
-                } else {
-                    if self.align_right.get(i).copied().unwrap_or(false) {
-                        pad_left(cell, w)
-                    } else {
-                        pad_right(cell, w)
-                    }
-                };
-                out.push_str(&formatted);
-                out.push(' ');
-                out.push('│');
+                }
+                out.push_str("┤\n");
             }
-            out.push('\n');
+
+            let cell_lines: Vec<Vec<&str>> = row.iter().map(|c| {
+                let lines: Vec<&str> = c.lines().collect();
+                if lines.is_empty() {
+                    vec![""]
+                } else {
+                    lines
+                }
+            }).collect();
+            let max_sublines = cell_lines.iter().map(|l| l.len()).max().unwrap_or(1);
+
+            for sub_idx in 0..max_sublines {
+                out.push_str("\r│");
+                for i in 0..num_cols {
+                    out.push(' ');
+                    let sub_line = cell_lines.get(i).and_then(|lines| lines.get(sub_idx)).copied().unwrap_or("");
+                    let clean = strip_ansi(sub_line);
+                    let w = col_widths[i];
+                    let formatted = if display_width(&clean) > w {
+                        let truncated = truncate_display_width(&clean, w);
+                        if self.align_right.get(i).copied().unwrap_or(false) {
+                            pad_left(&truncated, w)
+                        } else {
+                            pad_right(&truncated, w)
+                        }
+                    } else {
+                        if self.align_right.get(i).copied().unwrap_or(false) {
+                            pad_left(sub_line, w)
+                        } else {
+                            pad_right(sub_line, w)
+                        }
+                    };
+                    out.push_str(&formatted);
+                    out.push(' ');
+                    out.push('│');
+                }
+                out.push('\n');
+            }
         }
 
         // Bottom border: └───┴───┘
@@ -791,20 +819,18 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
             _ => "-".to_string(),
         };
 
-        let mut gemini_quota = match lang {
-            Lang::Zh => "暂无".to_string(),
-            Lang::En => "None".to_string(),
+        let default_none = match lang {
+            Lang::Zh => "5小时: 暂无\n周线:  暂无".to_string(),
+            Lang::En => "5-Hour: None\nWeekly: None".to_string(),
         };
-        let mut claude_quota = match lang {
-            Lang::Zh => "暂无".to_string(),
-            Lang::En => "None".to_string(),
-        };
+        let mut gemini_quota = default_none.clone();
+        let mut claude_quota = default_none;
 
         if let Some(q) = &acc.quota {
             if q.is_forbidden {
                 gemini_quota = match lang {
-                    Lang::Zh => "受限".into(),
-                    Lang::En => "Forbidden".into(),
+                    Lang::Zh => "5小时: 受限\n周线:  需重登".into(),
+                    Lang::En => "5-Hour: Forbidden\nWeekly: Relogin".into(),
                 };
                 claude_quota = gemini_quota.clone();
             } else if let Some(groups) = &q.quota_groups {
@@ -812,51 +838,47 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
                     let weekly_b = g.buckets.iter().find(|b| b.bucket_id.contains("week") || b.window.contains("week"));
                     let five_h_b = g.buckets.iter().find(|b| b.bucket_id.contains("5h") || b.window.contains("5h"));
 
-                    let (chosen_b, is_weekly) = match (weekly_b, five_h_b) {
-                        (Some(wb), Some(fb)) => {
-                            let w_pct = (wb.remaining_fraction * 100.0).round() as i32;
-                            let f_pct = (fb.remaining_fraction * 100.0).round() as i32;
-                            if w_pct < 100 && f_pct < 100 {
-                                if f_pct < w_pct {
-                                    (fb, false)
-                                } else {
-                                    (wb, true)
-                                }
-                            } else if w_pct < 100 {
-                                (wb, true)
-                            } else if f_pct < 100 {
-                                (fb, false)
+                    let five_h_str = match five_h_b {
+                        Some(fb) => {
+                            let pct = (fb.remaining_fraction * 100.0).round() as i32;
+                            let cd = format_quota_countdown(&fb.reset_time, lang);
+                            let prefix = match lang {
+                                Lang::Zh => "5小时: ",
+                                Lang::En => "5-Hour: ",
+                            };
+                            if cd.is_empty() || pct >= 100 {
+                                format!("{}{}%", prefix, pct)
                             } else {
-                                (wb, true)
+                                format!("{}{}% ({})", prefix, pct, cd)
                             }
                         }
-                        (Some(wb), None) => (wb, true),
-                        (None, Some(fb)) => (fb, false),
-                        _ => match g.buckets.first() {
-                            Some(b) => (b, b.bucket_id.contains("week")),
-                            None => continue,
+                        None => match lang {
+                            Lang::Zh => "5小时: 100%".to_string(),
+                            Lang::En => "5-Hour: 100%".to_string(),
                         },
                     };
 
-                    let pct = (chosen_b.remaining_fraction * 100.0).round() as i32;
-                    let cd = format_quota_countdown(&chosen_b.reset_time, lang);
-                    let tag = if is_weekly {
-                        match lang {
-                            Lang::Zh => "周配额",
-                            Lang::En => "Weekly",
+                    let weekly_str = match weekly_b {
+                        Some(wb) => {
+                            let pct = (wb.remaining_fraction * 100.0).round() as i32;
+                            let cd = format_quota_countdown(&wb.reset_time, lang);
+                            let prefix = match lang {
+                                Lang::Zh => "周线:  ",
+                                Lang::En => "Weekly: ",
+                            };
+                            if cd.is_empty() || pct >= 100 {
+                                format!("{}{}%", prefix, pct)
+                            } else {
+                                format!("{}{}% ({})", prefix, pct, cd)
+                            }
                         }
-                    } else {
-                        match lang {
-                            Lang::Zh => "5小时配额",
-                            Lang::En => "5-Hour",
-                        }
+                        None => match lang {
+                            Lang::Zh => "周线:  100%".to_string(),
+                            Lang::En => "Weekly: 100%".to_string(),
+                        },
                     };
 
-                    let text = if cd.is_empty() || pct >= 100 {
-                        format!("{}%", pct)
-                    } else {
-                        format!("{}% ({} · {})", pct, tag, cd)
-                    };
+                    let text = format!("{}\n{}", five_h_str, weekly_str);
                     if g.display_name.contains("Gemini") {
                         gemini_quota = text;
                     } else if g.display_name.contains("Claude") || g.display_name.contains("GPT") {
@@ -865,10 +887,14 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
                 }
             } else {
                 for m in &q.models {
-                    if m.name.contains("gemini") {
-                        gemini_quota = format!("{}%", m.percentage);
-                    } else if m.name.contains("claude") {
-                        claude_quota = format!("{}%", m.percentage);
+                    let text = match lang {
+                        Lang::Zh => format!("5小时: {}%\n周线:  -", m.percentage),
+                        Lang::En => format!("5-Hour: {}%\nWeekly: -", m.percentage),
+                    };
+                    if m.name.to_lowercase().contains("gemini") {
+                        gemini_quota = text;
+                    } else if m.name.to_lowercase().contains("claude") {
+                        claude_quota = text;
                     }
                 }
             }
@@ -896,20 +922,22 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
             }
         };
 
-        let (row_email, row_label) = if is_selected {
+        let (row_email, row_label, row_gemini, row_claude) = if is_selected {
             (
                 format!("\x1b[1;36m{}\x1b[0m", email_text),
                 format!("\x1b[1;36m{}\x1b[0m", label_text),
+                gemini_quota.lines().map(|l| format!("\x1b[1;36m{}\x1b[0m", l)).collect::<Vec<_>>().join("\n"),
+                claude_quota.lines().map(|l| format!("\x1b[1;36m{}\x1b[0m", l)).collect::<Vec<_>>().join("\n"),
             )
         } else {
-            (email_text, label_text)
+            (email_text, label_text, gemini_quota, claude_quota)
         };
 
         table.add_row(vec![
             row_email,
             row_label,
-            gemini_quota,
-            claude_quota,
+            row_gemini,
+            row_claude,
             status.to_string(),
         ]);
     }
@@ -1384,26 +1412,11 @@ fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
 
         print!("{}", build_accounts_table(&snapshot.accounts, lang, None).render());
 
-        let notes = match lang {
-            Lang::Zh => [
-                "* 标注为当前生效账号",
-                "说明: 配额显示当前最具约束力的瓶颈余量（周配额为7天总量控制，5小时配额为高频突发限制）：",
-                "      ·「5小时配额」: 近期使用频繁，受 5 小时滚动窗口限制（显示 5 小时内恢复倒计时）",
-                "      ·「周配额」: 5小时配额已满，受每周总额度限制（显示周重置倒计时）",
-                "      · 选择下方对应数字序号，可查看该账号每个具体模型的详细配额与进度条",
-            ],
-            Lang::En => [
-                "* indicates active account",
-                "Note: Quotas display active bottleneck between Weekly (7-day) and 5-Hour rolling limits:",
-                "      · '5-Hour': Constrained by recent burst usage (resets within 5 hours)",
-                "      · 'Weekly': 5-hour pool full, constrained by weekly cap (resets weekly)",
-                "      · Select account number below to inspect granular models and progress bars",
-            ],
+        let note = match lang {
+            Lang::Zh => "* 标注为当前生效账号",
+            Lang::En => "* indicates active account",
         };
-        for n in notes {
-            println!("\x1b[90m{}\x1b[0m", n);
-        }
-        println!();
+        println!("\x1b[90m{}\x1b[0m\n", note);
 
         let mut items = Vec::new();
         for (i, acc) in snapshot.accounts.iter().enumerate() {
@@ -1421,8 +1434,8 @@ fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
         items.push(back_label.into());
 
         let title = match lang {
-            Lang::Zh => "选择要查看独立模型配额的账号:",
-            Lang::En => "Select account to view detailed model breakdown:",
+            Lang::Zh => "选择账号下钻查看各模型详细进度条:",
+            Lang::En => "Select account to inspect granular model progress bars:",
         };
         let str_items: Vec<&str> = items.iter().map(String::as_str).collect();
         let sel = select_menu_interactive(title, &str_items, 0, lang);
