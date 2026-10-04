@@ -38,6 +38,14 @@ jobs:
             }
           }
 
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          # 工作区在 src-tauri（默认只认仓库根的 Cargo.toml）；
+          # key 区分 GNU 工具链 + --no-default-features 的产物形态
+          workspaces: src-tauri
+          key: windows-gnu-no-default-features
+
       - name: Install NASM and Ninja
         shell: pwsh
         run: |
@@ -78,7 +86,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path package/dist | Out-Null
           Copy-Item $exe package/
           Copy-Item -Recurse -Force dist/* package/dist/
-          Copy-Item release/start-webui.bat, release/start-webui.sh, release/README.md package/
+          Copy-Item release/README.md package/
 
           # mingw 运行时 DLL 兜底:全盘候选根目录搜索,失败必须可见
           $roots = @("C:\mingw64", "$env:ProgramData\chocolatey\lib\mingw", "C:\Program Files\mingw-w64") | Where-Object { Test-Path $_ }
@@ -87,11 +95,12 @@ jobs:
             if ($src) { Copy-Item $src.FullName package/; Write-Host "copied $dll <- $($src.FullName)" }
             else { Write-Warning "missing runtime DLL: $dll" }
           }
-          Compress-Archive -Path package/* -DestinationPath antigravity-tools-lite-service.zip
 
+      # upload-artifact 自带一层 zip：直接上传 package/ 内容，
+      # 不再手工 Compress-Archive，避免下载后 zip 套 zip
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: antigravity-tools-lite-service-windows
-          path: antigravity-tools-lite-service.zip
+          path: package/*
           if-no-files-found: error

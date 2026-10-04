@@ -93,9 +93,9 @@ pub fn run_if_requested() -> Option<i32> {
         .first()
         .and_then(|arg| Path::new(arg).file_stem())
         .is_some_and(|name| name == "agy-lite");
-    // 服务版启动参数不是 CLI 子命令：`--headless`/`--serve`/`--open` 由
-    // run_service() 消费，分流时必须先剔除，否则 start-webui.bat 会被误判为 CLI。
-    let service_flags = ["--headless", "--serve", "--open"];
+    // 服务版启动参数不是 CLI 子命令：`--headless`/`--serve`/`--open`/`--no-open`
+    // 由 run_service() 消费，分流时必须先剔除，否则命令行带参启动会被误判为 agy-lite CLI。
+    let service_flags = ["--headless", "--serve", "--open", "--no-open"];
     let non_service: Vec<String> = args
         .iter()
         .skip(1)

@@ -132,12 +132,22 @@ pub fn run_service() {
     #[cfg(target_os = "windows")]
     windows_api::disable_efficiency_mode();
 
-    let open_browser = std::env::args().any(|arg| arg == "--open");
     let explicit_headless = std::env::args()
         .any(|arg| arg == "--headless" || arg == "--serve");
     if explicit_headless {
         info!("Running in service mode (--headless given explicitly).");
     }
+
+    // 浏览器拉起策略：--no-open 强制不拉；--open 强制拉；都不带时按启动方式推断——
+    // 双击 exe 直启（无显式 --headless/--serve）默认拉起浏览器，脚本化运行（显式
+    // --headless/--serve）默认安静后台跑。
+    let open_browser = if std::env::args().any(|arg| arg == "--no-open") {
+        false
+    } else if std::env::args().any(|arg| arg == "--open") {
+        true
+    } else {
+        !explicit_headless
+    };
 
     run_headless(open_browser);
 }
@@ -167,7 +177,11 @@ fn run_headless(open_browser: bool) {
                     let masked: String = pwd.chars().take(2).collect();
                     format!("{}**", masked)
                 }
-                _ => "(generated, see log above)".to_string(),
+                // 双击直启无控制台，完整密码只落在数据目录的日志文件里
+                _ => match modules::account::get_data_dir() {
+                    Ok(dir) => format!("(generated — see {} logs)", dir.display()),
+                    Err(_) => "(generated, see service log file)".to_string(),
+                },
             }
         );
         info!("💡 Data directory: {:?}", modules::account::get_data_dir().ok());

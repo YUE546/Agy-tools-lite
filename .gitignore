@@ -34,3 +34,6 @@ playwright-report/
 
 # Local cargo mirror config (CI sets its own)
 .cargo/
+
+# ZCode local tool config
+.zcodeignore

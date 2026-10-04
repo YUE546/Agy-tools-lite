@@ -7,14 +7,16 @@
 
 ## 一键启动
 
-- **Windows**：双击 `start-webui.bat`（或命令行运行）
-- **Linux / macOS**：`chmod +x start-webui.sh && ./start-webui.sh`
-
-脚本会以 `--headless --open` 启动服务，并自动用系统默认浏览器打开 Web UI。
+- **直接双击 `antigravity-tools.exe`**：无控制台窗口，自动用系统默认浏览器打开 Web UI，
+  服务以托盘图标形式常驻；运行日志见 `%USERPROFILE%\.antigravity_tools\logs`。
+- 命令行/无人值守：加 `--headless`（或 `--serve`）以安静模式后台跑，默认不拉起浏览器；
+  需要浏览器时加 `--open`，双击场景不想要浏览器可加 `--no-open`。
+- 前提：`dist/`（WebUI 静态资源）与 exe 同目录；缺失时 `/api` 仍可用，仅无页面。
 
 - 访问地址：`http://localhost:8045`（健康检查：`/health`）
-- 登录密码：优先使用 `WEB_PASSWORD` 环境变量；未设置时首次启动会在控制台/日志打印
-  自动生成的随机密码（同时持久化到 `%USERPROFILE%\.antigravity_tools\web_config.json`）。
+- 登录密码：优先使用 `WEB_PASSWORD` 环境变量；未设置时首次启动会自动生成随机密码
+  （持久化到 `%USERPROFILE%\.antigravity_tools\web_config.json`，并在
+  `%USERPROFILE%\.antigravity_tools\logs` 下的日志文件中打印——双击直启没有控制台，请看日志）。
 - 数据目录：`%USERPROFILE%\.antigravity_tools`（Linux/macOS: `~/.antigravity_tools`），
   与桌面版 Antigravity Tools Lite 共享，账号数据互通。
 
@@ -24,8 +26,8 @@
 | --- | --- | --- |
 | `WEB_PASSWORD` | Web UI 登录密码（`ABV_WEB_PASSWORD` 优先） | 首次运行自动生成并打印 |
 | `PORT` | 服务端口（`ABV_PORT` 优先） | `8045` |
-| `ABV_BIND_LOCAL_ONLY` | `1` 仅绑定 127.0.0.1（一键脚本默认）；`0` 允许局域网访问 | 脚本内默认 `1` |
-| `ABV_DIST_PATH` | WebUI 静态资源目录 | 脚本内指向 `./dist` |
+| `ABV_BIND_LOCAL_ONLY` | `1` 仅绑定 127.0.0.1；`0` 允许局域网访问 | 仅绑 127.0.0.1（代码默认） |
+| `ABV_DIST_PATH` | WebUI 静态资源目录 | `./dist`（相对 exe 工作目录） |
 | `ANTIGRAVITY_DISABLE_TRAY` | `1` 禁用系统托盘（仅 Windows） | 不禁用 |
 
 环境变量覆盖会持久化回 `web_config.json`——这是修改密码的正规途径。
@@ -36,10 +38,10 @@
 release/
 ├── antigravity-tools.exe   # 服务二进制（纯 tokio/axum，不链接 WebView2/wry/tauri）
 ├── dist/                   # WebUI 静态资源（React 构建产物）
-├── start-webui.bat         # Windows 一键启动
-├── start-webui.sh          # Linux/macOS 一键启动
 └── README.md
 ```
+
+CI（GitHub Actions）产物即上述内容；本地打包保持同样布局即可。
 
 ## 与桌面版的区别
 
@@ -50,5 +52,5 @@ release/
 
 ## 停止服务
 
-在启动窗口按 `Ctrl+C`，或使用系统托盘菜单的"退出"。如需后台常驻，
-建议注册为计划任务或系统服务（Windows 可用 NSSM）。
+使用系统托盘菜单的"退出"（双击直启没有控制台窗口，Ctrl+C 仅适用于带控制台的前台调试运行）。
+如需开机常驻，建议注册为计划任务或系统服务（Windows 可用 NSSM）。
