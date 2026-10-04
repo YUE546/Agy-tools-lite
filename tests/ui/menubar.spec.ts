@@ -110,19 +110,24 @@ test('scope, language and accessibility material respond to backend events and s
   await expect.poll(() => page.evaluate(() => (window as any).__menuFixture.calls.filter((call: any) => call.cmd === 'set_menu_bar_preferences').at(-1)?.args.patch.quota_scope)).toBe('other');
   await page.evaluate(() => (window as any).__menuFixture.failSave()); await page.getByLabel('Menu bar aggregate quotas').selectOption('gemini'); await expect(page.getByRole('alert').filter({ hasText: 'Could not save' })).toBeVisible(); await expect(page.getByLabel('Menu bar aggregate quotas')).toHaveValue('other');
 });
-test('family buttons persist independently from aggregate scope and never switch accounts', async ({ page }) => {
+test('family selection stays in Settings and disabled quotas show zero without activation', async ({ page }) => {
   await expect(page.locator('.mb-eyebrow')).toHaveText('AntiGravity tool lite');
   await expect(page.locator('.mb-mini.other').first()).toBeVisible();
   await expect(page.locator('.mb-account-identity').first()).toContainText('a@example.invalid');
   const identity = page.locator('.mb-account-identity').first();
   expect(await identity.evaluate(el => el.querySelector('.mb-account-switch')!.getBoundingClientRect().left > el.querySelector('button:first-child')!.getBoundingClientRect().left)).toBe(true);
-  await page.getByRole('button', { name: 'Claude 和 GPT', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Gemini', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Claude 和 GPT', exact: true })).toHaveCount(0);
+  await page.goto('/settings');
+  await page.getByLabel('账号区显示系列').selectOption('other');
+  await expect(page.getByLabel('账号区显示系列')).toHaveValue('other');
+  expect((await calls(page, 'set_menu_bar_preferences')).at(-1).args.patch).toEqual({ display_scope: 'other' });
+  await page.goto('/menubar');
   await expect(page.locator('.mb-mini.gemini')).toHaveCount(0);
   await expect(page.locator('.mb-mini.other').first()).toBeVisible();
   await expect(page.locator('.mb-aggregate strong')).toHaveText(['51%', '51%']);
   expect(await calls(page, 'switch_account')).toEqual([]);
-  expect((await calls(page, 'set_menu_bar_preferences')).at(-1).args.patch).toEqual({ display_scope: 'other' });
-  await page.reload(); await expect(page.getByRole('button', { name: 'Claude 和 GPT', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.reload(); await expect(page.locator('.mb-mini.gemini')).toHaveCount(0);
   await page.evaluate(() => (window as any).__menuFixture.setPreferences({ menu_bar: { hide_unavailable: false, label_style: 'email_only', show_weekly: false } }));
   await expect(page.locator('.mb-availability')).toHaveText(['可用 1/7']);
   await expect(page.locator('.mb-account-identity').first()).not.toContainText('账号 A');
@@ -130,6 +135,11 @@ test('family buttons persist independently from aggregate scope and never switch
   await expect(disabled).toHaveCount(1);
   await expect(disabled.locator('.mb-account-switch')).toBeDisabled();
   await expect(disabled.locator('.mb-account-switch')).toHaveText('已禁用');
-  await expect(disabled.locator('.mb-mini strong')).toHaveText(['—']);
+  await expect(disabled.locator('.mb-mini strong')).toHaveText(['0%']);
+  await expect(page.locator('.mb-availability')).toHaveText(['可用 1/7']);
+  await disabled.locator('.mb-account-identity > button:first-child').click();
+  await expect(page.locator('.mb-detail-row strong')).toHaveText(['0%', '0%', '0%', '0%']);
+  expect(await calls(page, 'switch_account')).toEqual([]);
+  await page.getByRole('button', { name: '返回总览' }).click();
   await expect(page.getByRole('button', { name: '关于应用' })).toHaveCount(0); await expect(page.getByRole('button', { name: 'GitHub', exact: true })).toBeVisible();
 });
