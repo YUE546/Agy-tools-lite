@@ -276,7 +276,7 @@ fn execute(command: Command, json: bool) -> Result<String> {
             Ok(if json {
                 serde_json::to_string(&summary).unwrap_or_default()
             } else {
-                picker::format_token_stats_human(&summary)
+                picker::format_token_stats_human(&summary, picker::Lang::current(&data_dir()?))
             })
         }
         Command::Refresh(selector) => {
@@ -334,7 +334,8 @@ fn execute(command: Command, json: bool) -> Result<String> {
             if snapshot.accounts.is_empty() {
                 return Ok("No saved accounts. Add an account in the Tools Lite GUI.".into());
             }
-            let selected_account = match picker::select_account_interactive(&snapshot.accounts) {
+            let lang = picker::Lang::current(&data_dir()?);
+            let selected_account = match picker::select_account_interactive(&snapshot.accounts, lang) {
                 Some(acc) => acc,
                 None => return Ok(String::new()),
             };

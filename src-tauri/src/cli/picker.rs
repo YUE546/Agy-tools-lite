@@ -3,10 +3,210 @@ use super::{CliError, HeadlessIntegration};
 use std::io::{self, Read, Write};
 use std::path::Path;
 
-pub(crate) fn quota_brief(quota: Option<&QuotaView>) -> String {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lang {
+    Zh,
+    En,
+}
+
+impl Lang {
+    pub fn current(root: &Path) -> Self {
+        if let Ok(content) = std::fs::read_to_string(root.join("gui_config.json")) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(l) = v.get("language").and_then(|l| l.as_str()) {
+                    if l.starts_with("zh") {
+                        return Lang::Zh;
+                    } else if l.starts_with("en") {
+                        return Lang::En;
+                    }
+                }
+            }
+        }
+        if let Some(loc) = sys_locale::get_locale() {
+            if loc.starts_with("zh") {
+                return Lang::Zh;
+            }
+        }
+        Lang::En
+    }
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::new();
+    let mut in_escape = false;
+    for c in s.chars() {
+        if c == '\x1b' {
+            in_escape = true;
+        } else if in_escape {
+            if c == 'm' {
+                in_escape = false;
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+pub fn display_width(s: &str) -> usize {
+    let clean = strip_ansi(s);
+    clean
+        .chars()
+        .map(|c| {
+            let u = c as u32;
+            if (0x4E00..=0x9FFF).contains(&u)
+                || (0x3400..=0x4DBF).contains(&u)
+                || (0x20000..=0x2A6DF).contains(&u)
+                || (0xF900..=0xFAFF).contains(&u)
+                || (0xFF01..=0xFF60).contains(&u)
+                || (0xFFE0..=0xFFE6).contains(&u)
+            {
+                2
+            } else {
+                1
+            }
+        })
+        .sum()
+}
+
+pub fn pad_right(s: &str, target_width: usize) -> String {
+    let w = display_width(s);
+    if w >= target_width {
+        s.to_string()
+    } else {
+        format!("{}{}", s, " ".repeat(target_width - w))
+    }
+}
+
+pub fn pad_left(s: &str, target_width: usize) -> String {
+    let w = display_width(s);
+    if w >= target_width {
+        s.to_string()
+    } else {
+        format!("{}{}", " ".repeat(target_width - w), s)
+    }
+}
+
+pub struct Table {
+    headers: Vec<String>,
+    rows: Vec<Vec<String>>,
+    align_right: Vec<bool>,
+}
+
+impl Table {
+    pub fn new(headers: Vec<&str>) -> Self {
+        let count = headers.len();
+        Self {
+            headers: headers.into_iter().map(String::from).collect(),
+            rows: Vec::new(),
+            align_right: vec![false; count],
+        }
+    }
+
+    pub fn set_align_right(&mut self, col: usize, right: bool) {
+        if col < self.align_right.len() {
+            self.align_right[col] = right;
+        }
+    }
+
+    pub fn add_row(&mut self, row: Vec<String>) {
+        self.rows.push(row);
+    }
+
+    pub fn render(&self) -> String {
+        let num_cols = self.headers.len();
+        if num_cols == 0 {
+            return String::new();
+        }
+        let mut col_widths = vec![0; num_cols];
+
+        for (i, h) in self.headers.iter().enumerate() {
+            col_widths[i] = col_widths[i].max(display_width(h));
+        }
+
+        for row in &self.rows {
+            for (i, cell) in row.iter().enumerate() {
+                if i < num_cols {
+                    col_widths[i] = col_widths[i].max(display_width(cell));
+                }
+            }
+        }
+
+        let mut out = String::new();
+
+        // Top border: ┌───┬───┐
+        out.push('┌');
+        for (i, w) in col_widths.iter().enumerate() {
+            out.push_str(&"─".repeat(*w + 2));
+            if i + 1 < num_cols {
+                out.push('┬');
+            }
+        }
+        out.push_str("┐\n");
+
+        // Header: │ Title │ ... │
+        out.push('│');
+        for (i, h) in self.headers.iter().enumerate() {
+            out.push(' ');
+            let cell = if self.align_right.get(i).copied().unwrap_or(false) {
+                pad_left(h, col_widths[i])
+            } else {
+                pad_right(h, col_widths[i])
+            };
+            out.push_str(&format!("\x1b[1;37m{}\x1b[0m", cell));
+            out.push(' ');
+            out.push('│');
+        }
+        out.push('\n');
+
+        // Header separator: ├───┼───┤
+        out.push('├');
+        for (i, w) in col_widths.iter().enumerate() {
+            out.push_str(&"─".repeat(*w + 2));
+            if i + 1 < num_cols {
+                out.push('┼');
+            }
+        }
+        out.push_str("┤\n");
+
+        // Data rows
+        for row in &self.rows {
+            out.push('│');
+            for (i, cell) in row.iter().enumerate() {
+                out.push(' ');
+                let padded = if self.align_right.get(i).copied().unwrap_or(false) {
+                    pad_left(cell, col_widths[i])
+                } else {
+                    pad_right(cell, col_widths[i])
+                };
+                out.push_str(&padded);
+                out.push(' ');
+                out.push('│');
+            }
+            out.push('\n');
+        }
+
+        // Bottom border: └───┴───┘
+        out.push('└');
+        for (i, w) in col_widths.iter().enumerate() {
+            out.push_str(&"─".repeat(*w + 2));
+            if i + 1 < num_cols {
+                out.push('┴');
+            }
+        }
+        out.push_str("┘\n");
+
+        out
+    }
+}
+
+pub(crate) fn quota_brief(quota: Option<&QuotaView>, lang: Lang) -> String {
     if let Some(q) = quota {
         if q.is_forbidden {
-            return " (额度受限)".into();
+            return match lang {
+                Lang::Zh => " (额度受限)".into(),
+                Lang::En => " (Forbidden)".into(),
+            };
         }
         let mut parts = Vec::new();
         if let Some(groups) = &q.quota_groups {
@@ -35,7 +235,7 @@ pub(crate) fn quota_brief(quota: Option<&QuotaView>) -> String {
     String::new()
 }
 
-pub(crate) fn format_countdown(reset_time_str: &str) -> String {
+pub(crate) fn format_countdown(reset_time_str: &str, lang: Lang) -> String {
     if reset_time_str.is_empty() {
         return String::new();
     }
@@ -43,14 +243,28 @@ pub(crate) fn format_countdown(reset_time_str: &str) -> String {
         let now = chrono::Utc::now();
         let diff = reset_dt.signed_duration_since(now.with_timezone(&reset_dt.timezone()));
         if diff.num_seconds() <= 0 {
-            "已重置".to_string()
+            match lang {
+                Lang::Zh => "已重置".to_string(),
+                Lang::En => "Reset".to_string(),
+            }
         } else {
             let hours = diff.num_hours();
             let mins = diff.num_minutes() % 60;
-            if hours > 0 {
-                format!("{}小时{}分后重置", hours, mins)
-            } else {
-                format!("{}分后重置", mins.max(1))
+            match lang {
+                Lang::Zh => {
+                    if hours > 0 {
+                        format!("{}小时{}分后重置", hours, mins)
+                    } else {
+                        format!("{}分后重置", mins.max(1))
+                    }
+                }
+                Lang::En => {
+                    if hours > 0 {
+                        format!("{}h {}m", hours, mins)
+                    } else {
+                        format!("{}m", mins.max(1))
+                    }
+                }
             }
         }
     } else {
@@ -78,11 +292,11 @@ pub(crate) fn progress_bar(percentage: i32, width: usize) -> String {
     let empty = width.saturating_sub(filled);
     let bar: String = "█".repeat(filled) + &"░".repeat(empty);
     let color = if pct > 50 {
-        "\x1b[1;32m" // green
+        "\x1b[32m" // green
     } else if pct > 20 {
-        "\x1b[1;33m" // yellow
+        "\x1b[33m" // yellow
     } else {
-        "\x1b[1;31m" // red
+        "\x1b[31m" // red
     };
     format!("{}{}\x1b[0m", color, bar)
 }
@@ -193,8 +407,12 @@ fn prompt_line(prompt: &str) -> String {
     line.trim().to_string()
 }
 
-fn wait_for_key() {
-    print!("\n\x1b[2m按任意键继续...\x1b[0m");
+fn wait_for_key(lang: Lang) {
+    let msg = match lang {
+        Lang::Zh => "按任意键继续...",
+        Lang::En => "Press any key to continue...",
+    };
+    print!("\n\x1b[2m{}\x1b[0m", msg);
     let _ = io::stdout().flush();
     #[cfg(unix)]
     {
@@ -209,7 +427,7 @@ fn wait_for_key() {
     let _ = io::stdin().read_line(&mut input);
 }
 
-pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize) -> Option<usize> {
+pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize, lang: Lang) -> Option<usize> {
     if items.is_empty() {
         return None;
     }
@@ -223,20 +441,22 @@ pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize) -> O
             print!("\x1b[?25l");
             let _ = stdout.flush();
 
+            let hint = match lang {
+                Lang::Zh => "(↑/↓ 移动  |  回车确认  |  数字键选择  |  0/Q 退出)",
+                Lang::En => "(↑/↓ Navigate  |  Enter Select  |  Numbers  |  0/Q Quit)",
+            };
+
             let render = |sel: usize, first: bool| {
                 let mut out = io::stdout();
                 if !first {
                     print!("\x1b[{}A", items.len() + 1);
                 }
-                println!(
-                    "\x1b[2K\r\x1b[1;36m{}\x1b[0m \x1b[2m(↑/↓ 移动，回车确认，数字键选择，q/Esc 取消):\x1b[0m",
-                    title
-                );
+                println!("\x1b[2K\r\x1b[1;37m{}\x1b[0m \x1b[2m{}\x1b[0m", title, hint);
                 for (i, item) in items.iter().enumerate() {
                     if i == sel {
-                        println!("\x1b[2K\r \x1b[1;32m❯\x1b[0m \x1b[1;37m{}\x1b[0m", item);
+                        println!("\x1b[2K\r  \x1b[1;36m➤\x1b[0m \x1b[1;37m{}\x1b[0m", item);
                     } else {
-                        println!("\x1b[2K\r   \x1b[2m{}\x1b[0m", item);
+                        println!("\x1b[2K\r    \x1b[2m{}\x1b[0m", item);
                     }
                 }
                 let _ = out.flush();
@@ -263,11 +483,10 @@ pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize) -> O
                         render(selected, false);
                     }
                     KeyAction::SelectIndex(idx) => {
-                        // Check if any item contains [1..9]
                         let digit = (idx + 1).to_string();
-                        let bracket = format!("[{}]", digit);
+                        let prefix = format!("{}.", digit);
                         for (i, item) in items.iter().enumerate() {
-                            if item.contains(&bracket) {
+                            if item.contains(&prefix) || item.starts_with(&digit) {
                                 print!("\x1b[?25h");
                                 let _ = stdout.flush();
                                 return Some(i);
@@ -280,9 +499,8 @@ pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize) -> O
                         }
                     }
                     KeyAction::Char('0') => {
-                        // Check if any item has [0]
                         for (i, item) in items.iter().enumerate() {
-                            if item.contains("[0]") {
+                            if item.contains("0.") || item.starts_with('0') {
                                 print!("\x1b[?25h");
                                 let _ = stdout.flush();
                                 return Some(i);
@@ -294,9 +512,9 @@ pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize) -> O
                     }
                     KeyAction::Char(ch) => {
                         let upper = ch.to_ascii_uppercase();
-                        let bracket = format!("[{}]", upper);
+                        let prefix = format!("{}.", upper);
                         for (i, item) in items.iter().enumerate() {
-                            if item.contains(&bracket) {
+                            if item.contains(&prefix) {
                                 print!("\x1b[?25h");
                                 let _ = stdout.flush();
                                 return Some(i);
@@ -323,7 +541,11 @@ pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize) -> O
     for item in items.iter() {
         println!("  {}", item);
     }
-    print!("请输入选项序号 [1-{}]: ", items.len());
+    let prompt_msg = match lang {
+        Lang::Zh => format!("请输入选项序号 [1-{}]: ", items.len()),
+        Lang::En => format!("Select option [1-{}]: ", items.len()),
+    };
+    print!("{}", prompt_msg);
     let _ = io::stdout().flush();
     let mut input = String::new();
     if io::stdin().read_line(&mut input).is_ok() {
@@ -337,10 +559,107 @@ pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize) -> O
     None
 }
 
-pub fn select_account_interactive<'a>(accounts: &'a [AccountView]) -> Option<&'a AccountView> {
+fn build_accounts_table(accounts: &[AccountView], lang: Lang) -> Table {
+    let headers = match lang {
+        Lang::Zh => vec!["#", "账号 (Email / 备注)", "Gemini 配额", "Claude/GPT 配额", "状态"],
+        Lang::En => vec!["#", "Account (Email / Label)", "Gemini Quota", "Claude/GPT Quota", "Status"],
+    };
+    let mut table = Table::new(headers);
+
+    for (i, acc) in accounts.iter().enumerate() {
+        let label = match &acc.custom_label {
+            Some(l) if !l.trim().is_empty() => format!(" ({})", l),
+            _ => String::new(),
+        };
+        let cur = if acc.is_current { " *" } else { "" };
+        let display_name = format!("{}{}{}", acc.email, label, cur);
+
+        let mut gemini_quota = match lang {
+            Lang::Zh => "暂无数据".to_string(),
+            Lang::En => "No data".to_string(),
+        };
+        let mut claude_quota = match lang {
+            Lang::Zh => "暂无数据".to_string(),
+            Lang::En => "No data".to_string(),
+        };
+
+        if let Some(q) = &acc.quota {
+            if q.is_forbidden {
+                gemini_quota = match lang {
+                    Lang::Zh => "额度受限".into(),
+                    Lang::En => "Forbidden".into(),
+                };
+                claude_quota = gemini_quota.clone();
+            } else if let Some(groups) = &q.quota_groups {
+                for g in groups {
+                    if let Some(b) = g.buckets.first() {
+                        let pct = (b.remaining_fraction * 100.0).round() as i32;
+                        let cd = format_countdown(&b.reset_time, lang);
+                        let text = if cd.is_empty() {
+                            format!("{}%", pct)
+                        } else {
+                            format!("{}% ({})", pct, cd)
+                        };
+                        if g.display_name.contains("Gemini") {
+                            gemini_quota = text;
+                        } else if g.display_name.contains("Claude") || g.display_name.contains("GPT") {
+                            claude_quota = text;
+                        }
+                    }
+                }
+            } else {
+                for m in &q.models {
+                    if m.name.contains("gemini") {
+                        gemini_quota = format!("{}%", m.percentage);
+                    } else if m.name.contains("claude") {
+                        claude_quota = format!("{}%", m.percentage);
+                    }
+                }
+            }
+        }
+
+        let status = if acc.disabled {
+            match lang {
+                Lang::Zh => "\x1b[31m已禁用\x1b[0m",
+                Lang::En => "\x1b[31mDisabled\x1b[0m",
+            }
+        } else if acc.validation_blocked {
+            match lang {
+                Lang::Zh => "\x1b[33m需验证\x1b[0m",
+                Lang::En => "\x1b[33mVerify\x1b[0m",
+            }
+        } else if acc.is_current {
+            match lang {
+                Lang::Zh => "\x1b[32m当前生效\x1b[0m",
+                Lang::En => "\x1b[32mActive\x1b[0m",
+            }
+        } else {
+            match lang {
+                Lang::Zh => "正常",
+                Lang::En => "Normal",
+            }
+        };
+
+        table.add_row(vec![
+            (i + 1).to_string(),
+            display_name,
+            gemini_quota,
+            claude_quota,
+            status.to_string(),
+        ]);
+    }
+    table
+}
+
+pub fn select_account_interactive<'a>(
+    accounts: &'a [AccountView],
+    lang: Lang,
+) -> Option<&'a AccountView> {
     if accounts.is_empty() {
         return None;
     }
+
+    let table_str = build_accounts_table(accounts, lang).render();
 
     #[cfg(unix)]
     {
@@ -351,48 +670,34 @@ pub fn select_account_interactive<'a>(accounts: &'a [AccountView]) -> Option<&'a
             print!("\x1b[?25l");
             let _ = stdout.flush();
 
+            let prompt_text = match lang {
+                Lang::Zh => "? 请选择账号 (↑/↓ 移动  |  回车确认  |  数字键直选  |  Q 取消):",
+                Lang::En => "? Select account (↑/↓ Navigate  |  Enter Select  |  Numbers  |  Q Cancel):",
+            };
+
             let render = |sel: usize, initial: bool| {
                 let mut out = io::stdout();
                 if !initial {
-                    print!("\x1b[{}A", accounts.len() + 1);
+                    // 3 lines: prompt, selected line, empty line
+                    print!("\x1b[3A");
+                } else {
+                    print!("\x1b[2J\x1b[H");
+                    print!("{}", table_str);
                 }
-                println!(
-                    "\x1b[2K\r\x1b[1;36m? 请选择账号\x1b[0m \x1b[2m(↑/↓ 移动，回车确认，数字选择，q/Esc 取消):\x1b[0m"
-                );
 
-                for (i, acc) in accounts.iter().enumerate() {
-                    let is_sel = i == sel;
-                    let quota_text = quota_brief(acc.quota.as_ref());
-                    let mut flags = Vec::new();
-                    if acc.is_current {
-                        flags.push("当前生效");
-                    }
-                    if acc.disabled {
-                        flags.push("已禁用");
-                    }
-                    let label_str = match &acc.custom_label {
-                        Some(l) if !l.trim().is_empty() => format!(" ({})", l),
-                        _ => String::new(),
-                    };
-                    let flag_str = if flags.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" [{}]", flags.join(", "))
-                    };
+                let cur = &accounts[sel];
+                let label = match &cur.custom_label {
+                    Some(l) if !l.trim().is_empty() => format!(" ({})", l),
+                    _ => String::new(),
+                };
+                let sel_indicator = match lang {
+                    Lang::Zh => format!("➤ 当前选中: [{}] {}{}", sel + 1, cur.email, label),
+                    Lang::En => format!("➤ Selected: [{}] {}{}", sel + 1, cur.email, label),
+                };
 
-                    let display = format!("{}{}", acc.email, label_str);
-                    if is_sel {
-                        println!(
-                            "\x1b[2K\r \x1b[1;32m❯\x1b[0m \x1b[1;37m{:<32}\x1b[0m\x1b[36m{}\x1b[0m\x1b[33m{}\x1b[0m",
-                            display, quota_text, flag_str
-                        );
-                    } else {
-                        println!(
-                            "\x1b[2K\r   \x1b[2m{:<32}{}{}\x1b[0m",
-                            display, quota_text, flag_str
-                        );
-                    }
-                }
+                println!("\x1b[2K\r\x1b[1;37m{}\x1b[0m", prompt_text);
+                println!("\x1b[2K\r\x1b[1;36m{}\x1b[0m", sel_indicator);
+                println!("\x1b[2K\r");
                 let _ = out.flush();
             };
 
@@ -418,26 +723,17 @@ pub fn select_account_interactive<'a>(accounts: &'a [AccountView]) -> Option<&'a
                     }
                     KeyAction::SelectIndex(idx) => {
                         if idx < accounts.len() {
-                            selected = idx;
-                            render(selected, false);
+                            print!("\x1b[?25h");
+                            let _ = stdout.flush();
+                            return Some(&accounts[idx]);
                         }
                     }
                     KeyAction::Enter => {
-                        print!("\x1b[{}A", accounts.len() + 1);
-                        for _ in 0..=accounts.len() {
-                            println!("\x1b[2K\r");
-                        }
-                        print!("\x1b[{}A", accounts.len() + 1);
                         print!("\x1b[?25h");
                         let _ = stdout.flush();
                         return Some(&accounts[selected]);
                     }
                     KeyAction::Cancel => {
-                        print!("\x1b[{}A", accounts.len() + 1);
-                        for _ in 0..=accounts.len() {
-                            println!("\x1b[2K\r");
-                        }
-                        print!("\x1b[{}A", accounts.len() + 1);
                         print!("\x1b[?25h");
                         let _ = stdout.flush();
                         return None;
@@ -448,13 +744,12 @@ pub fn select_account_interactive<'a>(accounts: &'a [AccountView]) -> Option<&'a
         }
     }
 
-    println!("请选择账号 (输入序号 1-{}):", accounts.len());
-    for (i, acc) in accounts.iter().enumerate() {
-        let quota_text = quota_brief(acc.quota.as_ref());
-        let current_marker = if acc.is_current { " [当前生效]" } else { "" };
-        println!("  {}. {}{}{}", i + 1, acc.email, quota_text, current_marker);
-    }
-    print!("请输入序号 [1-{}]: ", accounts.len());
+    print!("{}", table_str);
+    let prompt_msg = match lang {
+        Lang::Zh => format!("请输入账号序号 [1-{}]: ", accounts.len()),
+        Lang::En => format!("Select account number [1-{}]: ", accounts.len()),
+    };
+    print!("{}", prompt_msg);
     let _ = io::stdout().flush();
     let mut input = String::new();
     if io::stdin().read_line(&mut input).is_ok() {
@@ -469,22 +764,36 @@ pub fn select_account_interactive<'a>(accounts: &'a [AccountView]) -> Option<&'a
 
 pub fn format_token_stats_human(
     summary: &crate::modules::native_token_stats::LocalTokenUsageSummary,
+    lang: Lang,
 ) -> String {
     let mut out = String::new();
-    out.push_str(&format!(
-        "{:<16} {:>14} {:>14} {:>14} {:>12} {:>10}\n",
-        "时间区间", "总计 Token", "输入 Token", "输出 Token", "缓存命中率", "请求次数"
-    ));
-    out.push_str(&"-".repeat(84));
-    out.push('\n');
 
-    let periods = [
-        ("今日 (Today)", &summary.today),
-        ("昨日 (Yesterday)", &summary.yesterday),
-        ("近 3 天", &summary.last_3_days),
-        ("近 7 天", &summary.last_7_days),
-        ("近 30 天", &summary.last_30_days),
-    ];
+    let headers = match lang {
+        Lang::Zh => vec!["时间周期", "总计 Token", "输入 Token", "输出 Token", "缓存命中率", "请求次数"],
+        Lang::En => vec!["Period", "Total Tokens", "Input Tokens", "Output Tokens", "Cache Hit", "Requests"],
+    };
+
+    let mut table = Table::new(headers);
+    for col in 1..=5 {
+        table.set_align_right(col, true);
+    }
+
+    let periods = match lang {
+        Lang::Zh => [
+            ("今日 (Today)", &summary.today),
+            ("昨日 (Yesterday)", &summary.yesterday),
+            ("近 3 天", &summary.last_3_days),
+            ("近 7 天", &summary.last_7_days),
+            ("近 30 天", &summary.last_30_days),
+        ],
+        Lang::En => [
+            ("Today", &summary.today),
+            ("Yesterday", &summary.yesterday),
+            ("Last 3 Days", &summary.last_3_days),
+            ("Last 7 Days", &summary.last_7_days),
+            ("Last 30 Days", &summary.last_30_days),
+        ],
+    };
 
     for (name, row) in periods {
         let total_in = row.input_tokens + row.cached_tokens;
@@ -493,111 +802,174 @@ pub fn format_token_stats_human(
         } else {
             "0.0%".into()
         };
-        out.push_str(&format!(
-            "{:<16} {:>14} {:>14} {:>14} {:>12} {:>10}\n",
-            name,
+        table.add_row(vec![
+            name.to_string(),
             format_number(row.total_tokens),
             format_number(row.input_tokens),
             format_number(row.output_tokens),
             hit_rate,
             format_number(row.request_count),
-        ));
+        ]);
     }
 
+    out.push_str(&table.render());
+
     if !summary.by_model_today.is_empty() {
-        out.push_str("\n\x1b[1;37m【今日各模型用量明细】\x1b[0m\n");
+        let title = match lang {
+            Lang::Zh => "\n【今日各模型用量明细】\n",
+            Lang::En => "\n[Model Breakdown: Today]\n",
+        };
+        out.push_str(title);
+
+        let m_headers = match lang {
+            Lang::Zh => vec!["模型名称", "总计 Token", "输入 Token", "输出 Token", "缓存 Token", "请求次数"],
+            Lang::En => vec!["Model", "Total Tokens", "Input Tokens", "Output Tokens", "Cached Tokens", "Requests"],
+        };
+        let mut m_table = Table::new(m_headers);
+        for col in 1..=5 {
+            m_table.set_align_right(col, true);
+        }
         for m in &summary.by_model_today {
-            out.push_str(&format!(
-                "  • {:<24} 总计: {:>10}  (输入: {}, 输出: {}, 缓存: {}, {} 次请求)\n",
-                m.model,
+            m_table.add_row(vec![
+                m.model.clone(),
                 format_number(m.total_tokens),
                 format_number(m.input_tokens),
                 format_number(m.output_tokens),
                 format_number(m.cached_tokens),
-                m.request_count,
-            ));
+                format_number(m.request_count),
+            ]);
         }
+        out.push_str(&m_table.render());
     }
 
     if !summary.by_model.is_empty() {
-        out.push_str("\n\x1b[1;37m【近 30 天主要模型用量】\x1b[0m\n");
+        let title = match lang {
+            Lang::Zh => "\n【近 30 天主要模型用量排行】\n",
+            Lang::En => "\n[Top Models: Last 30 Days]\n",
+        };
+        out.push_str(title);
+
+        let m_headers = match lang {
+            Lang::Zh => vec!["模型名称", "总计 Token", "请求次数"],
+            Lang::En => vec!["Model", "Total Tokens", "Requests"],
+        };
+        let mut m_table = Table::new(m_headers);
+        m_table.set_align_right(1, true);
+        m_table.set_align_right(2, true);
         for m in summary.by_model.iter().take(5) {
-            out.push_str(&format!(
-                "  • {:<24} 总计: {:>12}  (共 {} 次请求)\n",
-                m.model,
+            m_table.add_row(vec![
+                m.model.clone(),
                 format_number(m.total_tokens),
                 format_number(m.request_count),
-            ));
+            ]);
         }
+        out.push_str(&m_table.render());
     }
 
-    out.push_str(&format!(
-        "\n\x1b[2m数据来源: 扫描 {} 个本地 SQLite 数据库 | 累计对话记录: {} 条\x1b[0m",
-        summary.databases_scanned, summary.generations_scanned
-    ));
+    let footer = match lang {
+        Lang::Zh => format!(
+            "\n\x1b[2m数据来源: 扫描 {} 个本地 SQLite 数据库 | 累计对话记录: {} 条\x1b[0m\n",
+            summary.databases_scanned, summary.generations_scanned
+        ),
+        Lang::En => format!(
+            "\n\x1b[2mSource: Scanned {} local SQLite databases | Total records: {}\x1b[0m\n",
+            summary.databases_scanned, summary.generations_scanned
+        ),
+    };
+    out.push_str(&footer);
 
     out
 }
 
 pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
     loop {
+        let lang = Lang::current(root);
         let snapshot = Snapshot::read(root).unwrap_or(Snapshot {
             accounts: vec![],
             current_target: None,
         });
 
-        // Clear screen and show header
+        // Clear screen and show minimal, professional header
         print!("\x1b[2J\x1b[H");
-        println!("\x1b[1;36m┌────────────────────────────────────────────────────────────────────────┐\x1b[0m");
         println!(
-            "\x1b[1;36m│\x1b[0m  \x1b[1;37m🚀 Antigravity Tools Lite · agy-switch v{}\x1b[0m",
+            "\x1b[1;37mAntigravity Tools Lite\x1b[0m · \x1b[36magy-switch v{}\x1b[0m",
             env!("CARGO_PKG_VERSION")
         );
+
         if let Ok(curr) = snapshot.current() {
             let target = snapshot.current_target.as_deref().unwrap_or("app");
             let label = match &curr.custom_label {
                 Some(l) if !l.trim().is_empty() => format!(" ({})", l),
                 _ => String::new(),
             };
-            println!(
-                "\x1b[1;36m│\x1b[0m  当前生效: \x1b[1;32m{}{}\x1b[0m \x1b[2m(目标: {})\x1b[0m",
-                curr.email, label, target
-            );
-            let qb = quota_brief(curr.quota.as_ref());
-            if !qb.is_empty() {
-                println!(
-                    "\x1b[1;36m│\x1b[0m  额度概况: \x1b[36m{}\x1b[0m",
-                    qb.trim_start_matches(" (").trim_end_matches(')')
-                );
+            let qb = quota_brief(curr.quota.as_ref(), lang);
+            let quota_part = if qb.is_empty() {
+                String::new()
+            } else {
+                format!("  | {}", qb.trim_start_matches(" (").trim_end_matches(')'))
+            };
+            match lang {
+                Lang::Zh => println!(
+                    "\x1b[2m当前生效:\x1b[0m \x1b[1;32m{}{}\x1b[0m \x1b[2m[{}]\x1b[0m{}\n",
+                    curr.email, label, target, quota_part
+                ),
+                Lang::En => println!(
+                    "\x1b[2mActive:\x1b[0m \x1b[1;32m{}{}\x1b[0m \x1b[2m[{}]\x1b[0m{}\n",
+                    curr.email, label, target, quota_part
+                ),
             }
         } else {
-            println!("\x1b[1;36m│\x1b[0m  当前生效: \x1b[33m未设置 / 暂无账号\x1b[0m");
+            match lang {
+                Lang::Zh => println!("\x1b[2m当前生效:\x1b[0m \x1b[33m未设置 / 暂无账号\x1b[0m\n"),
+                Lang::En => println!("\x1b[2mActive:\x1b[0m \x1b[33mNone / No accounts\x1b[0m\n"),
+            }
         }
-        println!("\x1b[1;36m└────────────────────────────────────────────────────────────────────────┘\x1b[0m\n");
 
-        let menu_items = [
-            "[1] 🔄 切换当前生效账号 (Switch Account)",
-            "[2] 📊 查看账号额度详情 (Quota Details)",
-            "[3] 📈 本地 Token 用量统计 (Token Statistics)",
-            "[4] ⚡ 刷新账号配额 (Refresh Live Quotas)",
-            "[5] ➕ 添加 Google 账号 (Add New Account / OAuth)",
-            "[6] ⚙️  账号管理与备注 (Manage Accounts & Labels)",
-            "[7] 🖥️  关联应用与系统状态 (Linked Apps & Storage)",
-            "[0] 🚪 退出控制台 (Exit)",
-        ];
+        let (title, menu_items) = match lang {
+            Lang::Zh => (
+                "选择功能:",
+                vec![
+                    "1. 切换账号      选择生效账号与同步目标 (APP / IDE)",
+                    "2. 配额详情      查看各模型配额余量与重置倒计时",
+                    "3. 用量统计      本地 Token 消耗与模型分布统计",
+                    "4. 刷新配额      联网同步 Google API 最新额度",
+                    "5. 添加账号      通过 Google OAuth 授权添加新账号",
+                    "6. 账号管理      修改备注、切换启用状态或删除账号",
+                    "7. 环境状态      关联应用与本地存储状态",
+                    "0. 退出控制台    退出当前工具",
+                ],
+            ),
+            Lang::En => (
+                "Select Command:",
+                vec![
+                    "1. Switch        Switch active account and session target (APP / IDE)",
+                    "2. Quotas        View model quotas and reset countdowns",
+                    "3. Statistics    Inspect local token usage and model breakdown",
+                    "4. Refresh       Fetch live quotas from Google API",
+                    "5. Add Account   Authorize new Google account via OAuth",
+                    "6. Manage        Edit labels, toggle status, or remove accounts",
+                    "7. Status        Inspect linked applications and storage",
+                    "0. Exit          Quit agy-switch",
+                ],
+            ),
+        };
 
-        let choice = select_menu_interactive("请选择操作功能:", &menu_items, 0);
+        let choice = select_menu_interactive(title, &menu_items, 0, lang);
 
         match choice {
-            Some(0) => show_account_switcher(root, &snapshot),
-            Some(1) => show_quota_details(&snapshot),
-            Some(2) => show_token_statistics(),
-            Some(3) => show_refresh_quotas(&snapshot),
-            Some(4) => show_add_account(),
-            Some(5) => show_manage_accounts(&snapshot),
-            Some(6) => show_system_status(&snapshot, root),
+            Some(0) => show_account_switcher(root, &snapshot, lang),
+            Some(1) => show_quota_details(&snapshot, lang),
+            Some(2) => show_token_statistics(lang),
+            Some(3) => show_refresh_quotas(&snapshot, lang),
+            Some(4) => show_add_account(lang),
+            Some(5) => show_manage_accounts(&snapshot, lang),
+            Some(6) => show_system_status(&snapshot, root, lang),
             Some(7) | None => {
-                println!("\n\x1b[2m已退出 agy-switch 控制台。\x1b[0m\n");
+                let exit_msg = match lang {
+                    Lang::Zh => "\n\x1b[2m已退出 agy-switch 控制台。\x1b[0m\n",
+                    Lang::En => "\n\x1b[2mExited agy-switch.\x1b[0m\n",
+                };
+                println!("{}", exit_msg);
                 break;
             }
             _ => {}
@@ -606,27 +978,42 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
     Ok(())
 }
 
-fn show_account_switcher(_root: &Path, snapshot: &Snapshot) {
+fn show_account_switcher(_root: &Path, snapshot: &Snapshot, lang: Lang) {
     if snapshot.accounts.is_empty() {
-        println!("\n\x1b[33m⚠️ 暂无已保存账号，请先使用 [5] 添加 Google 账号。\x1b[0m");
-        wait_for_key();
+        let msg = match lang {
+            Lang::Zh => "\n\x1b[33m暂无已保存账号，请使用 [5] 添加 Google 账号。\x1b[0m",
+            Lang::En => "\n\x1b[33mNo saved accounts. Use [5] to add a Google account.\x1b[0m",
+        };
+        println!("{}", msg);
+        wait_for_key(lang);
         return;
     }
 
-    let selected = match select_account_interactive(&snapshot.accounts) {
+    let selected = match select_account_interactive(&snapshot.accounts, lang) {
         Some(acc) => acc,
         None => return,
     };
 
-    let target_choice = select_menu_interactive(
-        "请选择生效目标:",
-        &[
-            "[1] AntiGravity APP 与 CLI (默认同步两端)",
-            "[2] AntiGravity IDE (专属关联通道)",
-            "[0] ↩️  取消并返回",
-        ],
-        0,
-    );
+    let (title, target_items) = match lang {
+        Lang::Zh => (
+            "选择生效目标:",
+            vec![
+                "1. AntiGravity APP 与 CLI (默认同步两端)",
+                "2. AntiGravity IDE (专属关联通道)",
+                "0. 取消并返回",
+            ],
+        ),
+        Lang::En => (
+            "Select Target:",
+            vec![
+                "1. AntiGravity APP & CLI (Default sync both)",
+                "2. AntiGravity IDE (Dedicated IDE channel)",
+                "0. Cancel",
+            ],
+        ),
+    };
+
+    let target_choice = select_menu_interactive(title, &target_items, 0, lang);
 
     let target_ide = match target_choice {
         Some(0) => None,
@@ -634,12 +1021,21 @@ fn show_account_switcher(_root: &Path, snapshot: &Snapshot) {
         _ => return,
     };
 
-    println!("\n\x1b[2m正在执行账号切换并同步会话...\x1b[0m");
+    let wait_msg = match lang {
+        Lang::Zh => "\n\x1b[2m正在执行账号切换并同步会话...\x1b[0m",
+        Lang::En => "\n\x1b[2mSwitching account and synchronizing session...\x1b[0m",
+    };
+    println!("{}", wait_msg);
+
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
-            println!("\x1b[1;31m✗ 启动异步运行时失败: {}\x1b[0m", e);
-            wait_for_key();
+            let err_msg = match lang {
+                Lang::Zh => format!("\x1b[31m启动异步运行时失败: {}\x1b[0m", e),
+                Lang::En => format!("\x1b[31mFailed to start async runtime: {}\x1b[0m", e),
+            };
+            println!("{}", err_msg);
+            wait_for_key(lang);
             return;
         }
     };
@@ -650,24 +1046,39 @@ fn show_account_switcher(_root: &Path, snapshot: &Snapshot) {
         &HeadlessIntegration,
     )) {
         Ok(_) => {
-            println!(
-                "\x1b[1;32m✓ 已成功切换生效账号至: {}\x1b[0m (目标: {})",
-                selected.email,
-                target_ide.unwrap_or("app")
-            );
-            println!("\x1b[2m提示: 请在终端开启新的 agy 命令以使用最新会话。\x1b[0m");
+            let succ_msg = match lang {
+                Lang::Zh => format!(
+                    "\x1b[1;32m✓ 账号切换成功: {}\x1b[0m (目标: {})\n\x1b[2m提示: 请在终端开启新的 agy 命令以使用最新会话。\x1b[0m",
+                    selected.email,
+                    target_ide.unwrap_or("app")
+                ),
+                Lang::En => format!(
+                    "\x1b[1;32m✓ Successfully switched to: {}\x1b[0m (target: {})\n\x1b[2mHint: Start a new agy command to use the updated session.\x1b[0m",
+                    selected.email,
+                    target_ide.unwrap_or("app")
+                ),
+            };
+            println!("{}", succ_msg);
         }
         Err(err) => {
-            println!("\x1b[1;31m✗ 账号切换失败: {}\x1b[0m", err);
+            let fail_msg = match lang {
+                Lang::Zh => format!("\x1b[31m账号切换失败: {}\x1b[0m", err),
+                Lang::En => format!("\x1b[31mAccount switch failed: {}\x1b[0m", err),
+            };
+            println!("{}", fail_msg);
         }
     }
-    wait_for_key();
+    wait_for_key(lang);
 }
 
-fn show_quota_details(snapshot: &Snapshot) {
+fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
     if snapshot.accounts.is_empty() {
-        println!("\n\x1b[33m⚠️ 暂无已保存账号。\x1b[0m");
-        wait_for_key();
+        let msg = match lang {
+            Lang::Zh => "\n\x1b[33m暂无已保存账号。\x1b[0m",
+            Lang::En => "\n\x1b[33mNo saved accounts.\x1b[0m",
+        };
+        println!("{}", msg);
+        wait_for_key(lang);
         return;
     }
 
@@ -680,88 +1091,51 @@ fn show_quota_details(snapshot: &Snapshot) {
                 Some(l) if !l.trim().is_empty() => format!(" ({})", l),
                 _ => String::new(),
             };
-            let current = if acc.is_current { " [当前生效]" } else { "" };
-            items.push(format!("[{}] {}{}{}", i + 1, acc.email, label, current));
+            let current = if acc.is_current {
+                match lang {
+                    Lang::Zh => " [当前生效]",
+                    Lang::En => " [Active]",
+                }
+            } else {
+                ""
+            };
+            items.push(format!("{}. {}{}{}", i + 1, acc.email, label, current));
         }
-        items.push("[A] 📊 全部账号额度总览对比".into());
-        items.push("[0] ↩️  返回主菜单".into());
+        let all_label = match lang {
+            Lang::Zh => "A. 全部账号额度总览对比表格",
+            Lang::En => "A. View all accounts comparison table",
+        };
+        let back_label = match lang {
+            Lang::Zh => "0. 返回主菜单",
+            Lang::En => "0. Back to main menu",
+        };
+        items.push(all_label.into());
+        items.push(back_label.into());
 
+        let title = match lang {
+            Lang::Zh => "选择要查看配额的账号:",
+            Lang::En => "Select account to view quotas:",
+        };
         let str_items: Vec<&str> = items.iter().map(String::as_str).collect();
-        let sel = select_menu_interactive("请选择要查看额度的账号:", &str_items, 0);
+        let sel = select_menu_interactive(title, &str_items, 0, lang);
 
         match sel {
             Some(idx) if idx < snapshot.accounts.len() => Some(&snapshot.accounts[idx]),
             Some(idx) if idx == snapshot.accounts.len() => {
                 // Table of all accounts
                 print!("\x1b[2J\x1b[H");
-                println!("\x1b[1;36m================================================================================\x1b[0m");
-                println!("\x1b[1;37m  📊 全部账号额度总览对比表格\x1b[0m");
-                println!("\x1b[1;36m================================================================================\x1b[0m\n");
-                println!(
-                    "{:<32} {:<20} {:<20} {:<10}",
-                    "账号 (Email / 备注)", "Gemini 配额", "Claude/GPT 配额", "状态"
-                );
-                println!("{}", "-".repeat(84));
-                for acc in &snapshot.accounts {
-                    let label = match &acc.custom_label {
-                        Some(l) if !l.trim().is_empty() => format!(" ({})", l),
-                        _ => String::new(),
-                    };
-                    let cur = if acc.is_current { " *" } else { "" };
-                    let display_name = format!("{}{}{}", acc.email, label, cur);
-
-                    let mut gemini_quota = "暂无数据".to_string();
-                    let mut claude_quota = "暂无数据".to_string();
-
-                    if let Some(q) = &acc.quota {
-                        if q.is_forbidden {
-                            gemini_quota = "额度受限".into();
-                            claude_quota = "额度受限".into();
-                        } else if let Some(groups) = &q.quota_groups {
-                            for g in groups {
-                                if let Some(b) = g.buckets.first() {
-                                    let pct = (b.remaining_fraction * 100.0).round() as i32;
-                                    let cd = format_countdown(&b.reset_time);
-                                    let text = if cd.is_empty() {
-                                        format!("{}%", pct)
-                                    } else {
-                                        format!("{}% ({})", pct, cd)
-                                    };
-                                    if g.display_name.contains("Gemini") {
-                                        gemini_quota = text;
-                                    } else if g.display_name.contains("Claude")
-                                        || g.display_name.contains("GPT")
-                                    {
-                                        claude_quota = text;
-                                    }
-                                }
-                            }
-                        } else {
-                            for m in &q.models {
-                                if m.name.contains("gemini") {
-                                    gemini_quota = format!("{}%", m.percentage);
-                                } else if m.name.contains("claude") {
-                                    claude_quota = format!("{}%", m.percentage);
-                                }
-                            }
-                        }
-                    }
-
-                    let status = if acc.disabled {
-                        "已禁用"
-                    } else if acc.validation_blocked {
-                        "需验证"
-                    } else {
-                        "正常"
-                    };
-
-                    println!(
-                        "{:<32} {:<20} {:<20} {:<10}",
-                        display_name, gemini_quota, claude_quota, status
-                    );
-                }
-                println!("\n\x1b[2m* 标注账号为当前生效账号\x1b[0m");
-                wait_for_key();
+                let header = match lang {
+                    Lang::Zh => "全部账号配额总览",
+                    Lang::En => "All Accounts Quota Overview",
+                };
+                println!("\x1b[1;37m{}\x1b[0m\n", header);
+                print!("{}", build_accounts_table(&snapshot.accounts, lang).render());
+                let note = match lang {
+                    Lang::Zh => "\x1b[2m* 标注为当前生效账号\x1b[0m",
+                    Lang::En => "\x1b[2m* indicates active account\x1b[0m",
+                };
+                println!("\n{}", note);
+                wait_for_key(lang);
                 return;
             }
             _ => return,
@@ -770,124 +1144,192 @@ fn show_quota_details(snapshot: &Snapshot) {
 
     if let Some(acc) = account_to_view {
         print!("\x1b[2J\x1b[H");
-        println!("\x1b[1;36m================================================================================\x1b[0m");
-        println!(
-            "\x1b[1;37m  📊 账号额度详情 · {}\x1b[0m",
-            acc.email
-        );
-        println!("\x1b[1;36m================================================================================\x1b[0m\n");
-
-        println!("邮箱地址: \x1b[1;37m{}\x1b[0m", acc.email);
-        println!("账号 ID:   \x1b[2m{}\x1b[0m", acc.id);
-        if let Some(label) = &acc.custom_label {
-            println!("备注标签: \x1b[36m{}\x1b[0m", label);
-        }
-        let status = if acc.disabled {
-            "\x1b[1;31m已禁用\x1b[0m"
-        } else if acc.validation_blocked {
-            "\x1b[1;33m需安全验证\x1b[0m"
-        } else if acc.is_current {
-            "\x1b[1;32m🟢 当前生效 · 正常\x1b[0m"
-        } else {
-            "\x1b[32m正常\x1b[0m"
+        let title = match lang {
+            Lang::Zh => format!("账号配额详情 · {}", acc.email),
+            Lang::En => format!("Quota Details · {}", acc.email),
         };
-        println!("账号状态: {}", status);
+        println!("\x1b[1;37m{}\x1b[0m\n", title);
+
+        let status = if acc.disabled {
+            match lang {
+                Lang::Zh => "\x1b[31m已禁用\x1b[0m",
+                Lang::En => "\x1b[31mDisabled\x1b[0m",
+            }
+        } else if acc.validation_blocked {
+            match lang {
+                Lang::Zh => "\x1b[33m需安全验证\x1b[0m",
+                Lang::En => "\x1b[33mVerification Required\x1b[0m",
+            }
+        } else if acc.is_current {
+            match lang {
+                Lang::Zh => "\x1b[32m当前生效 · 正常\x1b[0m",
+                Lang::En => "\x1b[32mActive · Normal\x1b[0m",
+            }
+        } else {
+            match lang {
+                Lang::Zh => "正常",
+                Lang::En => "Normal",
+            }
+        };
+
+        let label_str = acc.custom_label.as_deref().unwrap_or("-");
+        let tier_str = acc
+            .quota
+            .as_ref()
+            .and_then(|q| q.subscription_tier.as_deref())
+            .unwrap_or("-");
+
+        let meta_headers = match lang {
+            Lang::Zh => vec!["属性", "内容值"],
+            Lang::En => vec!["Property", "Value"],
+        };
+        let mut meta_table = Table::new(meta_headers);
+        let meta_rows = match lang {
+            Lang::Zh => vec![
+                vec!["邮箱地址".into(), acc.email.clone()],
+                vec!["账号 ID".into(), acc.id.clone()],
+                vec!["备注标签".into(), label_str.into()],
+                vec!["当前状态".into(), status.into()],
+                vec!["订阅级别".into(), tier_str.into()],
+            ],
+            Lang::En => vec![
+                vec!["Email".into(), acc.email.clone()],
+                vec!["Account ID".into(), acc.id.clone()],
+                vec!["Label".into(), label_str.into()],
+                vec!["Status".into(), status.into()],
+                vec!["Plan Tier".into(), tier_str.into()],
+            ],
+        };
+        for r in meta_rows {
+            meta_table.add_row(r);
+        }
+        print!("{}", meta_table.render());
 
         if let Some(q) = &acc.quota {
-            if let Some(tier) = &q.subscription_tier {
-                println!("订阅级别: \x1b[35m{}\x1b[0m", tier);
-            }
             if q.is_forbidden {
-                println!("\n\x1b[1;31m⚠️ 账号配额访问受限 (Forbidden)，可能已被安全风控或需重新授权登录。\x1b[0m");
+                let warn = match lang {
+                    Lang::Zh => "\n\x1b[31m[警告] 账号配额访问受限 (Forbidden)，可能需重新授权登录。\x1b[0m",
+                    Lang::En => "\n\x1b[31m[Warning] Quota access is forbidden; please re-authorize account.\x1b[0m",
+                };
+                println!("{}", warn);
             }
 
-            println!("\n\x1b[1;37m【模型配额详情】\x1b[0m");
+            let q_headers = match lang {
+                Lang::Zh => vec!["模型 / 配额分组", "余量比例", "额度进度条", "重置倒计时"],
+                Lang::En => vec!["Model / Group", "Remaining", "Progress Bar", "Resets In"],
+            };
+            let mut q_table = Table::new(q_headers);
+            q_table.set_align_right(1, true);
 
             if let Some(groups) = &q.quota_groups {
                 for g in groups {
-                    println!("\n  \x1b[1;33m• {}\x1b[0m", g.display_name);
                     for b in &g.buckets {
                         let pct = (b.remaining_fraction * 100.0).round() as i32;
-                        let bar = progress_bar(pct, 20);
-                        let cd = format_countdown(&b.reset_time);
-                        let cd_str = if cd.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" ({})", cd)
-                        };
-                        println!(
-                            "    {:<16} {} {:>3}% 剩余{}",
-                            b.bucket_id, bar, pct, cd_str
-                        );
+                        let bar = progress_bar(pct, 16);
+                        let cd = format_countdown(&b.reset_time, lang);
+                        let name = format!("{} ({})", g.display_name, b.bucket_id);
+                        q_table.add_row(vec![
+                            name,
+                            format!("{}%", pct),
+                            bar,
+                            if cd.is_empty() { "-".into() } else { cd },
+                        ]);
                     }
                 }
             } else if !q.models.is_empty() {
                 for m in &q.models {
-                    let bar = progress_bar(m.percentage, 20);
-                    let cd = format_countdown(&m.reset_time);
-                    let cd_str = if cd.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", cd)
-                    };
-                    println!(
-                        "  • {:<20} {} {:>3}% 剩余{}",
-                        m.name, bar, m.percentage, cd_str
-                    );
+                    let bar = progress_bar(m.percentage, 16);
+                    let cd = format_countdown(&m.reset_time, lang);
+                    q_table.add_row(vec![
+                        m.name.clone(),
+                        format!("{}%", m.percentage),
+                        bar,
+                        if cd.is_empty() { "-".into() } else { cd },
+                    ]);
                 }
-            } else {
-                println!("  \x1b[2m暂无模型额度记录\x1b[0m");
             }
+
+            println!("\n{}", q_table.render());
         } else {
-            println!("\n\x1b[33m⚠️ 该账号暂无本地缓存的额度信息，请在主菜单使用 [4] 刷新配额。\x1b[0m");
+            let msg = match lang {
+                Lang::Zh => "\n\x1b[33m暂无本地缓存额度，请使用 [4] 刷新配额。\x1b[0m\n",
+                Lang::En => "\n\x1b[33mNo cached quota data. Use [4] to refresh.\x1b[0m\n",
+            };
+            println!("{}", msg);
         }
 
-        println!("\n\x1b[1;36m================================================================================\x1b[0m");
-        wait_for_key();
+        wait_for_key(lang);
     }
 }
 
-fn show_token_statistics() {
+fn show_token_statistics(lang: Lang) {
     print!("\x1b[2J\x1b[H");
-    println!("\x1b[1;36m================================================================================\x1b[0m");
-    println!("\x1b[1;37m  📈 Antigravity 本地 Token 统计概览 (Token Statistics)\x1b[0m");
-    println!("\x1b[1;36m================================================================================\x1b[0m\n");
-    println!("\x1b[2m正在扫描本地 Antigravity 对话数据库...\x1b[0m\n");
+    let title = match lang {
+        Lang::Zh => "本地 Token 用量统计 (Local Token Statistics)",
+        Lang::En => "Local Token Statistics",
+    };
+    println!("\x1b[1;37m{}\x1b[0m\n", title);
+
+    let wait_msg = match lang {
+        Lang::Zh => "\x1b[2m正在扫描本地 Antigravity 对话数据库...\x1b[0m\n",
+        Lang::En => "\x1b[2mScanning local Antigravity conversation databases...\x1b[0m\n",
+    };
+    println!("{}", wait_msg);
 
     match crate::modules::native_token_stats::get_local_token_usage() {
         Ok(summary) => {
-            println!("{}", format_token_stats_human(&summary));
+            println!("{}", format_token_stats_human(&summary, lang));
         }
         Err(e) => {
-            println!("\x1b[1;31m⚠️ 读取本地 Token 统计失败: {}\x1b[0m", e);
+            let err_msg = match lang {
+                Lang::Zh => format!("\x1b[31m读取本地 Token 统计失败: {}\x1b[0m", e),
+                Lang::En => format!("\x1b[31mFailed to read token statistics: {}\x1b[0m", e),
+            };
+            println!("{}", err_msg);
         }
     }
-    wait_for_key();
+    wait_for_key(lang);
 }
 
-fn show_refresh_quotas(snapshot: &Snapshot) {
+fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
     if snapshot.accounts.is_empty() {
-        println!("\n\x1b[33m⚠️ 暂无已保存账号。\x1b[0m");
-        wait_for_key();
+        let msg = match lang {
+            Lang::Zh => "\n\x1b[33m暂无已保存账号。\x1b[0m",
+            Lang::En => "\n\x1b[33mNo saved accounts.\x1b[0m",
+        };
+        println!("{}", msg);
+        wait_for_key(lang);
         return;
     }
 
-    let choice = select_menu_interactive(
-        "刷新配额选项:",
-        &[
-            "[1] 刷新当前生效账号配额",
-            "[2] 刷新全部账号配额 (多账号并发)",
-            "[3] 选择指定账号刷新",
-            "[0] ↩️  返回主菜单",
-        ],
-        0,
-    );
+    let (title, items) = match lang {
+        Lang::Zh => (
+            "刷新配额选项:",
+            vec![
+                "1. 刷新当前生效账号配额",
+                "2. 批量刷新全部账号 (并发执行)",
+                "3. 选择指定账号刷新",
+                "0. 返回主菜单",
+            ],
+        ),
+        Lang::En => (
+            "Refresh Options:",
+            vec![
+                "1. Refresh active account quota",
+                "2. Batch refresh all accounts (concurrent)",
+                "3. Select specific account to refresh",
+                "0. Back to main menu",
+            ],
+        ),
+    };
+
+    let choice = select_menu_interactive(title, &items, 0, lang);
 
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
-            println!("\x1b[1;31m✗ 启动异步运行时失败: {}\x1b[0m", e);
-            wait_for_key();
+            println!("\x1b[31mRuntime error: {}\x1b[0m", e);
+            wait_for_key(lang);
             return;
         }
     };
@@ -897,12 +1339,20 @@ fn show_refresh_quotas(snapshot: &Snapshot) {
             let curr = match snapshot.current() {
                 Ok(c) => c,
                 Err(_) => {
-                    println!("\x1b[33m⚠️ 当前尚未设置生效账号，请使用 [3] 指定账号刷新。\x1b[0m");
-                    wait_for_key();
+                    let msg = match lang {
+                        Lang::Zh => "\x1b[33m当前尚未设置生效账号，请使用 [3] 指定账号刷新。\x1b[0m",
+                        Lang::En => "\x1b[33mNo active account set. Use [3] to select an account.\x1b[0m",
+                    };
+                    println!("{}", msg);
+                    wait_for_key(lang);
                     return;
                 }
             };
-            println!("\n\x1b[2m正在请求 Google API 刷新当前账号 ({}) 配额...\x1b[0m", curr.email);
+            let wait_msg = match lang {
+                Lang::Zh => format!("\n\x1b[2m正在请求 Google API 刷新账号 ({}) 配额...\x1b[0m", curr.email),
+                Lang::En => format!("\n\x1b[2mRefreshing quota for ({}) via Google API...\x1b[0m", curr.email),
+            };
+            println!("{}", wait_msg);
             match runtime.block_on(async {
                 let mut account = crate::modules::account::load_account(&curr.id)?;
                 let quota = crate::modules::account::fetch_quota_with_retry(&mut account)
@@ -912,56 +1362,96 @@ fn show_refresh_quotas(snapshot: &Snapshot) {
                 Ok::<crate::models::QuotaData, String>(quota)
             }) {
                 Ok(quota) => {
-                    println!("\x1b[1;32m✓ 配额刷新成功！\x1b[0m");
+                    let succ_msg = match lang {
+                        Lang::Zh => "\x1b[1;32m✓ 配额刷新成功！最新数据:\x1b[0m",
+                        Lang::En => "\x1b[1;32m✓ Quota refreshed successfully! Latest:\x1b[0m",
+                    };
+                    println!("{}", succ_msg);
+
+                    let q_headers = match lang {
+                        Lang::Zh => vec!["模型 / 分组", "剩余比例", "重置倒计时"],
+                        Lang::En => vec!["Model / Group", "Remaining", "Resets In"],
+                    };
+                    let mut q_table = Table::new(q_headers);
+                    q_table.set_align_right(1, true);
+
                     if let Some(groups) = &quota.quota_groups {
                         for g in groups {
                             if let Some(b) = g.buckets.first() {
                                 let pct = (b.remaining_fraction * 100.0).round() as i32;
-                                println!(
-                                    "  • {}: {}% (重置: {})",
-                                    g.display_name,
-                                    pct,
-                                    format_countdown(&b.reset_time)
-                                );
+                                let cd = format_countdown(&b.reset_time, lang);
+                                q_table.add_row(vec![
+                                    g.display_name.clone(),
+                                    format!("{}%", pct),
+                                    if cd.is_empty() { "-".into() } else { cd },
+                                ]);
                             }
                         }
                     } else {
                         for m in &quota.models {
-                            println!(
-                                "  • {}: {}% (重置: {})",
-                                m.name,
-                                m.percentage,
-                                format_countdown(&m.reset_time)
-                            );
+                            let cd = format_countdown(&m.reset_time, lang);
+                            q_table.add_row(vec![
+                                m.name.clone(),
+                                format!("{}%", m.percentage),
+                                if cd.is_empty() { "-".into() } else { cd },
+                            ]);
                         }
                     }
+                    print!("{}", q_table.render());
                 }
-                Err(e) => println!("\x1b[1;31m✗ 刷新失败: {}\x1b[0m", e),
+                Err(e) => {
+                    let fail_msg = match lang {
+                        Lang::Zh => format!("\x1b[31m刷新失败: {}\x1b[0m", e),
+                        Lang::En => format!("\x1b[31mRefresh failed: {}\x1b[0m", e),
+                    };
+                    println!("{}", fail_msg);
+                }
             }
-            wait_for_key();
+            wait_for_key(lang);
         }
         Some(1) => {
-            println!("\n\x1b[2m正在多账号并发刷新配额 (最多5路并发)...\x1b[0m");
+            let wait_msg = match lang {
+                Lang::Zh => "\n\x1b[2m正在并发批量刷新所有账号配额...\x1b[0m",
+                Lang::En => "\n\x1b[2mBatch refreshing all accounts concurrently...\x1b[0m",
+            };
+            println!("{}", wait_msg);
             match runtime.block_on(crate::modules::account::refresh_all_quotas_logic()) {
                 Ok(stats) => {
-                    println!(
-                        "\x1b[1;32m✓ 批量刷新完成！共 {} 个账号 (成功: {}, 失败: {})\x1b[0m",
-                        stats.total, stats.success, stats.failed
-                    );
+                    let result_msg = match lang {
+                        Lang::Zh => format!(
+                            "\x1b[1;32m✓ 批量刷新完成: 成功 {} 个, 失败 {} 个 (总计: {})\x1b[0m",
+                            stats.success, stats.failed, stats.total
+                        ),
+                        Lang::En => format!(
+                            "\x1b[1;32m✓ Batch refresh complete: {} succeeded, {} failed (total: {})\x1b[0m",
+                            stats.success, stats.failed, stats.total
+                        ),
+                    };
+                    println!("{}", result_msg);
                     for detail in stats.details {
                         println!("  {}", detail);
                     }
                 }
-                Err(e) => println!("\x1b[1;31m✗ 批量刷新失败: {}\x1b[0m", e),
+                Err(e) => {
+                    let fail_msg = match lang {
+                        Lang::Zh => format!("\x1b[31m批量刷新失败: {}\x1b[0m", e),
+                        Lang::En => format!("\x1b[31mBatch refresh failed: {}\x1b[0m", e),
+                    };
+                    println!("{}", fail_msg);
+                }
             }
-            wait_for_key();
+            wait_for_key(lang);
         }
         Some(2) => {
-            let selected = match select_account_interactive(&snapshot.accounts) {
+            let selected = match select_account_interactive(&snapshot.accounts, lang) {
                 Some(acc) => acc,
                 None => return,
             };
-            println!("\n\x1b[2m正在请求 Google API 刷新账号 ({}) 配额...\x1b[0m", selected.email);
+            let wait_msg = match lang {
+                Lang::Zh => format!("\n\x1b[2m正在刷新账号 ({}) 配额...\x1b[0m", selected.email),
+                Lang::En => format!("\n\x1b[2mRefreshing quota for ({}) ...\x1b[0m", selected.email),
+            };
+            println!("{}", wait_msg);
             match runtime.block_on(async {
                 let mut account = crate::modules::account::load_account(&selected.id)?;
                 let quota = crate::modules::account::fetch_quota_with_retry(&mut account)
@@ -971,81 +1461,131 @@ fn show_refresh_quotas(snapshot: &Snapshot) {
                 Ok::<crate::models::QuotaData, String>(quota)
             }) {
                 Ok(quota) => {
-                    println!("\x1b[1;32m✓ 配额刷新成功！\x1b[0m");
+                    let succ_msg = match lang {
+                        Lang::Zh => "\x1b[1;32m✓ 配额刷新成功！\x1b[0m",
+                        Lang::En => "\x1b[1;32m✓ Quota refreshed successfully!\x1b[0m",
+                    };
+                    println!("{}", succ_msg);
+
+                    let q_headers = match lang {
+                        Lang::Zh => vec!["模型 / 分组", "剩余比例", "重置倒计时"],
+                        Lang::En => vec!["Model / Group", "Remaining", "Resets In"],
+                    };
+                    let mut q_table = Table::new(q_headers);
+                    q_table.set_align_right(1, true);
+
                     if let Some(groups) = &quota.quota_groups {
                         for g in groups {
                             if let Some(b) = g.buckets.first() {
                                 let pct = (b.remaining_fraction * 100.0).round() as i32;
-                                println!(
-                                    "  • {}: {}% (重置: {})",
-                                    g.display_name,
-                                    pct,
-                                    format_countdown(&b.reset_time)
-                                );
+                                let cd = format_countdown(&b.reset_time, lang);
+                                q_table.add_row(vec![
+                                    g.display_name.clone(),
+                                    format!("{}%", pct),
+                                    if cd.is_empty() { "-".into() } else { cd },
+                                ]);
                             }
                         }
                     } else {
                         for m in &quota.models {
-                            println!(
-                                "  • {}: {}% (重置: {})",
-                                m.name,
-                                m.percentage,
-                                format_countdown(&m.reset_time)
-                            );
+                            let cd = format_countdown(&m.reset_time, lang);
+                            q_table.add_row(vec![
+                                m.name.clone(),
+                                format!("{}%", m.percentage),
+                                if cd.is_empty() { "-".into() } else { cd },
+                            ]);
                         }
                     }
+                    print!("{}", q_table.render());
                 }
-                Err(e) => println!("\x1b[1;31m✗ 刷新失败: {}\x1b[0m", e),
+                Err(e) => {
+                    let fail_msg = match lang {
+                        Lang::Zh => format!("\x1b[31m刷新失败: {}\x1b[0m", e),
+                        Lang::En => format!("\x1b[31mRefresh failed: {}\x1b[0m", e),
+                    };
+                    println!("{}", fail_msg);
+                }
             }
-            wait_for_key();
+            wait_for_key(lang);
         }
         _ => {}
     }
 }
 
-fn show_add_account() {
-    let choice = select_menu_interactive(
-        "添加 Google 账号:",
-        &[
-            "[1] 🌐 浏览器一键授权 (Google OAuth 自动登录)",
-            "[2] 🔑 手动输入 Refresh Token",
-            "[0] ↩️  返回主菜单",
-        ],
-        0,
-    );
+fn show_add_account(lang: Lang) {
+    let (title, items) = match lang {
+        Lang::Zh => (
+            "添加 Google 账号:",
+            vec![
+                "1. 浏览器一键授权 (Google OAuth 自动登录)",
+                "2. 手动输入 Refresh Token",
+                "0. 返回主菜单",
+            ],
+        ),
+        Lang::En => (
+            "Add Google Account:",
+            vec![
+                "1. Browser authorization (Google OAuth auto-login)",
+                "2. Manually enter Refresh Token",
+                "0. Back to main menu",
+            ],
+        ),
+    };
+
+    let choice = select_menu_interactive(title, &items, 0, lang);
 
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
-            println!("\x1b[1;31m✗ 启动异步运行时失败: {}\x1b[0m", e);
-            wait_for_key();
+            println!("\x1b[31mRuntime error: {}\x1b[0m", e);
+            wait_for_key(lang);
             return;
         }
     };
 
     match choice {
         Some(0) => {
-            println!("\n\x1b[2m正在准备 Google OAuth 登录服务...\x1b[0m");
+            let wait_msg = match lang {
+                Lang::Zh => "\n\x1b[2m正在准备 Google OAuth 登录服务...\x1b[0m",
+                Lang::En => "\n\x1b[2mPreparing Google OAuth login service...\x1b[0m",
+            };
+            println!("{}", wait_msg);
+
             let auth_url = match runtime.block_on(crate::modules::oauth_server::prepare_oauth_url(None, None)) {
                 Ok(url) => url,
                 Err(e) => {
-                    println!("\x1b[1;31m✗ 准备授权服务失败: {}\x1b[0m", e);
-                    wait_for_key();
+                    let err_msg = match lang {
+                        Lang::Zh => format!("\x1b[31m准备授权服务失败: {}\x1b[0m", e),
+                        Lang::En => format!("\x1b[31mFailed to prepare authorization: {}\x1b[0m", e),
+                    };
+                    println!("{}", err_msg);
+                    wait_for_key(lang);
                     return;
                 }
             };
 
             open_browser(&auth_url);
-            println!("\x1b[1;32m✓ 已启动本地回调服务并尝试打开系统浏览器。\x1b[0m");
-            println!("若系统未自动弹出浏览器，请手动复制并在浏览器中访问以下授权链接:");
-            println!("\x1b[4;34m{}\x1b[0m\n", auth_url);
-            println!("\x1b[2m等待浏览器授权完成... (可按 Ctrl+C 取消)\x1b[0m");
+            let open_msg = match lang {
+                Lang::Zh => format!(
+                    "\x1b[1;32m✓ 已启动本地回调服务并尝试打开系统浏览器。\x1b[0m\n若浏览器未自动打开，请手动复制并在浏览器中访问以下授权链接:\n\x1b[4;34m{}\x1b[0m\n\n\x1b[2m等待浏览器授权完成... (可按 Ctrl+C 取消)\x1b[0m",
+                    auth_url
+                ),
+                Lang::En => format!(
+                    "\x1b[1;32m✓ Local callback service started. Opening browser.\x1b[0m\nIf browser does not open automatically, copy and visit this URL:\n\x1b[4;34m{}\x1b[0m\n\n\x1b[2mWaiting for browser authorization... (Press Ctrl+C to cancel)\x1b[0m",
+                    auth_url
+                ),
+            };
+            println!("{}", open_msg);
 
             let token_res = match runtime.block_on(crate::modules::oauth_server::complete_oauth_flow(None)) {
                 Ok(t) => t,
                 Err(e) => {
-                    println!("\x1b[1;31m✗ 授权流程失败: {}\x1b[0m", e);
-                    wait_for_key();
+                    let fail_msg = match lang {
+                        Lang::Zh => format!("\x1b[31m授权流程失败: {}\x1b[0m", e),
+                        Lang::En => format!("\x1b[31mAuthorization failed: {}\x1b[0m", e),
+                    };
+                    println!("{}", fail_msg);
+                    wait_for_key(lang);
                     return;
                 }
             };
@@ -1053,8 +1593,12 @@ fn show_add_account() {
             let refresh_token = match token_res.refresh_token {
                 Some(rt) => rt,
                 None => {
-                    println!("\x1b[1;31m✗ 未能获取到 Refresh Token，请撤销旧授权后重试。\x1b[0m");
-                    wait_for_key();
+                    let no_token_msg = match lang {
+                        Lang::Zh => "\x1b[31m未能获取到 Refresh Token，请撤销旧授权后重试。\x1b[0m",
+                        Lang::En => "\x1b[31mFailed to obtain Refresh Token. Revoke prior access and retry.\x1b[0m",
+                    };
+                    println!("{}", no_token_msg);
+                    wait_for_key(lang);
                     return;
                 }
             };
@@ -1086,23 +1630,44 @@ fn show_add_account() {
                 Ok::<String, String>(account.email)
             }) {
                 Ok(email) => {
-                    println!("\x1b[1;32m🎉 账号添加成功: {}\x1b[0m", email);
+                    let succ_msg = match lang {
+                        Lang::Zh => format!("\x1b[1;32m✓ 账号添加成功: {}\x1b[0m", email),
+                        Lang::En => format!("\x1b[1;32m✓ Account added successfully: {}\x1b[0m", email),
+                    };
+                    println!("{}", succ_msg);
                 }
                 Err(e) => {
-                    println!("\x1b[1;31m✗ 添加账号失败: {}\x1b[0m", e);
+                    let fail_msg = match lang {
+                        Lang::Zh => format!("\x1b[31m添加账号失败: {}\x1b[0m", e),
+                        Lang::En => format!("\x1b[31mFailed to add account: {}\x1b[0m", e),
+                    };
+                    println!("{}", fail_msg);
                 }
             }
-            wait_for_key();
+            wait_for_key(lang);
         }
         Some(1) => {
-            let refresh_token = prompt_line("\n请输入 Google Refresh Token: ");
+            let prompt_text = match lang {
+                Lang::Zh => "\n请输入 Google Refresh Token: ",
+                Lang::En => "\nEnter Google Refresh Token: ",
+            };
+            let refresh_token = prompt_line(prompt_text);
             if refresh_token.is_empty() {
-                println!("\x1b[2m已取消输入。\x1b[0m");
-                wait_for_key();
+                let cancel_msg = match lang {
+                    Lang::Zh => "\x1b[2m已取消输入。\x1b[0m",
+                    Lang::En => "\x1b[2mInput cancelled.\x1b[0m",
+                };
+                println!("{}", cancel_msg);
+                wait_for_key(lang);
                 return;
             }
 
-            println!("\x1b[2m正在验证 Token 并拉取账号详情...\x1b[0m");
+            let wait_msg = match lang {
+                Lang::Zh => "\x1b[2m正在验证 Token 并拉取账号详情...\x1b[0m",
+                Lang::En => "\x1b[2mVerifying Token and fetching profile...\x1b[0m",
+            };
+            println!("{}", wait_msg);
+
             match runtime.block_on(async {
                 let token_res = crate::modules::oauth::refresh_access_token(&refresh_token, None).await?;
                 let user_info = crate::modules::oauth::get_user_info(&token_res.access_token).await?;
@@ -1131,51 +1696,84 @@ fn show_add_account() {
                 Ok::<String, String>(account.email)
             }) {
                 Ok(email) => {
-                    println!("\x1b[1;32m🎉 账号导入成功: {}\x1b[0m", email);
+                    let succ_msg = match lang {
+                        Lang::Zh => format!("\x1b[1;32m✓ 账号导入成功: {}\x1b[0m", email),
+                        Lang::En => format!("\x1b[1;32m✓ Account imported successfully: {}\x1b[0m", email),
+                    };
+                    println!("{}", succ_msg);
                 }
                 Err(e) => {
-                    println!("\x1b[1;31m✗ 导入失败: {}\x1b[0m", e);
+                    let fail_msg = match lang {
+                        Lang::Zh => format!("\x1b[31m导入失败: {}\x1b[0m", e),
+                        Lang::En => format!("\x1b[31mImport failed: {}\x1b[0m", e),
+                    };
+                    println!("{}", fail_msg);
                 }
             }
-            wait_for_key();
+            wait_for_key(lang);
         }
         _ => {}
     }
 }
 
-fn show_manage_accounts(snapshot: &Snapshot) {
+fn show_manage_accounts(snapshot: &Snapshot, lang: Lang) {
     if snapshot.accounts.is_empty() {
-        println!("\n\x1b[33m⚠️ 暂无已保存账号。\x1b[0m");
-        wait_for_key();
+        let msg = match lang {
+            Lang::Zh => "\n\x1b[33m暂无已保存账号。\x1b[0m",
+            Lang::En => "\n\x1b[33mNo saved accounts.\x1b[0m",
+        };
+        println!("{}", msg);
+        wait_for_key(lang);
         return;
     }
 
-    let selected = match select_account_interactive(&snapshot.accounts) {
+    let selected = match select_account_interactive(&snapshot.accounts, lang) {
         Some(acc) => acc,
         None => return,
     };
 
-    let title = format!("管理账号: {} (ID: {})", selected.email, selected.id);
-    let sub_choice = select_menu_interactive(
-        &title,
-        &[
-            "[1] ✏️  修改备注标签 (最多15字)",
-            "[2] 🔄 切换启用/禁用状态",
-            "[3] 🗑️  删除账号 (永久移除)",
-            "[0] ↩️  返回主菜单",
-        ],
-        0,
-    );
+    let (title, sub_items) = match lang {
+        Lang::Zh => (
+            format!("管理账号: {} (ID: {})", selected.email, selected.id),
+            vec![
+                "1. 修改备注标签 (最多15字)",
+                "2. 切换启用/禁用状态",
+                "3. 删除账号 (永久移除)",
+                "0. 返回主菜单",
+            ],
+        ),
+        Lang::En => (
+            format!("Manage Account: {} (ID: {})", selected.email, selected.id),
+            vec![
+                "1. Edit Custom Label (max 15 chars)",
+                "2. Toggle Enable / Disable",
+                "3. Delete Account (permanent)",
+                "0. Back to main menu",
+            ],
+        ),
+    };
+
+    let sub_choice = select_menu_interactive(&title, &sub_items, 0, lang);
 
     match sub_choice {
         Some(0) => {
-            let prompt = format!(
-                "\n当前备注: {}\n请输入新的备注标签 (直接回车可清除当前备注): ",
-                selected.custom_label.as_deref().unwrap_or("无")
-            );
+            let prompt = match lang {
+                Lang::Zh => format!(
+                    "\n当前备注: {}\n请输入新的备注标签 (直接回车可清除当前备注): ",
+                    selected.custom_label.as_deref().unwrap_or("无")
+                ),
+                Lang::En => format!(
+                    "\nCurrent Label: {}\nEnter new label (Press Enter to clear): ",
+                    selected.custom_label.as_deref().unwrap_or("None")
+                ),
+            };
             let new_label = prompt_line(&prompt);
             if new_label.chars().count() > 15 {
-                println!("\x1b[1;31m✗ 标签长度不能超过 15 个字符\x1b[0m");
+                let err_msg = match lang {
+                    Lang::Zh => "\x1b[31m标签长度不能超过 15 个字符\x1b[0m",
+                    Lang::En => "\x1b[31mLabel cannot exceed 15 characters\x1b[0m",
+                };
+                println!("{}", err_msg);
             } else {
                 match crate::modules::account::load_account(&selected.id) {
                     Ok(mut acc) => {
@@ -1185,17 +1783,25 @@ fn show_manage_accounts(snapshot: &Snapshot) {
                             Some(new_label.clone())
                         };
                         if let Err(e) = crate::modules::account::save_account(&acc) {
-                            println!("\x1b[1;31m✗ 保存失败: {}\x1b[0m", e);
+                            println!("\x1b[31mSave error: {}\x1b[0m", e);
                         } else if new_label.is_empty() {
-                            println!("\x1b[1;32m✓ 备注标签已成功清除\x1b[0m");
+                            let clr_msg = match lang {
+                                Lang::Zh => "\x1b[1;32m✓ 备注标签已成功清除\x1b[0m",
+                                Lang::En => "\x1b[1;32m✓ Label cleared successfully\x1b[0m",
+                            };
+                            println!("{}", clr_msg);
                         } else {
-                            println!("\x1b[1;32m✓ 备注标签已更新为: {}\x1b[0m", new_label);
+                            let upd_msg = match lang {
+                                Lang::Zh => format!("\x1b[1;32m✓ 备注标签已更新为: {}\x1b[0m", new_label),
+                                Lang::En => format!("\x1b[1;32m✓ Label updated to: {}\x1b[0m", new_label),
+                            };
+                            println!("{}", upd_msg);
                         }
                     }
-                    Err(e) => println!("\x1b[1;31m✗ 读取账号失败: {}\x1b[0m", e),
+                    Err(e) => println!("\x1b[31mLoad error: {}\x1b[0m", e),
                 }
             }
-            wait_for_key();
+            wait_for_key(lang);
         }
         Some(1) => {
             match crate::modules::account::load_account(&selected.id) {
@@ -1209,88 +1815,157 @@ fn show_manage_accounts(snapshot: &Snapshot) {
                         acc.disabled_reason = None;
                     }
                     if let Err(e) = crate::modules::account::save_account(&acc) {
-                        println!("\x1b[1;31m✗ 保存失败: {}\x1b[0m", e);
+                        println!("\x1b[31mSave error: {}\x1b[0m", e);
                     } else {
                         let status_text = if acc.disabled {
-                            "\x1b[1;33m已禁用\x1b[0m"
+                            match lang {
+                                Lang::Zh => "\x1b[33m已禁用\x1b[0m",
+                                Lang::En => "\x1b[33mDisabled\x1b[0m",
+                            }
                         } else {
-                            "\x1b[1;32m正常启用\x1b[0m"
+                            match lang {
+                                Lang::Zh => "\x1b[32m正常启用\x1b[0m",
+                                Lang::En => "\x1b[32mEnabled\x1b[0m",
+                            }
                         };
-                        println!("\x1b[1;32m✓ 账号状态已切换为: {}\x1b[0m", status_text);
+                        let toggle_msg = match lang {
+                            Lang::Zh => format!("\x1b[1;32m✓ 账号状态已切换为: {}\x1b[0m", status_text),
+                            Lang::En => format!("\x1b[1;32m✓ Account status changed to: {}\x1b[0m", status_text),
+                        };
+                        println!("{}", toggle_msg);
                     }
                 }
-                Err(e) => println!("\x1b[1;31m✗ 读取账号失败: {}\x1b[0m", e),
+                Err(e) => println!("\x1b[31mLoad error: {}\x1b[0m", e),
             }
-            wait_for_key();
+            wait_for_key(lang);
         }
         Some(2) => {
-            let confirm = prompt_line(&format!(
-                "\n⚠️  确定要永久删除账号 {} 吗？此操作无法撤销！(y/N): ",
-                selected.email
-            ));
+            let confirm_prompt = match lang {
+                Lang::Zh => format!(
+                    "\n确定要永久删除账号 {} 吗？此操作无法撤销！(y/N): ",
+                    selected.email
+                ),
+                Lang::En => format!(
+                    "\nPermanently delete account {}? Cannot be undone! (y/N): ",
+                    selected.email
+                ),
+            };
+            let confirm = prompt_line(&confirm_prompt);
             if confirm.eq_ignore_ascii_case("y") || confirm.eq_ignore_ascii_case("yes") {
                 match crate::modules::account::delete_account(&selected.id) {
-                    Ok(_) => println!("\x1b[1;32m✓ 账号已成功删除\x1b[0m"),
-                    Err(e) => println!("\x1b[1;31m✗ 删除账号失败: {}\x1b[0m", e),
+                    Ok(_) => {
+                        let del_msg = match lang {
+                            Lang::Zh => "\x1b[1;32m✓ 账号已成功删除\x1b[0m",
+                            Lang::En => "\x1b[1;32m✓ Account deleted successfully\x1b[0m",
+                        };
+                        println!("{}", del_msg);
+                    }
+                    Err(e) => println!("\x1b[31mDelete error: {}\x1b[0m", e),
                 }
             } else {
-                println!("\x1b[2m已取消删除操作。\x1b[0m");
+                let cancel_msg = match lang {
+                    Lang::Zh => "\x1b[2m已取消删除操作。\x1b[0m",
+                    Lang::En => "\x1b[2mDeletion cancelled.\x1b[0m",
+                };
+                println!("{}", cancel_msg);
             }
-            wait_for_key();
+            wait_for_key(lang);
         }
         _ => {}
     }
 }
 
-fn show_system_status(snapshot: &Snapshot, root: &Path) {
+fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
     print!("\x1b[2J\x1b[H");
-    println!("\x1b[1;36m================================================================================\x1b[0m");
-    println!("\x1b[1;37m  🖥️  关联应用与系统环境状态 (Linked Applications & Storage)\x1b[0m");
-    println!("\x1b[1;36m================================================================================\x1b[0m\n");
+    let title = match lang {
+        Lang::Zh => "关联应用与系统状态 (Linked Applications & Status)",
+        Lang::En => "Linked Applications & System Status",
+    };
+    println!("\x1b[1;37m{}\x1b[0m\n", title);
 
     let app_path = crate::modules::process::get_antigravity_executable_path(None);
     let app_running = crate::modules::process::is_antigravity_running(None);
-    println!("\x1b[1;37m• AntiGravity Desktop APP:\x1b[0m");
-    if app_running {
-        println!("  运行状态: \x1b[1;32m🟢 运行中\x1b[0m");
-    } else {
-        println!("  运行状态: \x1b[2m⚪ 未运行\x1b[0m");
-    }
-    if let Some(path) = app_path {
-        println!("  程序路径: \x1b[36m{}\x1b[0m", path.display());
-    } else {
-        println!("  程序路径: \x1b[33m未自动识别 (可在设置中手动指定)\x1b[0m");
-    }
-    println!();
-
     let ide_running = crate::modules::process::is_antigravity_running(Some("ide"));
-    println!("\x1b[1;37m• AntiGravity IDE:\x1b[0m");
-    if ide_running {
-        println!("  运行状态: \x1b[1;32m🟢 运行中\x1b[0m");
-    } else {
-        println!("  运行状态: \x1b[2m⚪ 未运行 (支持独立通道关联)\x1b[0m");
-    }
-    println!();
 
-    println!("\x1b[1;37m• 本地数据存储 (Local Data Storage):\x1b[0m");
-    println!("  存储目录: \x1b[36m{}\x1b[0m", root.display());
-    println!("  账号数量: {} 个已保存账号", snapshot.accounts.len());
-    if let Ok(curr) = snapshot.current() {
-        println!(
-            "  当前生效: \x1b[1;32m{}\x1b[0m (目标: {})",
+    let running_text = match lang {
+        Lang::Zh => "\x1b[32m运行中\x1b[0m",
+        Lang::En => "\x1b[32mRunning\x1b[0m",
+    };
+    let stopped_text = match lang {
+        Lang::Zh => "\x1b[2m未运行\x1b[0m",
+        Lang::En => "\x1b[2mStopped\x1b[0m",
+    };
+
+    let app_status = if app_running { running_text } else { stopped_text };
+    let ide_status = if ide_running { running_text } else { stopped_text };
+
+    let app_path_str = if let Some(p) = app_path {
+        p.display().to_string()
+    } else {
+        match lang {
+            Lang::Zh => "未自动识别 (可在设置中手动指定)".into(),
+            Lang::En => "Not detected (can specify in Settings)".into(),
+        }
+    };
+
+    let ide_details = match lang {
+        Lang::Zh => "支持独立通道关联",
+        Lang::En => "Independent IDE channel supported",
+    };
+
+    let active_info = if let Ok(curr) = snapshot.current() {
+        format!(
+            "{} [{}]",
             curr.email,
             snapshot.current_target.as_deref().unwrap_or("app")
-        );
+        )
     } else {
-        println!("  当前生效: \x1b[33m未设置\x1b[0m");
+        match lang {
+            Lang::Zh => "未设置".into(),
+            Lang::En => "None".into(),
+        }
+    };
+
+    let storage_status = match lang {
+        Lang::Zh => format!("{} (共 {} 个账号)", root.display(), snapshot.accounts.len()),
+        Lang::En => format!("{} ({} accounts)", root.display(), snapshot.accounts.len()),
+    };
+
+    let headers = match lang {
+        Lang::Zh => vec!["组件名称", "状态", "路径 / 详细信息"],
+        Lang::En => vec!["Component", "Status", "Path / Details"],
+    };
+    let mut table = Table::new(headers);
+
+    let rows = match lang {
+        Lang::Zh => vec![
+            vec!["AntiGravity Desktop APP".into(), app_status.into(), app_path_str],
+            vec!["AntiGravity IDE".into(), ide_status.into(), ide_details.into()],
+            vec!["本地数据存储 (Data Storage)".into(), "正常".into(), storage_status],
+            vec!["当前生效账号 (Active Account)".into(), "生效".into(), active_info],
+            vec![
+                "命令行工具 (CLI Binary)".into(),
+                format!("v{}", env!("CARGO_PKG_VERSION")),
+                "agy-switch (兼容: agy-lite)".into(),
+            ],
+        ],
+        Lang::En => vec![
+            vec!["AntiGravity Desktop APP".into(), app_status.into(), app_path_str],
+            vec!["AntiGravity IDE".into(), ide_status.into(), ide_details.into()],
+            vec!["Data Storage".into(), "Normal".into(), storage_status],
+            vec!["Active Account".into(), "Active".into(), active_info],
+            vec![
+                "CLI Binary".into(),
+                format!("v{}", env!("CARGO_PKG_VERSION")),
+                "agy-switch (alias: agy-lite)".into(),
+            ],
+        ],
+    };
+
+    for r in rows {
+        table.add_row(r);
     }
-    println!();
+    print!("{}", table.render());
 
-    println!("\x1b[1;37m• 命令行工具 (CLI Binary):\x1b[0m");
-    println!("  主命令名: \x1b[1;32magy-switch\x1b[0m (兼容别名: agy-lite)");
-    println!("  工具版本: \x1b[36mv{}\x1b[0m", env!("CARGO_PKG_VERSION"));
-    println!("  交互控制: 支持 ↑/↓ 方向键导航与数字键快捷选择");
-    println!("\n\x1b[1;36m================================================================================\x1b[0m");
-
-    wait_for_key();
+    wait_for_key(lang);
 }
