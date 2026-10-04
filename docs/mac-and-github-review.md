@@ -1,0 +1,89 @@
+# Mac 端与 GitHub 复查（2026-10-05）
+
+## 当前交付范围
+
+工作分支为 `feat/settings-category-sidebar`，对应 [草稿 PR #22](https://github.com/anglee0323/antigravity-tools-lite/pull/22)。该分支已经包含多轮 APP、CLI、账号身份与菜单栏改动，PR 不再只是设置分类调整。旧描述中的六分类和实验汉化已过时；当前设置保留常规、配额、智能换号三类，实验汉化已删除。
+
+菜单栏直接展示账号列表、各自 Gemini / Claude-GPT 的 5 小时与周额度，支持逐行查看和明确切换；顶部聚合范围可以在常规设置中选择。聚合是已知数据的等权平均剩余百分比，不能称为 Token 总量。共享池去重，未知、过期、禁用和受限数据不冒充可用额度。当前标记依据运行中独立 App 的已验证身份；核验失败不会任意选择第一个账号。
+
+Mac 菜单栏改为 `NSMenu`，按照 CodexBar 的系统字体、细进度条和标准菜单项组织内容，背景、圆角、阴影、屏幕适配及收起都由 AppKit 管理。实机验收期间尝试直接替换根视图的玻璃效果触发了主线程 foreign exception / SIGABRT（23:53 的报告）；后续透明背景也不满足可读性。两种接入均已撤除，不再创建 Mac 网页面板或替换 Tao/Wry 视图。
+
+复查还修复了智能换号设置自动保存的竞态：后端写入按用户编辑顺序排队，旧响应不能覆盖新草稿；失败后仍可继续保存。
+
+## 验证与边界
+
+- 前端 production build 成功；全套 Playwright 17 项通过（菜单栏 5、设置 9、智能换号 3）。后续 fixture 修正后，受影响的桌面偏好浏览器用例再次通过。
+- Rust 全套库测试 110 通过、2 忽略；包含实际 Mac 菜单投影的 5 项新增验证和桌面模块 8 项。
+- 额度展示 27、聚合 11、设置组件契约 10、桌面偏好 6、发布契约 8 项通过。
+- 已安装 Mac 可执行文件的 CLI smoke 14 项通过：隔离合成数据、无 GUI、无网络、无真实凭据修改。CLI 启动隔离 6 项和 native harness self-test 通过。
+- 真实只读检查：Tools 当前记录与运行中 App 均为账号二；账号列表 6 项，额度同时报告 5 小时与周窗口。禁用账号保持不可切换。
+- 未在正在工作的官方 App 上触发真实登录切换/重启；该路径由已有后端测试和合成 UI 测试覆盖。登录系统启动、其他显示器及 Windows/Linux 原生 GUI 不属于本机已完成验收。
+- 本地 bundle 为 4.7.8 arm64，签名完整性验证通过。未发布新 Release；Gatekeeper 与 notarization 未重新验收。
+- 最终菜单实现提交为 `e977a854`。已替换桌面“最新打磨版”的 release 可执行文件；其 CLI 14 项再次通过。用户在真机点击菜单栏图标，确认能看到原生菜单；自动截图只能捕获主窗口，未把它冒充菜单的视觉证明。此次重启验收后未发现新的崩溃报告。完整换号、所有原生子菜单按钮与多显示器仍未逐项实机验收。
+
+## 三组外部 Issue / PR
+
+审阅固定于下列 head，三者目前均无 GitHub status checks。执行了源码比较和费用函数的隔离探针，没有运行外部安装器、切换真实账号、合并或发送审阅评论。结论均为修改后再合并。
+
+### #11 / #12：环形轮换与任务完成提示
+
+[Issue #11](https://github.com/anglee0323/antigravity-tools-lite/issues/11) / [PR #12](https://github.com/anglee0323/antigravity-tools-lite/pull/12)，head `c55b4a17720e68267b0391375b9e3c3788485379`。
+
+**P1：立即切换按钮丢失目标程序。** `src/components/autoSwitch/AutoSwitch.tsx:66` 调用 `switchAccount(status.target_account_id!)`，没有传入配置中的 `target_ide`。当策略指向 IDE 时，会走后端默认 App 目标，修改/重启错误的客户端。应由后端在重新验证 pending ID、目标程序和候选条件后执行明确的立即切换操作；至少不能遗漏配置的目标。
+
+环形搜索与优先级模式是可取的，但新增测试主要复刻遍历逻辑，应补生产 coordinator 的 A→B→C→A、无候选、禁用/受限、待切换期间配置变化验证。当前分支已更新目标枚举和 5 小时额度决策，不宜直接搬回旧版整套 coordinator。
+
+**需求完成情况：部分完成。** 轮换策略与手动立即重启按钮已实现；任务/turn 完成检测、完成后的提示、可取消的 5 秒静默倒计时、全部耗尽后的最早重置倒计时没有实现。进程正在运行不等于正在生成，更不等于任务已经完成。
+
+### #14 / #15：应用内更新
+
+[Issue #14](https://github.com/anglee0323/antigravity-tools-lite/issues/14) / [PR #15](https://github.com/anglee0323/antigravity-tools-lite/pull/15)，head `5603f7bcebbd27f6a293190ad9322fee3e824d87`。
+
+**P1：下载路径和执行来源未建立后端边界。** `src-tauri/src/modules/updater.rs:164–205` 接受前端任意 `download_url` 与 `asset_name`，后者直接拼到临时目录；绝对路径或 `../` 可以逃出该目录。下载后没有校验发行资产 hash/签名；Windows 的 243–254 行直接执行文件并退出应用。需要后端从可信仓库 Release 元数据选择资产、限制文件名、使用独占临时文件、校验长度/hash/签名，并对并发下载加锁。不能依赖正常 UI 只传合法名称。
+
+**P2：架构不匹配时仍提供错误包。** Mac 的 74–81 行在指定架构缺失时回退到任意 macOS 压缩包；例如 Intel 主机可能下载 arm64 包。Windows/Linux 同样只靠后缀选第一个资产。应严格匹配发布 manifest 的平台与架构，缺失时明确显示无兼容安装包。
+
+**P2：按钮承诺与平台行为不符。** 文案为“立即下载并重启更新”，Mac 的 260–269 行只在 Finder 中显示文件，不会安装或重启。这符合 Issue 正文给 Mac/Linux 的手动打开安装包方案，但应使用平台对应文案，避免把下载成功描述成已更新。
+
+**需求完成情况：功能主体存在，安全验收不满足。** 启动检查已经排除菜单栏窗口；不能把它误报为每个窗口都检查。需要签名/校验失败、恶意文件名、架构缺失、并发写入及安装失败的测试后再引入。
+
+### #17 / #18：按模型费用及环形图
+
+[Issue #17](https://github.com/anglee0323/antigravity-tools-lite/issues/17) / [PR #18](https://github.com/anglee0323/antigravity-tools-lite/pull/18)，head `2958c2ae4780c7f60ceb804efcc1d8c5b768415c`。
+
+**P2：新规则把 Claude 不同系列按 Sonnet 价格计算。** `src/pages/Dashboard.tsx:120` 将原本只匹配 Sonnet 4.6 的规则扩展到 Sonnet/Opus/Haiku，仍统一为输入 $3、输出 $15、缓存读取 $0.30 / MTok。提取该 PR 的实际函数执行，Opus 4.6 与 Haiku 4.5 都命中此规则。[Anthropic 官方价格](https://platform.claude.com/docs/en/about-claude/pricing)分别为 Opus 4.6 的 $5/$25/$0.50 与 Haiku 4.5 的 $1/$5/$0.10；成本金额和饼图占比会同时出错。应按精确模型 ID、价格来源与有效日期维护规则，未知模型保留未知。
+
+**P2：缺失价格被图表呈现为零费用。** 825–857 行过滤 `costUsd > 0`；有真实用量但所有模型都未定价时，图中央显示 `$0.00 / 无计费`，列表显示“暂无费用记录”。总费用卡悬停已有未定价提示，但图表本身仍容易误导。需要区分无用量、真实零费用、未定价与部分估算，明确百分比分母只是已定价费用。
+
+**需求完成情况：图表、悬停、费用列基本齐全，价格准确性不满足。** 可在保留现有首页布局的前提下移植其费用明细功能，先统一 KPI/表格/饼图的计算并验证各模型价格、未知和混合数据。后端的 input_tokens 与 cached_tokens 是分开的，此处没有重复计算缓存的证据。
+
+## origin 分支清单
+
+共 16 个远程分支（不含符号 HEAD）。关联已合并 PR 的分支共 13 个；建议当前草稿合并并确认无需回查后清理，但本次未删除任何分支。
+
+| 分支 | 关联状态 | 建议 |
+| --- | --- | --- |
+| `main` | 主线 | 保留 |
+| `feat/settings-category-sidebar` | PR #22，当前工作 | 保留；更新描述，等新 CI |
+| `build/reproducible-cloud-linux` | PR #2，关闭未合并 | 保留待确认；有独立历史提交 |
+| `codex/unify-native-agy-sync` | PR #3，已合并 | 可清理 |
+| `feat/app-localization-opt-in` | PR #4，已合并，功能已撤除 | 可清理 |
+| `codex/cli-homebrew` | PR #5，已合并 | 可清理 |
+| `feat/menu-bar-dashboard` | PR #6，已合并 | 可清理 |
+| `feat/safe-quota-switch` | PR #7，已合并 | 可清理 |
+| `codex/windows-release-cli-validation` | PR #8，已合并 | 可清理 |
+| `test/native-gui-acceptance` | PR #9，已合并 | 可清理 |
+| `codex/release-4.7.7-preparation` | PR #10，已合并 | 可清理 |
+| `codex/homebrew-4.7.7` | PR #13，已合并 | 可清理 |
+| `fix/macos-bundle-signature` | PR #16，已合并 | 可清理 |
+| `release/4.7.8-preparation` | PR #19，已合并 | 可清理 |
+| `chore/homebrew-4.7.8` | PR #20，已合并 | 可清理 |
+| `fix/account-dashboard-data-contract` | PR #21，已合并 | 可清理 |
+
+最近几个修复分支经过 squash 合并，旧 head 不是 main 祖先不代表功能漏合并。三个外部 PR 来自贡献者分支，并不在这 16 个 origin 分支中。
+
+## 自己的 PR #22
+
+旧 CI 的 Mac 发布契约仍查找已删除的汉化文案，Linux UI 测试仍按六分类/手动保存验收；已更新到当前产品行为。旧失败不能作为当前提交通过的证据。PR 保持草稿，新的跨平台 CI 结果单独查看；本机 Mac 通过也不自动证明 Windows/Linux 原生 GUI。
+
+`832b9a5e` 的 Mac、Windows 构建及三端 release CLI / 打包通过，Ubuntu build 的浏览器用例有 8 项失败：7 项旧菜单契约和 1 项聚合设置控件缺失。其对应的新控件、紧凑面板与浏览器用例现已一起提交到 `e977a854`，本地全套 17 项通过；应以新 head 的 CI 结果验收，不能沿用上一提交的成功项。
