@@ -46,13 +46,13 @@ pub fn get_all_candidate_db_paths(target_ide: Option<&str>) -> Vec<PathBuf> {
         }
     }
 
-    let folder_names: &[&str] = if target_ide == Some("ide") {
-        &["Antigravity IDE", "Antigravity"]
-    } else if target_ide == Some("code") || target_ide == Some("cursor") {
-        &["Antigravity", "Antigravity IDE"]
-    } else {
-        &["Antigravity IDE", "Antigravity"]
-    };
+    let folder_names: &[&str] = &[
+        "Antigravity IDE",
+        "Antigravity",
+        "Code",
+        "Code - Insiders",
+        "Cursor",
+    ];
 
     #[cfg(target_os = "macos")]
     if let Some(home) = dirs::home_dir() {
@@ -86,10 +86,17 @@ pub fn get_all_candidate_db_paths(target_ide: Option<&str>) -> Vec<PathBuf> {
         }
     }
 
-    paths
+    let mut unique_paths = Vec::new();
+    for p in paths {
+        if !unique_paths.contains(&p) {
+            unique_paths.push(p);
+        }
+    }
+    unique_paths
 }
 
 /// Get Antigravity database path (cross-platform)
+#[allow(dead_code)]
 pub fn get_db_path(target_ide: Option<&str>) -> Result<PathBuf, String> {
     let candidates = get_all_candidate_db_paths(target_ide);
     for path in &candidates {

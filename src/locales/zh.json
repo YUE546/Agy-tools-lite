@@ -142,7 +142,7 @@
       "risk_controlled": "触发限流",
       "oauth_reauth_required": "授权异常"
     },
-    "switch_account": "切换到此账号（应用与 CLI 通用）",
+    "switch_account": "切换到此账号（全域智能同步）",
     "refresh_quota": "刷新此账号配额",
     "delete_account": "删除此账号",
     "quota_window_5h": "5 小时配额",

@@ -1614,35 +1614,9 @@ fn show_accounts_and_quotas_hub(root: &Path, lang: Lang) {
                 };
                 println!("{}", target_header);
 
-                let (title, target_items) = match lang {
-                    Lang::Zh => (
-                        "选择生效目标:",
-                        vec![
-                            "1. AntiGravity 桌面应用与命令行 (同步生效)",
-                            "2. AntiGravity IDE / VS Code 插件 (独立通道)",
-                            "0. 取消并返回",
-                        ],
-                    ),
-                    Lang::En => (
-                        "Select Target:",
-                        vec![
-                            "1. Desktop App and CLI (Default sync)",
-                            "2. AntiGravity IDE / VS Code Plugin (Independent)",
-                            "0. Cancel",
-                        ],
-                    ),
-                };
-
-                let target_choice = select_menu_interactive(title, &target_items, 0, lang);
-                let target_ide = match target_choice {
-                    Some(0) => None,
-                    Some(1) => Some("ide"),
-                    _ => continue,
-                };
-
                 let wait_msg = match lang {
-                    Lang::Zh => "\n正在执行账号切换并同步会话...",
-                    Lang::En => "\nSwitching account and synchronizing session...",
+                    Lang::Zh => format!("\n正在切换至 \x1b[1;32m{}\x1b[0m 并全域同步会话...", target_acc.email),
+                    Lang::En => format!("\nSwitching to \x1b[1;32m{}\x1b[0m and synchronizing globally...", target_acc.email),
                 };
                 println!("{}", wait_msg);
 
@@ -1659,6 +1633,8 @@ fn show_accounts_and_quotas_hub(root: &Path, lang: Lang) {
                     }
                 };
 
+                let target_ide = None;
+
                 match runtime.block_on(crate::modules::account::switch_account(
                     &target_acc.id,
                     target_ide,
@@ -1667,14 +1643,12 @@ fn show_accounts_and_quotas_hub(root: &Path, lang: Lang) {
                     Ok(_) => {
                         let succ_msg = match lang {
                             Lang::Zh => format!(
-                                "\x1b[1;32m✓ 账号切换成功: {}\x1b[0m (目标: {})\n提示: 请在终端开启新的 agy 命令以使用最新会话。\n",
-                                target_acc.email,
-                                target_ide.unwrap_or("app")
+                                "\x1b[1;32m✓ 账号切换成功: {}\x1b[0m (全域智能同步)\n提示: 已打开的桌面客户端已自动刷新；若使用已打开的 VS Code 请在命令面板执行 Reload Window。\n",
+                                target_acc.email
                             ),
                             Lang::En => format!(
-                                "\x1b[1;32m✓ Successfully switched to: {}\x1b[0m (target: {})\nHint: Start a new agy command to use the updated session.\n",
-                                target_acc.email,
-                                target_ide.unwrap_or("app")
+                                "\x1b[1;32m✓ Successfully switched to: {}\x1b[0m (Global smart sync)\nHint: Active clients were refreshed. In open VS Code windows, run 'Reload Window'.\n",
+                                target_acc.email
                             ),
                         };
                         println!("{}", succ_msg);

@@ -1,4 +1,4 @@
-use crate::modules::{cli_credentials, db, device, process, version};
+use crate::modules::{cli_credentials, db, device, process};
 use std::fs;
 #[cfg(target_os = "macos")]
 use std::process::Command;
@@ -109,117 +109,81 @@ impl DesktopIntegration {
             return Err("Cannot find Antigravity. Set its executable path in Settings, or install and initialize agy before switching accounts.".into());
         }
 
-        // 1. 先关闭外部正在运行的进程（无论是原生还是IDE，先安全关闭，避免文件或凭据冲突）
-        if process::is_antigravity_running(target_ide) {
-            process::close_antigravity(20, target_ide)?;
-        }
+        // 1. 智能检测运行中的进程，并安全关闭对应客户端
+        let is_ide_mode = target_ide == Some("ide");
+        let app_running = if is_ide_mode { false } else { process::is_antigravity_running(None) };
+        let ide_running = process::is_antigravity_running(Some("ide"));
 
-        // 2. 智能决策：是否使用最新的系统 Keychain 凭据管理器方式存储 Token
-        let mut is_ide = target_ide == Some("ide");
-
-        // Auto-detect IDE: if the located executable is the IDE, treat as IDE mode
-        if !is_ide {
-            if let Some(exe_path) = process::get_antigravity_executable_path(target_ide) {
-                let path_lower = exe_path.to_string_lossy().to_lowercase();
-                if path_lower.contains("antigravity ide") || path_lower.contains("antigravity-ide")
-                {
-                    is_ide = true;
-                    crate::modules::logger::log_info(
-                        "[Desktop] Auto-detected Antigravity IDE executable, using IDE account switch logic.",
-                    );
-                }
-            }
-        }
-
-        let mut use_keyring = false;
-
-        if !is_ide {
-            // 经典原生版：自动探测版本号
-            match version::get_antigravity_version(target_ide) {
-                Ok(ver) => {
-                    // 如果版本号 >= 2.0.0
-                    if version::compare_version(&ver.short_version, "2.0.0")
-                        != std::cmp::Ordering::Less
-                    {
-                        use_keyring = true;
-                        crate::modules::logger::log_info(&format!(
-                            "[Desktop] Detected Antigravity version {} >= 2.0.0, using system Keyring.",
-                            ver.short_version
-                        ));
-                    } else {
-                        crate::modules::logger::log_info(&format!(
-                            "[Desktop] Detected Antigravity version {} < 2.0.0, falling back to legacy SQLite injection.",
-                            ver.short_version
-                        ));
-                    }
-                }
-                Err(e) => {
-                    // 如果探测失败，为防止对最新版由于没有 storage.json 造成报错阻断，默认作为新凭据注入
-                    use_keyring = true;
-                    crate::modules::logger::log_warn(&format!(
-                        "[Desktop] Failed to detect Antigravity version ({}), defaulting to system Keyring for robustness.",
-                        e
-                    ));
-                }
-            }
-        }
-
-        if use_keyring {
-            // ================== 最新版 Antigravity 原生应用逻辑 (>= 2.0.0) ==================
-            // 2.1 写入系统 Keychain/Keyring
-            write_to_system_keyring(account, false)?;
-
-            // 2.2 原生应用可能没有 storage.json，但如果有的话，我们也可以尝试安全地写入设备 Profile，以兼容指纹信息
-            if let Ok(storage_path) = device::get_storage_path(target_ide) {
-                if let Some(ref profile) = account.device_profile {
-                    let _ = device::write_profile(&storage_path, profile);
-                }
+        if is_ide_mode {
+            if ide_running {
+                process::close_antigravity(20, Some("ide"))?;
             }
         } else {
-            // ================== 原有 Antigravity 旧版或定制 IDE 逻辑 (< 2.0.0) ==================
-            // 2.1 获取存储路径
-            let storage_path = device::get_storage_path(target_ide)?;
-
-            // 2.2 写入设备 Profile
-            if let Some(ref profile) = account.device_profile {
-                device::write_profile(&storage_path, profile)?;
+            if app_running {
+                let _ = process::close_antigravity(20, None);
             }
+            if ide_running {
+                let _ = process::close_antigravity(20, Some("ide"));
+            }
+        }
 
-            // 2.3 数据库处理与 Token 注入
-            let db_path = db::get_db_path(target_ide)?;
+        // 2. 凭据全域同步写入（Keychain + CLI + VS Code 插件文件 + SQLite 数据库）
+        // 2.1 写入系统 Keychain (macOS / Windows / Linux) 与 CLI 会话
+        if !is_ide_mode {
+            write_to_system_keyring(account, false)?;
+        }
+
+        // 2.2 写入 VS Code 插件专用凭据文件 (~/.gemini/jetski-standalone-oauth-token)
+        if let Some(home) = dirs::home_dir() {
+            let gemini_dir = home.join(".gemini");
+            if gemini_dir.is_dir() {
+                let jetski_file = gemini_dir.join("jetski-standalone-oauth-token");
+                if let Ok(payload) = cli_credentials::payload(&account.token) {
+                    let _ = cli_credentials::write_session(&jetski_file, &payload);
+                }
+            }
+        }
+
+        // 2.3 写入设备 Profile（如果有）
+        if let Ok(storage_path) = device::get_storage_path(target_ide) {
+            if let Some(ref profile) = account.device_profile {
+                let _ = device::write_profile(&storage_path, profile);
+            }
+        }
+
+        // 2.4 注入所有候选 state.vscdb 数据库（包含 Antigravity IDE、Antigravity、VS Code、Cursor）
+        let candidate_dbs = db::get_all_candidate_db_paths(target_ide);
+        for db_path in candidate_dbs {
             if db_path.exists() {
                 let backup_path = db_path.with_extension("vscdb.backup");
                 let _ = fs::copy(&db_path, &backup_path);
-            }
-
-            db::inject_token(
-                &db_path,
-                &account.token.access_token,
-                &account.token.refresh_token,
-                account.token.expiry_timestamp,
-                &account.email,
-                account.token.is_gcp_tos,
-                account.token.project_id.as_deref(),
-                account.token.id_token.as_deref(),
-                account.token.oauth_client_key.as_deref(),
-            )?;
-
-            // Legacy native APPs still share the initialized agy session. IDE
-            // switches keep their existing, independent SQLite-only behavior.
-            if !is_ide {
-                let payload = cli_credentials::payload(&account.token)?;
-                cli_session_path()
-                    .and_then(|path| {
-                        cli_credentials::sync_session(path.as_deref(), &payload, false)
-                    })
-                    .map_err(|error| {
-                        format!("APP database was updated, but agy session sync failed: {error}")
-                    })?;
+                let _ = db::inject_token(
+                    &db_path,
+                    &account.token.access_token,
+                    &account.token.refresh_token,
+                    account.token.expiry_timestamp,
+                    &account.email,
+                    account.token.is_gcp_tos,
+                    account.token.project_id.as_deref(),
+                    account.token.id_token.as_deref(),
+                    account.token.oauth_client_key.as_deref(),
+                );
             }
         }
 
-        // 3. 重启外部进程
-        integration.start_application(target_ide)?;
+        // 3. 智能联动重启：刚才开着哪个，就重新拉起哪个
+        if is_ide_mode {
+            if ide_running {
+                let _ = integration.start_application(Some("ide"));
+            }
+        } else {
+            if app_running {
+                let _ = integration.start_application(None);
+            }
+            if ide_running {
+                let _ = integration.start_application(Some("ide"));
+            }
+        }
 
         // 4. 更新托盘
         integration.update_tray();
