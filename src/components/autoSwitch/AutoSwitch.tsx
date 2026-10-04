@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeftRight, RefreshCw } from 'lucide-react';
+import { ArrowLeftRight, Check, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Account } from '../../types/account';
 import { AutoSwitchConfig, AutoSwitchStatus, AutoSwitchTarget } from '../../types/autoSwitch';
@@ -88,140 +88,332 @@ export function AutoSwitchStatusBar() {
 }
 
 export function AutoSwitchSettings() {
-    const { t } = useTranslation(); const { status, error: statusError } = useStatus();
+    const { t } = useTranslation();
+    const { status, error: statusError } = useStatus();
     const [draft, setDraft] = useState<AutoSwitchConfig | null>(null);
-    const [accounts, setAccounts] = useState<Account[]>([]); const [currentId, setCurrentId] = useState<string | null>(null);
-    const [error, setError] = useState(''); const [saved, setSaved] = useState(false); const [busy, setBusy] = useState(false);
-    const reload = async () => {
-        setBusy(true); setError('');
-        try { const [c, a, current] = await Promise.all([service.getAutoSwitchConfig(), listAccounts(), getCurrentAccount()]); setDraft(c); setAccounts(a); setCurrentId(current?.id || null); }
-        catch { setError(t('auto_switch.load_failed')); } finally { setBusy(false); }
-    };
-    useEffect(() => { void reload(); }, []);
-    const patch = (p: Partial<AutoSwitchConfig>) => { setDraft(d => d && ({ ...d, ...p })); setSaved(false); };
-    const save = async () => {
-        if (!draft) return; setBusy(true); setError(''); setSaved(false);
-        try { setDraft(await service.setAutoSwitchConfig({ ...draft, candidate_account_ids: eligibleAccounts.map(a => a.id).filter(id => draft.candidate_account_ids.includes(id)) })); setSaved(true); }
-        catch (e) { setError(t('auto_switch.save_failed', { error: String(e) })); }
-        finally { setBusy(false); }
-    };
+    const [accounts, setAccounts] = useState<Account[]>([]);
+    const [currentId, setCurrentId] = useState<string | null>(null);
+    const [error, setError] = useState('');
+    const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+    const [busy, setBusy] = useState(false);
+    const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     const eligibleAccounts = accounts.filter(a => !a.disabled && !a.validation_blocked && !a.quota?.is_forbidden);
-    const invalid = !draft || draft.reserve_percentage < 1 || draft.reserve_percentage > 98 || draft.candidate_min_percentage <= draft.reserve_percentage || draft.candidate_min_percentage > 100 || !Number.isInteger(draft.reserve_percentage) || !Number.isInteger(draft.candidate_min_percentage) || (draft.enabled && !draft.candidate_account_ids.length);
-    return <div className="space-y-4"><section className="rounded-2xl border border-gray-200/80 bg-white p-5 sm:p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900/80">
-        <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-400/10 dark:text-amber-300"><ArrowLeftRight className="h-5 w-5" /></span><div><h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t('auto_switch.title')}</h3><p className="mt-0.5 max-w-3xl text-xs leading-relaxed text-gray-500 dark:text-gray-400">{t('auto_switch.description')}</p></div></div>
-        {error && <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>}
-        {!draft ? <button disabled={busy} onClick={reload} className={`${SECONDARY_BUTTON} mt-4`}>{t(busy ? 'auto_switch.loading' : 'auto_switch.retry')}</button> : <>
-            <label className="my-5 flex cursor-pointer items-center gap-3 text-sm font-medium"><input type="checkbox" className="peer sr-only" checked={draft.enabled} disabled={busy} onChange={e => patch({ enabled: e.target.checked })} /><span aria-hidden="true" className="relative inline-block h-6 w-11 shrink-0 rounded-full bg-slate-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-sm after:transition-transform after:content-[''] peer-checked:bg-blue-600 peer-checked:after:translate-x-5 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-focus-visible:ring-offset-2 peer-disabled:opacity-50 dark:bg-slate-600" />{t('auto_switch.enable')}</label>
-            <div className="grid gap-3 md:grid-cols-2" role="group" aria-label={t('auto_switch.mode')}>
-                {(['wait', 'stop'] as const).map(mode => <label key={mode} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 ${draft.mode === mode ? 'border-blue-400 bg-blue-50/60 dark:bg-blue-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
-                    <input type="radio" name="auto-switch-mode" checked={draft.mode === mode} disabled={busy} onChange={() => patch({ mode })} className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600" />
-                    <span><span className="block text-sm font-medium">{t(`auto_switch.mode_${mode}`)}</span><span className="mt-1 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">{t(`auto_switch.${mode}_instructions`)}</span></span>
-                </label>)}
-            </div>
-            <div className="my-5 grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                    <label htmlFor="auto-switch-target" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
-                        {t('auto_switch.target')}
-                    </label>
-                    <select
-                        id="auto-switch-target"
-                        aria-label={t('auto_switch.target')}
-                        className={FIELD}
-                        disabled={busy}
-                        value={draft.target === 'all' ? 'app' : draft.target}
-                        onChange={e => patch({ target: e.target.value as AutoSwitchTarget })}
-                    >
-                        <option value="app">{t('auto_switch.target_all')}</option>
-                        <option value="app_cli">{t('auto_switch.target_app_cli')}</option>
-                        <option value="ide">{t('auto_switch.target_ide')}</option>
-                    </select>
-                    <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
-                        {draft.target === 'ide'
-                            ? t('auto_switch.target_hint_ide')
-                            : draft.target === 'app_cli'
-                            ? t('auto_switch.target_hint_app_cli')
-                            : t('auto_switch.target_hint_all')}
-                    </p>
+
+    const isConfigValid = (c: AutoSwitchConfig): boolean => {
+        if (!c) return false;
+        if (c.reserve_percentage < 1 || c.reserve_percentage > 98) return false;
+        if (c.candidate_min_percentage <= c.reserve_percentage || c.candidate_min_percentage > 100) return false;
+        if (!Number.isInteger(c.reserve_percentage) || !Number.isInteger(c.candidate_min_percentage)) return false;
+        if (c.enabled && !c.candidate_account_ids.length) return false;
+        return true;
+    };
+
+    const reload = async () => {
+        setBusy(true);
+        setError('');
+        try {
+            const [c, a, current] = await Promise.all([service.getAutoSwitchConfig(), listAccounts(), getCurrentAccount()]);
+            setDraft(c);
+            setAccounts(a);
+            setCurrentId(current?.id || null);
+        } catch {
+            setError(t('auto_switch.load_failed'));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    useEffect(() => {
+        void reload();
+        return () => {
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        };
+    }, []);
+
+    const performSave = async (targetConfig: AutoSwitchConfig) => {
+        const eligibleIds = eligibleAccounts.map(a => a.id);
+        const filteredCandidateIds = targetConfig.candidate_account_ids.filter(id => eligibleIds.includes(id));
+        const finalConfig = { ...targetConfig, candidate_account_ids: filteredCandidateIds };
+
+        if (!isConfigValid(finalConfig)) return;
+
+        setSaveState('saving');
+        setError('');
+        try {
+            const savedConfig = await service.setAutoSwitchConfig(finalConfig);
+            setDraft(savedConfig);
+            setSaveState('saved');
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = setTimeout(() => {
+                setSaveState('idle');
+            }, 2500);
+        } catch (e) {
+            setError(t('auto_switch.save_failed', { error: String(e) }));
+            setSaveState('idle');
+        }
+    };
+
+    const patchAndSave = (patch: Partial<AutoSwitchConfig>) => {
+        if (!draft) return;
+        let next = { ...draft, ...patch };
+        if (patch.enabled && (!next.candidate_account_ids || next.candidate_account_ids.length === 0)) {
+            next.candidate_account_ids = eligibleAccounts.map(a => a.id);
+        }
+        setDraft(next);
+        if (isConfigValid(next)) {
+            void performSave(next);
+        }
+    };
+
+    const handleNumberChange = (field: 'reserve_percentage' | 'candidate_min_percentage', val: number) => {
+        if (!draft) return;
+        const next = { ...draft, [field]: val };
+        setDraft(next);
+
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = setTimeout(() => {
+            if (isConfigValid(next)) {
+                void performSave(next);
+            }
+        }, 500);
+    };
+
+    const handleNumberBlur = () => {
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        if (draft && isConfigValid(draft)) {
+            void performSave(draft);
+        }
+    };
+
+    const reserveError = draft && (draft.reserve_percentage < 1 || draft.reserve_percentage > 98);
+    const candidateMinError = draft && (draft.candidate_min_percentage <= draft.reserve_percentage || draft.candidate_min_percentage > 100);
+    const noAccountsError = draft && draft.enabled && draft.candidate_account_ids.length === 0;
+
+    return (
+        <div className="space-y-4">
+            <section className="rounded-2xl border border-gray-200/80 bg-white p-5 sm:p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900/80">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-400/10 dark:text-amber-300">
+                            <ArrowLeftRight className="h-5 w-5" />
+                        </span>
+                        <div>
+                            <div className="flex items-center gap-2.5">
+                                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t('auto_switch.title')}</h3>
+                                {saveState === 'saving' && (
+                                    <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                                        <RefreshCw className="h-3 w-3 animate-spin" />
+                                        {t('auto_switch.saving')}
+                                    </span>
+                                )}
+                                {saveState === 'saved' && (
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
+                                        <Check className="h-3.5 w-3.5" />
+                                        {t('auto_switch.auto_saved')}
+                                    </span>
+                                )}
+                            </div>
+                            <p className="mt-0.5 max-w-3xl text-xs leading-relaxed text-gray-500 dark:text-gray-400">{t('auto_switch.description')}</p>
+                        </div>
+                    </div>
                 </div>
-                <div className="space-y-1.5">
-                    <label htmlFor="auto-switch-model" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
-                        {t('auto_switch.model')}
-                    </label>
-                    <select
-                        id="auto-switch-model"
-                        aria-label={t('auto_switch.model')}
-                        className={FIELD}
-                        disabled={busy}
-                        value={draft.monitored_model || 'all'}
-                        onChange={e => patch({ monitored_model: e.target.value })}
-                    >
-                        <option value="all">{t('auto_switch.all_models')}</option>
-                        <option value="gemini">{t('auto_switch.model_gemini')}</option>
-                        <option value="claude">{t('auto_switch.model_claude')}</option>
-                    </select>
-                    <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
-                        {draft.monitored_model === 'gemini'
-                            ? t('auto_switch.model_gemini_hint')
-                            : draft.monitored_model === 'claude'
-                            ? t('auto_switch.model_claude_hint')
-                            : t('auto_switch.model_all_hint')}
-                    </p>
-                </div>
-                <div className="space-y-1.5">
-                    <label htmlFor="auto-switch-reserve" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
-                        {t('auto_switch.reserve')}
-                    </label>
-                    <input
-                        id="auto-switch-reserve"
-                        aria-label={t('auto_switch.reserve')}
-                        className={FIELD}
-                        type="number"
-                        min={1}
-                        max={98}
-                        step={1}
-                        disabled={busy}
-                        value={draft.reserve_percentage}
-                        onChange={e => patch({ reserve_percentage: Number(e.target.value) })}
-                    />
-                    <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
-                        {t('auto_switch.reserve_hint')}
-                    </p>
-                </div>
-                <div className="space-y-1.5">
-                    <label htmlFor="auto-switch-candidate-min" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
-                        {t('auto_switch.candidate_min')}
-                    </label>
-                    <input
-                        id="auto-switch-candidate-min"
-                        aria-label={t('auto_switch.candidate_min')}
-                        className={FIELD}
-                        type="number"
-                        min={draft.reserve_percentage + 1}
-                        max={100}
-                        step={1}
-                        disabled={busy}
-                        value={draft.candidate_min_percentage}
-                        onChange={e => patch({ candidate_min_percentage: Number(e.target.value) })}
-                    />
-                    <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
-                        {t('auto_switch.candidate_hint')}
-                    </p>
-                </div>
-            </div>
-        </>}
-        </section>
-        {draft && <><section className="rounded-2xl border border-gray-200/80 bg-white p-5 sm:p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900/80">
-            <fieldset className="space-y-2"><legend className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-200">{t('auto_switch.accounts')}</legend><p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{t('auto_switch.accounts_hint')}</p>
-                {!eligibleAccounts.length && <p className="text-xs text-amber-700 dark:text-amber-400">{t('auto_switch.no_accounts')}</p>}
-                <div className="grid max-h-52 gap-2 overflow-y-auto sm:grid-cols-2">{eligibleAccounts.map(a => <label key={a.id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm transition hover:bg-slate-50/60 dark:border-slate-700 dark:hover:bg-slate-800/40"><input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 rounded accent-blue-600" disabled={busy} checked={draft.candidate_account_ids.includes(a.id)} onChange={e => patch({ candidate_account_ids: e.target.checked ? [...draft.candidate_account_ids, a.id] : draft.candidate_account_ids.filter(id => id !== a.id) })} /><span className="min-w-0 break-all text-xs font-medium text-slate-700 dark:text-slate-200">{a.email}{a.id === currentId && <span className="ml-2 inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">{t('auto_switch.current')}</span>}</span></label>)}</div>
-            </fieldset>
-        </section>
-            <div className="mt-4 rounded-xl border border-amber-200/80 bg-amber-50/60 p-3.5 text-xs leading-relaxed text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-                <p>{t('auto_switch.safety_note')}</p>
-            </div>
-            <div className="my-4 flex items-center gap-3"><button className={PRIMARY_BUTTON} disabled={busy || invalid} onClick={save}>{t(busy ? 'auto_switch.saving' : 'auto_switch.save')}</button>{saved && <span role="status" className="text-xs text-emerald-600">{t('auto_switch.saved')}</span>}</div>
-            {statusError && <p role="alert" className="text-xs text-red-600">{t(`auto_switch.${statusError}`)}</p>}
-            {status && status.phase !== 'disabled' && <StatusBody status={status} />}
-        </>}
-    </div>;
+
+                {error && <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>}
+
+                {!draft ? (
+                    <button disabled={busy} onClick={reload} className={`${SECONDARY_BUTTON} mt-4`}>
+                        {t(busy ? 'auto_switch.loading' : 'auto_switch.retry')}
+                    </button>
+                ) : (
+                    <>
+                        <label className="my-5 flex cursor-pointer items-center gap-3 text-sm font-medium">
+                            <input
+                                type="checkbox"
+                                className="peer sr-only"
+                                checked={draft.enabled}
+                                disabled={busy}
+                                onChange={e => patchAndSave({ enabled: e.target.checked })}
+                            />
+                            <span
+                                aria-hidden="true"
+                                className="relative inline-block h-6 w-11 shrink-0 rounded-full bg-slate-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-sm after:transition-transform after:content-[''] peer-checked:bg-blue-600 peer-checked:after:translate-x-5 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-focus-visible:ring-offset-2 peer-disabled:opacity-50 dark:bg-slate-600"
+                            />
+                            {t('auto_switch.enable')}
+                        </label>
+
+                        <div className="grid gap-3 md:grid-cols-2" role="group" aria-label={t('auto_switch.mode')}>
+                            {(['wait', 'stop'] as const).map(mode => (
+                                <label
+                                    key={mode}
+                                    className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${draft.mode === mode ? 'border-blue-400 bg-blue-50/60 dark:border-blue-500/40 dark:bg-blue-500/10' : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600'}`}
+                                >
+                                    <input
+                                        type="radio"
+                                        name="auto-switch-mode"
+                                        checked={draft.mode === mode}
+                                        disabled={busy}
+                                        onChange={() => patchAndSave({ mode })}
+                                        className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+                                    />
+                                    <span>
+                                        <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">{t(`auto_switch.mode_${mode}`)}</span>
+                                        <span className="mt-1 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">{t(`auto_switch.${mode}_instructions`)}</span>
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+
+                        <div className="my-5 grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-1.5">
+                                <label htmlFor="auto-switch-target" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
+                                    {t('auto_switch.target')}
+                                </label>
+                                <select
+                                    id="auto-switch-target"
+                                    aria-label={t('auto_switch.target')}
+                                    className={FIELD}
+                                    disabled={busy}
+                                    value={draft.target === 'all' ? 'app' : draft.target}
+                                    onChange={e => patchAndSave({ target: e.target.value as AutoSwitchTarget })}
+                                >
+                                    <option value="app">{t('auto_switch.target_all')}</option>
+                                    <option value="app_cli">{t('auto_switch.target_app_cli')}</option>
+                                    <option value="ide">{t('auto_switch.target_ide')}</option>
+                                </select>
+                                <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+                                    {draft.target === 'ide'
+                                        ? t('auto_switch.target_hint_ide')
+                                        : draft.target === 'app_cli'
+                                        ? t('auto_switch.target_hint_app_cli')
+                                        : t('auto_switch.target_hint_all')}
+                                </p>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label htmlFor="auto-switch-model" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
+                                    {t('auto_switch.model')}
+                                </label>
+                                <select
+                                    id="auto-switch-model"
+                                    aria-label={t('auto_switch.model')}
+                                    className={FIELD}
+                                    disabled={busy}
+                                    value={draft.monitored_model || 'all'}
+                                    onChange={e => patchAndSave({ monitored_model: e.target.value })}
+                                >
+                                    <option value="all">{t('auto_switch.all_models')}</option>
+                                    <option value="gemini">{t('auto_switch.model_gemini')}</option>
+                                    <option value="claude">{t('auto_switch.model_claude')}</option>
+                                </select>
+                                <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+                                    {draft.monitored_model === 'gemini'
+                                        ? t('auto_switch.model_gemini_hint')
+                                        : draft.monitored_model === 'claude'
+                                        ? t('auto_switch.model_claude_hint')
+                                        : t('auto_switch.model_all_hint')}
+                                </p>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label htmlFor="auto-switch-reserve" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
+                                    {t('auto_switch.reserve')}
+                                </label>
+                                <input
+                                    id="auto-switch-reserve"
+                                    aria-label={t('auto_switch.reserve')}
+                                    className={`${FIELD} ${reserveError ? 'border-red-400 focus:border-red-500' : ''}`}
+                                    type="number"
+                                    min={1}
+                                    max={98}
+                                    step={1}
+                                    disabled={busy}
+                                    value={draft.reserve_percentage}
+                                    onChange={e => handleNumberChange('reserve_percentage', Number(e.target.value))}
+                                    onBlur={handleNumberBlur}
+                                />
+                                <p className={`text-[11px] leading-tight ${reserveError ? 'text-red-500 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                                    {reserveError ? t('auto_switch.reserve_range_error') : t('auto_switch.reserve_hint')}
+                                </p>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label htmlFor="auto-switch-candidate-min" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
+                                    {t('auto_switch.candidate_min')}
+                                </label>
+                                <input
+                                    id="auto-switch-candidate-min"
+                                    aria-label={t('auto_switch.candidate_min')}
+                                    className={`${FIELD} ${candidateMinError ? 'border-red-400 focus:border-red-500' : ''}`}
+                                    type="number"
+                                    min={draft.reserve_percentage + 1}
+                                    max={100}
+                                    step={1}
+                                    disabled={busy}
+                                    value={draft.candidate_min_percentage}
+                                    onChange={e => handleNumberChange('candidate_min_percentage', Number(e.target.value))}
+                                    onBlur={handleNumberBlur}
+                                />
+                                <p className={`text-[11px] leading-tight ${candidateMinError ? 'text-red-500 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                                    {candidateMinError ? t('auto_switch.candidate_min_error') : t('auto_switch.candidate_hint')}
+                                </p>
+                            </div>
+                        </div>
+                    </>
+                )}
+            </section>
+
+            {draft && (
+                <>
+                    <section className="rounded-2xl border border-gray-200/80 bg-white p-5 sm:p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900/80">
+                        <fieldset className="space-y-2">
+                            <legend className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-200">{t('auto_switch.accounts')}</legend>
+                            <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">{t('auto_switch.accounts_hint')}</p>
+                            {noAccountsError && <p className="mb-2 text-xs font-medium text-red-500 dark:text-red-400">{t('auto_switch.no_candidate_error')}</p>}
+                            {!eligibleAccounts.length && <p className="text-xs text-amber-700 dark:text-amber-400">{t('auto_switch.no_accounts')}</p>}
+                            <div className="grid max-h-52 gap-2 overflow-y-auto sm:grid-cols-2">
+                                {eligibleAccounts.map(a => (
+                                    <label
+                                        key={a.id}
+                                        className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm transition hover:bg-slate-50/60 dark:border-slate-700 dark:hover:bg-slate-800/40"
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            className="mt-0.5 h-4 w-4 shrink-0 rounded accent-blue-600"
+                                            disabled={busy}
+                                            checked={draft.candidate_account_ids.includes(a.id)}
+                                            onChange={e =>
+                                                patchAndSave({
+                                                    candidate_account_ids: e.target.checked
+                                                        ? [...draft.candidate_account_ids, a.id]
+                                                        : draft.candidate_account_ids.filter(id => id !== a.id),
+                                                })
+                                            }
+                                        />
+                                        <span className="min-w-0 break-all text-xs font-medium text-slate-700 dark:text-slate-200">
+                                            {a.email}
+                                            {a.id === currentId && (
+                                                <span className="ml-2 inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+                                                    {t('auto_switch.current')}
+                                                </span>
+                                            )}
+                                        </span>
+                                    </label>
+                                ))}
+                            </div>
+                        </fieldset>
+                    </section>
+
+                    <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 p-3.5 text-xs leading-relaxed text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                        <p>{t('auto_switch.safety_note')}</p>
+                    </div>
+
+                    {statusError && <p role="alert" className="text-xs text-red-600">{t(`auto_switch.${statusError}`)}</p>}
+                    {status && status.phase !== 'disabled' && <div className="mt-4"><StatusBody status={status} /></div>}
+                </>
+            )}
+        </div>
+    );
 }
