@@ -28,7 +28,7 @@ function fixture(fn) {
   } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
-function fakeGithub({ existing, failUpload = false, corruptDownload = false, remoteCommit = context.commit, newer = false, changeNotesOnRefresh = false } = {}) {
+function fakeGithub({ existing, failUpload = false, corruptDownload = false, remoteCommit = context.commit, newer = false, changeNotesOnRefresh = false, hideCreatedDraftFromList = false } = {}) {
   let release = existing ? { id: 123, body: releaseNotes(context), ...existing, assets: [] } : null;
   const files = new Map(existing?.files ?? []);
   const calls = [];
@@ -36,8 +36,14 @@ function fakeGithub({ existing, failUpload = false, corruptDownload = false, rem
   const run = args => {
     calls.push(args);
     if (args[0] === 'api') {
+      if (args.includes('POST')) {
+        const request = JSON.parse(readFileSync(args[args.indexOf('--input') + 1], 'utf8'));
+        assert.equal(request.tag_name, context.tag); assert.equal(request.target_commitish, context.commit);
+        assert.equal(request.draft, true); assert.equal(request.body, releaseNotes(context));
+        release = { id: 123, ...request }; return JSON.stringify(snapshot());
+      }
       if (args[1].includes('/commits/')) return JSON.stringify({ sha: remoteCommit });
-      if (args[1].endsWith('/releases')) return JSON.stringify([[...(release ? [snapshot()] : []), ...(newer ? [{ tag_name: 'v4.7.8', draft: false }] : [])]]);
+      if (args[1].endsWith('/releases')) return JSON.stringify([[...(release && !hideCreatedDraftFromList ? [snapshot()] : []), ...(newer ? [{ tag_name: 'v4.7.8', draft: false }] : [])]]);
       if (args[1].includes('/releases/tags/')) {
         if (!release || release.draft) throw new Error('HTTP 404: tag lookup only returns a published release');
         return JSON.stringify(snapshot());
@@ -45,7 +51,6 @@ function fakeGithub({ existing, failUpload = false, corruptDownload = false, rem
       if (args[1].endsWith('/releases/123')) return JSON.stringify({ ...snapshot(), ...(changeNotesOnRefresh ? { body: 'All platforms fully tested' } : {}) });
     }
     if (args[0] === 'release') {
-      if (args[1] === 'create') { assert.ok(args.includes('--draft')); release = { id: 123, tag_name: context.tag, draft: true, body: readFileSync(args[args.indexOf('--notes-file') + 1], 'utf8') }; return ''; }
       if (args[1] === 'upload') {
         assert.ok(release.draft); assert.ok(!args.includes('--clobber'));
         for (const file of args.slice(3, args.indexOf('--repo'))) { files.set(basename(file), readFileSync(file)); if (failUpload) throw new Error('Upload interrupted'); }
@@ -108,8 +113,16 @@ test('success stages a draft, checks downloaded bytes, and only then publishes',
 test('public releases, moved tags and obsolete versions cannot be published', () => fixture(directory => {
   for (const options of [{ existing: { tag_name: context.tag, draft: false } }, { remoteCommit: 'b'.repeat(40) }, { newer: true }]) {
     const api = fakeGithub(options); assert.throws(() => publishRelease(directory, context, api.run));
-    assert.ok(!api.calls.some(a => a[0] === 'release'));
+    assert.ok(!api.calls.some(a => a[0] === 'release' || a.includes('POST')));
   }
+}));
+
+test('new drafts publish through their creation response even when release listing stays stale', () => fixture(directory => {
+  const api = fakeGithub({ hideCreatedDraftFromList: true });
+  publishRelease(directory, context, api.run);
+  assert.equal(api.isPublic(), true);
+  assert.equal(api.calls.filter(a => a[1]?.endsWith('/releases')).length, 1);
+  assert.equal(api.calls.filter(a => a.includes('POST')).length, 1);
 }));
 
 test('reviewed release notes disclose native acceptance limits and cannot be silently reused for a new version', () => {

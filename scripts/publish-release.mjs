@@ -52,13 +52,11 @@ export function publishRelease(directory, context, runGh = gh) {
   };
   try {
     if (!release) {
-      const notes = join(scratch, 'notes.md');
-      writeFileSync(notes, expectedNotes);
-      runGh(['release', 'create', tag, '--repo', repository, '--draft', '--verify-tag', '--target', commit,
-        '--title', `Antigravity Tools Lite ${version}`, '--notes-file', notes]);
-      // The REST tag endpoint finds published releases only. Authenticated
-      // listing includes drafts; once resolved, refresh through the release ID.
-      release = findRelease(listReleases());
+      const request = join(scratch, 'release.json');
+      writeFileSync(request, JSON.stringify({ tag_name: tag, target_commitish: commit, draft: true,
+        name: `Antigravity Tools Lite ${version}`, body: expectedNotes }));
+      // Use the creation response's ID; the release listing can lag behind.
+      release = json(['api', '--method', 'POST', `repos/${repository}/releases`, '--input', request]);
     }
     if (!release?.draft) throw new Error('Could not confirm the draft release');
     if (!Number.isSafeInteger(release.id) || release.id <= 0) throw new Error('Draft has no valid release ID');
