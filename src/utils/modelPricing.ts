@@ -1,0 +1,29 @@
+export interface ModelPricing {
+    model: string;
+    input: number;
+    output: number;
+    cached: number;
+}
+
+// Match the native menu estimator: punctuation and the observed -n alias only.
+// A neighbouring model's price is not evidence of this model's price.
+const normalize = (model: string) => model.toLowerCase().replace(/-n$/, '').replace(/[^a-z0-9]/g, '');
+
+export function findModelPricing(model: string, snapshot: { prices: ModelPricing[] } | null) {
+    const matches = snapshot?.prices.filter(entry => normalize(entry.model) === normalize(model)) || [];
+    if (matches.length !== 1) return undefined;
+    const price = matches[0];
+    return [price.input, price.output, price.cached].every(value => Number.isFinite(value) && value >= 0) ? price : undefined;
+}
+
+export function estimateApiCost(models: Array<{ model: string; input_tokens: number; output_tokens: number; cached_tokens: number }>, snapshot: { prices: ModelPricing[] } | null) {
+    return models.reduce((result, model) => {
+        const price = findModelPricing(model.model, snapshot);
+        if (!price) result.unpricedModels += 1;
+        else {
+            result.pricedModels += 1;
+            result.usd += (model.input_tokens * price.input + model.output_tokens * price.output + model.cached_tokens * price.cached) / 1_000_000;
+        }
+        return result;
+    }, { usd: 0, pricedModels: 0, unpricedModels: 0 });
+}

@@ -27,7 +27,7 @@
     "api_requests": "{{requestCount}} 次请求 · {{pricing}}{{unpriced}}",
     "pricing_local_cache": "使用本地价格缓存",
     "pricing_google": "Google 官方价格",
-    "pricing_fallback": "内置价格兜底",
+    "pricing_fallback": "暂无价格",
     "pricing_unavailable": " · 未计价",
     "chart_subtitle": "按本地生成记录统计",
     "hover_for_usage": "悬浮查看用量",
@@ -45,7 +45,18 @@
     "no_token_records": "使用 Antigravity 生成内容后，点击右上角刷新即可看到本地 Token 记录。",
     "cached_tokens": "缓存",
     "input_short": "输入",
-    "output_short": "输出"
+    "output_short": "输出",
+    "view_tokens": "Token 占比",
+    "view_cost_pie": "费用饼图",
+    "model_cost_breakdown": "各模型费用明细",
+    "no_cost_in_range": "暂无预估费用",
+    "unpriced_models_hint": "{{count}} 个模型未计价，未计入费用估算",
+    "cost_share": "费用占比",
+    "details": "明细",
+    "unpriced": "未计价",
+    "pricing_pending": "暂无可用价格",
+    "priced_subtotal": "已计价小计",
+    "total_cost": "预估合计"
   },
   "local_settings": {
     "title": "设置",

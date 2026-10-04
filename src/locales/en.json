@@ -27,7 +27,7 @@
     "api_requests": "{{requestCount}} requests · {{pricing}}{{unpriced}}",
     "pricing_local_cache": "cached prices",
     "pricing_google": "Google prices",
-    "pricing_fallback": "built-in prices",
+    "pricing_fallback": "Prices unavailable",
     "pricing_unavailable": " · unpriced",
     "chart_subtitle": "From local generation records",
     "hover_for_usage": "Hover to inspect usage",
@@ -45,7 +45,18 @@
     "no_token_records": "Generate content with Antigravity, then refresh to see local token usage.",
     "cached_tokens": "Cached",
     "input_short": "Input",
-    "output_short": "Output"
+    "output_short": "Output",
+    "view_tokens": "Tokens",
+    "view_cost_pie": "Cost Pie",
+    "model_cost_breakdown": "Cost by Model",
+    "no_cost_in_range": "No estimated cost",
+    "unpriced_models_hint": "{{count}} models unpriced; excluded from the estimate",
+    "cost_share": "Cost share",
+    "details": "Details",
+    "unpriced": "Unpriced",
+    "pricing_pending": "Prices unavailable",
+    "priced_subtotal": "Priced subtotal",
+    "total_cost": "Total estimate"
   },
   "local_settings": {
     "title": "Settings",
