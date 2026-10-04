@@ -8,7 +8,7 @@ The public ZIP, checksums, generated cask and source manifest were downloaded an
 
 **Native installation acceptance is pending.** Installation, upgrade, uninstall/account preservation, custom `--appdir` behavior and Gatekeeper acceptance have not yet been tested on a user's Mac. Recipe and package validation do not establish these results. The installation commands below are provided with that limitation; no security checks are disabled.
 
-The cask installs both `Antigravity Tools Lite.app` and the management command `agy-lite`. It uses Homebrew's documented [`app` and `binary` artifacts](https://docs.brew.sh/Cask-Cookbook#stanza-binary). A separate formula would still carry the current desktop-linked executable, so no lightweight CLI-only formula is claimed here. Linux and Intel macOS Homebrew packages are not provided; use the existing Linux packages or build from source.
+The cask installs both `Antigravity Tools Lite.app` and the management command `agy-switch`. It uses Homebrew's documented [`app` and `binary` artifacts](https://docs.brew.sh/Cask-Cookbook#stanza-binary). A separate formula would still carry the current desktop-linked executable, so no lightweight CLI-only formula is claimed here. Linux and Intel macOS Homebrew packages are not provided; use the existing Linux packages or build from source.
 
 ## Release inputs and generation
 
@@ -44,12 +44,12 @@ cp artifacts/homebrew/Casks/antigravity-tools-lite.rb \
 brew style --cask local/antigravity-tools-lite/antigravity-tools-lite
 brew audit --cask local/antigravity-tools-lite/antigravity-tools-lite
 brew install --cask local/antigravity-tools-lite/antigravity-tools-lite
-agy-lite --version
-agy-lite accounts list --json
+agy-switch --version
+agy-switch accounts list --json
 brew uninstall --cask local/antigravity-tools-lite/antigravity-tools-lite
 ```
 
-Review any Homebrew trust prompt yourself. `brew uninstall` retains saved accounts and OS credentials. No `zap` stanza deletes them. Test that upgrades preserve account files and that `agy-lite` follows a custom `--appdir`, then publish the verified cask under `Casks/` in an authorized tap. Only after publication should end-user installation instructions name that tap. See Homebrew's [tap maintenance guide](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap).
+Review any Homebrew trust prompt yourself. `brew uninstall` retains saved accounts and OS credentials. No `zap` stanza deletes them. Test that upgrades preserve account files and that `agy-switch` follows a custom `--appdir`, then publish the verified cask under `Casks/` in an authorized tap. Only after publication should end-user installation instructions name that tap. See Homebrew's [tap maintenance guide](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap).
 
 ## Signing and Gatekeeper
 
@@ -64,11 +64,11 @@ Install from the repository with:
 ```sh
 brew tap anglee0323/antigravity-tools-lite https://github.com/anglee0323/antigravity-tools-lite.git
 brew install --cask anglee0323/antigravity-tools-lite/antigravity-tools-lite
-agy-lite --version
-agy-lite --help
+agy-switch --version
+agy-switch --help
 ```
 
-The explicit Git URL matters: the one-argument `brew tap` form would look for a different, `homebrew-`-prefixed repository. The cask's `app` artifact installs the app, and its `binary` artifact links the bundled executable as `$(brew --prefix)/bin/agy-lite`, following a custom `--appdir`. It neither installs nor replaces Google's `agy`.
+The explicit Git URL matters: the one-argument `brew tap` form would look for a different, `homebrew-`-prefixed repository. The cask's `app` artifact installs the app, and its `binary` artifact links the bundled executable as `$(brew --prefix)/bin/agy-switch`, following a custom `--appdir`. It neither installs nor replaces Google's `agy`.
 
 Installation does not launch the app. If a manually installed app already occupies the destination, keep a backup and review Homebrew's conflict message before proceeding. These commands do not request forced overwrite, app adoption, account-data deletion or removal of platform trust checks.
 

@@ -2152,7 +2152,7 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
             vec![
                 "命令行工具".into(),
                 format!("v{}", env!("CARGO_PKG_VERSION")),
-                "agy-switch (兼容指令: agy-lite)".into(),
+                "agy-switch".into(),
             ],
         ],
         Lang::En => vec![
@@ -2163,7 +2163,7 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
             vec![
                 "CLI Binary".into(),
                 format!("v{}", env!("CARGO_PKG_VERSION")),
-                "agy-switch (alias: agy-lite)".into(),
+                "agy-switch".into(),
             ],
         ],
     };

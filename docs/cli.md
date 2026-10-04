@@ -1,6 +1,6 @@
-# Tools Lite CLI (`agy-lite`)
+# Tools Lite CLI (`agy-switch`)
 
-`agy-lite` manages the accounts saved by **Antigravity Tools Lite**. It is separate from Google's `agy` executable: it does not replace `agy`, start an AI session, or implement Google login. Add accounts in the Tools Lite GUI first.
+`agy-switch` manages the accounts saved by **Antigravity Tools Lite**. It is separate from Google's `agy` executable: it does not replace `agy`, start an AI session, or implement Google login. Add accounts in the Tools Lite GUI first.
 
 ## Run it
 
@@ -11,7 +11,7 @@ With a CLI-enabled macOS app installed, the bundled executable accepts the same 
 "/Applications/Antigravity Tools Lite.app/Contents/MacOS/antigravity-tools" accounts list --json
 ```
 
-The [Homebrew cask](homebrew.md) installs an `agy-lite` symlink to this executable. Until a cask-enabled release is published, the cask is a packaging recipe, not an available public tap.
+The [Homebrew cask](homebrew.md) installs an `agy-switch` symlink to this executable. Until a cask-enabled release is published, the cask is a packaging recipe, not an available public tap.
 
 For a local Rust build:
 
@@ -42,7 +42,7 @@ $err = [IO.Path]::GetTempFileName()
 try {
     $process = Start-Process -FilePath $exe -ArgumentList 'accounts list --json' -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
     if ($process.ExitCode -eq 0) { Get-Content -Raw $out | ConvertFrom-Json }
-    else { Get-Content -Raw $err; Write-Error "agy-lite exited with code $($process.ExitCode)" }
+    else { Get-Content -Raw $err; Write-Error "agy-switch exited with code $($process.ExitCode)" }
 } finally { Remove-Item $out, $err }
 ```
 
@@ -53,16 +53,16 @@ For `switch`, omit `Start-Process`'s `-Wait`: that option waits for descendants 
 ## Commands
 
 ```sh
-agy-lite accounts list
-agy-lite current --json
-agy-lite quota                       # current account's cached quota
-agy-lite quota user@example.com --json
-agy-lite switch ACCOUNT_ID
-agy-lite switch user@example.com --target app --json
-agy-lite switch ACCOUNT_ID --target ide
+agy-switch accounts list
+agy-switch current --json
+agy-switch quota                       # current account's cached quota
+agy-switch quota user@example.com --json
+agy-switch switch ACCOUNT_ID
+agy-switch switch user@example.com --target app --json
+agy-switch switch ACCOUNT_ID --target ide
 ```
 
-`accounts current`, `accounts quota` and `accounts switch` are also accepted. Selectors are exact account IDs or case-insensitive exact emails; duplicate emails require an ID. There is no fuzzy selection. Bare `agy-lite` prints help, while launching the original app executable without arguments preserves the GUI.
+`accounts current`, `accounts quota` and `accounts switch` are also accepted. Selectors are exact account IDs or case-insensitive exact emails; duplicate emails require an ID. There is no fuzzy selection. Bare `agy-switch` prints help, while launching the original app executable without arguments preserves the GUI.
 
 - `accounts list`, `current`, and `quota` only read local files. They do not initialize the GUI, refresh tokens, query Google, create directories/logs, or repair corrupt indexes
 - `current` is Tools Lite's recorded selection, not a live check of the APP keyring or `agy` session. Changes made outside Tools Lite can make it stale

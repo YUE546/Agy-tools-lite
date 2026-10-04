@@ -5,7 +5,7 @@ cask "antigravity-tools-lite" do
 
   url "@URL@"
   name "Antigravity Tools Lite"
-  desc "Antigravity account manager, local usage dashboard and agy-lite CLI"
+  desc "Antigravity account manager, local usage dashboard and agy-switch CLI"
   homepage "https://github.com/anglee0323/antigravity-tools-lite"
 
   depends_on arch: :arm64
@@ -13,10 +13,9 @@ cask "antigravity-tools-lite" do
 
   app "Antigravity Tools Lite.app"
   binary "#{appdir}/Antigravity Tools Lite.app/Contents/MacOS/antigravity-tools", target: "agy-switch"
-  binary "#{appdir}/Antigravity Tools Lite.app/Contents/MacOS/antigravity-tools", target: "agy-lite"
 
   caveats <<~EOS
-    Includes the agy-switch command (aliased as agy-lite). Run agy-switch --help to get started.
+    Includes the agy-switch command. Run agy-switch --help to get started.
     This is Tools Lite's management CLI, separate from Google's agy command.
     Account data and system credentials are retained when uninstalling.
   EOS

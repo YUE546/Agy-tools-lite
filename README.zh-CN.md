@@ -145,15 +145,15 @@ npm run tauri build     # macOS .app 或 Windows 安装包
 
 ## 命令行与 Homebrew
 
-Tools Lite 自带管理命令 `agy-lite`，支持列出账号、查看本地记录的当前账号和缓存配额，以及复用 GUI 安全流程显式切换账号。它与 Google 的 `agy` 命令不同；`current` 是本地记录，`quota` 不会刷新实时数据，详见 [CLI 使用说明](docs/cli.md)。
+Tools Lite 自带管理命令 `agy-switch`，支持列出账号、查看本地记录的当前账号和缓存配额，以及复用 GUI 安全流程显式切换账号。它与 Google 的 `agy` 命令不同；`current` 是本地记录，`quota` 不会刷新实时数据，详见 [CLI 使用说明](docs/cli.md)。
 
-[v4.7.7](https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.7.7) 已包含管理 CLI，旧版 v4.7.6 不包含。Apple Silicon Mac 可使用本仓库的 cask 安装 APP，并将包内管理命令链接为 `agy-lite`：
+[v4.7.7](https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.7.7) 已包含管理 CLI，旧版 v4.7.6 不包含。Apple Silicon Mac 可使用本仓库的 cask 安装 APP，并将包内管理命令链接为 `agy-switch`：
 
 ```sh
 brew tap anglee0323/antigravity-tools-lite https://github.com/anglee0323/antigravity-tools-lite.git
 brew install --cask anglee0323/antigravity-tools-lite/antigravity-tools-lite
-agy-lite --version
-agy-lite --help
+agy-switch --version
+agy-switch --help
 ```
 
 配方固定了正式 ZIP 已核验的 SHA-256；实际 Mac 上的 Homebrew 安装、升级和卸载验收仍待完成，未签名 APP 也尚未通过系统信任验收。已有手动安装时请先保留 APP 备份，自行处理应用目录冲突，不要删除账号数据。此 cask 不会安装 Google 的 `agy`，详见 [Homebrew 验证范围与限制](docs/homebrew.md)。
