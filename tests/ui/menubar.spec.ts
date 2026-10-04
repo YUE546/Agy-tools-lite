@@ -116,13 +116,13 @@ test('family buttons persist independently from aggregate scope and never switch
   await expect(page.locator('.mb-account-identity').first()).toContainText('a@example.invalid');
   const identity = page.locator('.mb-account-identity').first();
   expect(await identity.evaluate(el => el.querySelector('.mb-account-switch')!.getBoundingClientRect().left > el.querySelector('button:first-child')!.getBoundingClientRect().left)).toBe(true);
-  await page.getByRole('button', { name: 'Claude / GPT', exact: true }).click();
+  await page.getByRole('button', { name: 'Claude 和 GPT', exact: true }).click();
   await expect(page.locator('.mb-mini.gemini')).toHaveCount(0);
   await expect(page.locator('.mb-mini.other').first()).toBeVisible();
   await expect(page.locator('.mb-aggregate strong')).toHaveText(['51%', '51%']);
   expect(await calls(page, 'switch_account')).toEqual([]);
   expect((await calls(page, 'set_menu_bar_preferences')).at(-1).args.patch).toEqual({ display_scope: 'other' });
-  await page.reload(); await expect(page.getByRole('button', { name: 'Claude / GPT', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.reload(); await expect(page.getByRole('button', { name: 'Claude 和 GPT', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.evaluate(() => (window as any).__menuFixture.setPreferences({ menu_bar: { hide_unavailable: false, label_style: 'email_only', show_weekly: false } }));
   await expect(page.locator('.mb-availability')).toHaveText(['可用 1/7']);
   await expect(page.locator('.mb-account-identity').first()).not.toContainText('账号 A');

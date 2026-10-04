@@ -309,7 +309,7 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     let accounts: Vec<_> = snapshot.as_ref().map(|snapshot| snapshot.accounts.iter().filter(|account| projection::visible_account(account, preferences, now)).collect()).unwrap_or_default();
     let windows: Vec<_> = accounts.iter().map(|account| projection::account_windows(account, now, config.refresh_interval)).collect();
     let scope = config.menu_bar.quota_scope;
-    let scope_name = match scope { crate::models::config::MenuBarQuotaScope::All => if zh { "Gemini、Claude、GPT" } else { "Gemini, Claude, GPT" }, crate::models::config::MenuBarQuotaScope::Gemini => "Gemini", crate::models::config::MenuBarQuotaScope::Other => "Claude / GPT" };
+    let scope_name = match scope { crate::models::config::MenuBarQuotaScope::All => if zh { "Gemini 与 Claude/GPT" } else { "Gemini / Claude & GPT" }, crate::models::config::MenuBarQuotaScope::Gemini => if zh { "Gemini 系列" } else { "Gemini" }, crate::models::config::MenuBarQuotaScope::Other => if zh { "Claude 和 GPT 系列" } else { "Claude & GPT" } };
     let header = section(marker, 34.0);
     if preferences.show_icons { image(&header, NSApplication::sharedApplication(marker).applicationIconImage(), rect(20.0, 5.0, 24.0, 24.0), marker); }
     let title_x = if preferences.show_icons { 53.0 } else { 20.0 };
@@ -319,7 +319,7 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     if preferences.show_aggregate {
       let heading = section(marker, 29.0);
       label(&heading, if zh { "总览" } else { "Overview" }, 20.0, 5.0, 110.0, 13.0, true, false, marker);
-      let summary = label(&heading, &format!("{scope_name}   {}", if zh { "平均剩余" } else { "Mean remaining" }), 80.0, 7.0, WIDTH - 100.0, 11.0, false, true, marker);
+      let summary = label(&heading, &format!("{scope_name}  {}", if zh { "平均剩余" } else { "Mean remaining" }), 80.0, 7.0, WIDTH - 100.0, 11.0, false, true, marker);
       summary.setAlignment(objc2_app_kit::NSTextAlignment::Right);
       custom_item(&menu, &heading, "Overall quotas", marker);
     for period in (0..2).filter(|period| if *period == 0 { preferences.show_session } else { preferences.show_weekly }) {
@@ -329,7 +329,7 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
         let stats = label(&view, &format!("{} {usable}/{}   {} {}", if zh { "可用账号" } else { "Available" }, accounts.len(), if zh { "剩余" } else { "Left" }, projection::percent(remaining)), 118.0, 7.0, WIDTH - 138.0, 11.0, false, true, marker);
         stats.setAlignment(objc2_app_kit::NSTextAlignment::Right);
         bar(&view, remaining, preferences, rect(20.0, 30.0, WIDTH - 40.0, 6.0), false, marker);
-        view.setToolTip(Some(&NSString::from_str(&format!("{covered}/{} {}", accounts.len(), if zh { "账号有完整有效数据；按账号等权平均，不代表 Token 总量" } else { "accounts report valid data; an equal-weight mean, not token capacity" }))));
+        view.setToolTip(Some(&NSString::from_str(&format!("{covered}/{} {}", accounts.len(), if zh { "有效数据" } else { "reported" }))));
         custom_item(&menu, &view, if period == 0 { "5 hours" } else { "Weekly" }, marker);
     }
     menu.addItem(&NSMenuItem::separatorItem(marker));
@@ -337,7 +337,7 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     let account_header = section(marker, 62.0);
     label(&account_header, &if zh { format!("{} 个账号", accounts.len()) } else { format!("Accounts ({})", accounts.len()) }, 20.0, 4.0, 160.0, 13.0, true, false, marker);
     for (index, scope) in [MenuBarQuotaScope::Gemini, MenuBarQuotaScope::Other, MenuBarQuotaScope::All].into_iter().enumerate() {
-        let title = match scope { MenuBarQuotaScope::Gemini => "Gemini", MenuBarQuotaScope::Other => "Claude / GPT", MenuBarQuotaScope::All => if zh { "全部" } else { "Both" } };
+        let title = match scope { MenuBarQuotaScope::Gemini => "Gemini", MenuBarQuotaScope::Other => if zh { "Claude 和 GPT" } else { "Claude & GPT" }, MenuBarQuotaScope::All => if zh { "全部" } else { "Both" } };
         let icon = if !preferences.show_icons { None } else { Some(match scope { MenuBarQuotaScope::Gemini => "sparkles", MenuBarQuotaScope::Other => "brain", MenuBarQuotaScope::All => "square.grid.2x2" }) };
         let filter = button(&account_header, &menu, &app, title, Action::Filter(scope), true, rect(16.0 + index as f64 * 116.0, 28.0, 112.0, 27.0), icon, zh, &mut targets, marker);
         filter.setButtonType(NSButtonType::PushOnPushOff);
