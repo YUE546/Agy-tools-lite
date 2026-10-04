@@ -193,14 +193,14 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
 
     return (
         <div className="space-y-4">
-            <section className="rounded-xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+            <section className="rounded-2xl border border-gray-200/80 bg-white p-5 sm:p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900/80">
                 {/* 顶部操作栏：已选数量 + 全选/取消全选 + 实时刷新模型 */}
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-100 dark:border-slate-800">
                     <div className="flex items-center gap-2.5">
-                        <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                             {t('model_display.selected_models', '自定义展示模型')}
                         </span>
-                        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300">
+                        <span className="px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
                             {t('model_display.selected_count', { count: currentPinned.length })}
                         </span>
                     </div>
@@ -243,7 +243,7 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
 
                         return (
                             <div key={group.key} className="space-y-2">
-                                <div className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                                <div className="text-xs font-semibold text-gray-700 dark:text-gray-300">
                                     {group.title}
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -265,11 +265,11 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
                                                             {model.label}
                                                         </div>
                                                         {model.sublabel ? (
-                                                            <div className="text-[10px] text-gray-400 dark:text-gray-500 truncate" title={model.sublabel}>
+                                                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={model.sublabel}>
                                                                 {model.sublabel}
                                                             </div>
                                                         ) : (
-                                                            <div className="text-[10px] font-mono text-gray-400 dark:text-gray-500 truncate" title={model.id}>
+                                                            <div className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate" title={model.id}>
                                                                 {model.id}
                                                             </div>
                                                         )}
@@ -278,7 +278,7 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
 
                                                 <div className="flex items-center gap-2 shrink-0 ml-2">
                                                     {model.tag && (
-                                                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-200/70 dark:bg-slate-700 text-gray-600 dark:text-gray-300">
+                                                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-gray-200/70 dark:bg-slate-700 text-gray-600 dark:text-gray-300">
                                                             {model.tag}
                                                         </span>
                                                     )}
@@ -298,7 +298,7 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
                     })}
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-gray-100 dark:border-slate-800 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                <div className="mt-4 pt-3 border-t border-gray-100 dark:border-slate-800 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                     {t('model_display.hint', '勾选后实时生效。已为您自动合并同系列多档位（如 High/Medium/Low），前台卡片与表格将以最简洁的合并视图监控其实际共享额度。')}
                 </div>
             </section>

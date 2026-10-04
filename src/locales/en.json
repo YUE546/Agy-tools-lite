@@ -411,6 +411,7 @@
     "advanced": "Advanced & Labs",
     "advanced_description": "Configure Antigravity official application localization injection and experimental features.",
     "appearance_and_language": "Appearance & Language",
+    "appearance_and_language_desc": "Customize theme appearance and interface language.",
     "storage_and_executables": "Client Integration & Data Storage",
     "storage_and_executables_desc": "Manage local credentials directory and linked client application paths.",
     "config_failed": "Could not load or save application settings: {{error}}"

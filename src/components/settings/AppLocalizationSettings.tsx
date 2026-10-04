@@ -79,13 +79,13 @@ export default function AppLocalizationSettings() {
 
     const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:border-blue-300 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-gray-200';
     return (
-        <section className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 lg:col-span-2" aria-labelledby="app-localization-title">
+        <section className="rounded-2xl border border-gray-200/80 bg-white p-5 sm:p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900/80 lg:col-span-2" aria-labelledby="app-localization-title">
             <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600 dark:bg-sky-400/10 dark:text-sky-300"><Languages className="h-5 w-5" /></span>
                     <div>
-                        <h2 id="app-localization-title" className="font-semibold text-gray-900 dark:text-gray-100">{t('app_localization.title')}</h2>
-                        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{t('app_localization.subtitle')}</p>
+                        <h3 id="app-localization-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">{t('app_localization.title')}</h3>
+                        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{t('app_localization.subtitle')}</p>
                     </div>
                 </div>
                 <button type="button" role="switch" aria-label={t('app_localization.enable')} aria-checked={enabled} disabled={!config || busy || !status || (!enabled && !status.can_apply)} onClick={() => void run('set_app_localization_enabled', { enabled: !enabled })} className="mt-1 shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
@@ -93,7 +93,7 @@ export default function AppLocalizationSettings() {
                 </button>
             </div>
             <div className="mt-4 flex gap-2 rounded-xl bg-amber-50 p-3 text-xs leading-relaxed text-amber-800 dark:bg-amber-500/10 dark:text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><p>{t('app_localization.notice')}</p></div>
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200/80 bg-gray-50/70 p-4 dark:border-slate-800 dark:bg-slate-800/40">
                 <div aria-live="polite" className="text-sm text-gray-800 dark:text-gray-100">
                     <div className="font-medium">{t(`app_localization.states.${status?.state ?? 'checking'}`)}</div>
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t('app_localization.version', { version: status?.installed_version ?? '—' })}</div>

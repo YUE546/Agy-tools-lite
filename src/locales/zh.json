@@ -411,6 +411,7 @@
     "advanced": "高级与实验室",
     "advanced_description": "管理 Antigravity 官方应用原生汉化注入与实验性功能。",
     "appearance_and_language": "界面外观与语言",
+    "appearance_and_language_desc": "自定义应用的主题色彩偏好与多语言界面展示。",
     "storage_and_executables": "关联应用与数据存储",
     "storage_and_executables_desc": "管理本机账号凭据存储位置与外部关联客户端的识别路径。",
     "config_failed": "无法读取或保存应用设置：{{error}}"

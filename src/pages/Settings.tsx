@@ -100,15 +100,24 @@ function Settings() {
         general: (
             <div className="space-y-6">
                 {/* 1. 界面外观与语言 */}
-                <section className="rounded-xl border border-gray-200/80 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900/60">
-                    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2 mb-3">
-                        <Sun className="h-4 w-4 text-amber-500" />
-                        {t('settings_sections.appearance_and_language', '界面外观与语言')}
-                    </h3>
-                    <div className="space-y-4">
+                <section className="rounded-2xl border border-gray-200/80 bg-white p-5 sm:p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900/80">
+                    <div className="mb-5 flex items-start gap-3">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-400/10 dark:text-amber-300">
+                            <Sun className="h-5 w-5" />
+                        </span>
                         <div>
-                            <div className="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">
-                                {t('local_settings.theme')}
+                            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                                {t('settings_sections.appearance_and_language', '界面外观与语言')}
+                            </h3>
+                            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                                {t('settings_sections.appearance_and_language_desc', '自定义应用的主题色彩偏好与多语言界面展示。')}
+                            </p>
+                        </div>
+                    </div>
+                    <div className="space-y-5">
+                        <div>
+                            <div className="mb-2 text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                                <span>{t('local_settings.theme')}</span>
                             </div>
                             <div className="grid grid-cols-3 gap-3">
                                 {themeOptions.map(({ value, label, icon: Icon }) => {
@@ -135,9 +144,9 @@ function Settings() {
                         </div>
 
                         <div>
-                            <div className="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                            <div className="mb-2 text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
                                 <Globe2 className="h-3.5 w-3.5 text-blue-500" />
-                                {t('local_settings.language')}
+                                <span>{t('local_settings.language')}</span>
                             </div>
                             <div className="grid grid-cols-2 gap-2 rounded-xl bg-gray-100/80 p-1 dark:bg-slate-800/60">
                                 {LANGUAGES.map((language) => {
@@ -169,29 +178,33 @@ function Settings() {
                 <DesktopSettings />
 
                 {/* 3. 数据存储与关联应用 */}
-                <section className="rounded-xl border border-gray-200/80 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900/60 space-y-5">
-                    <div>
-                        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-                            <HardDrive className="h-4 w-4 text-emerald-500" />
-                            {t('settings_sections.storage_and_executables', '关联应用与数据存储')}
-                        </h3>
-                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            {t('settings_sections.storage_and_executables_desc', '管理本机账号凭据存储位置与外部关联客户端的识别路径。')}
-                        </p>
+                <section className="rounded-2xl border border-gray-200/80 bg-white p-5 sm:p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900/80 space-y-5">
+                    <div className="flex items-start gap-3">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300">
+                            <HardDrive className="h-5 w-5" />
+                        </span>
+                        <div>
+                            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                                {t('settings_sections.storage_and_executables', '关联应用与数据存储')}
+                            </h3>
+                            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                                {t('settings_sections.storage_and_executables_desc', '管理本机账号凭据存储位置与外部关联客户端的识别路径。')}
+                            </p>
+                        </div>
                     </div>
 
                     {/* 卡片 1：本地数据存储 */}
-                    <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-4 dark:border-slate-800/80 dark:bg-slate-800/40">
+                    <div className="rounded-xl border border-gray-200/70 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-800/40">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                             <div className="min-w-0">
                                 <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
                                     <Database className="h-3.5 w-3.5 text-blue-500" />
                                     {t('local_settings.data_directory', '本地数据存储')}
                                 </div>
-                                <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                                     {t('local_settings.data_directory_desc', '保存多账号配置、加密凭证与配额缓存。所有数据仅存储于本机，绝不上传云端。')}
                                 </p>
-                                <div className="mt-2 inline-block rounded bg-white px-2 py-1 font-mono text-xs text-gray-600 dark:bg-slate-900/80 dark:text-gray-300 border border-gray-200/60 dark:border-slate-700/60 break-all">
+                                <div className="mt-2.5 inline-block rounded-lg bg-white px-2.5 py-1 font-mono text-xs text-gray-600 dark:bg-slate-900/90 dark:text-gray-300 border border-gray-200/80 dark:border-slate-700/80 break-all shadow-2xs">
                                     {dataDirPath}
                                 </div>
                             </div>
@@ -207,13 +220,13 @@ function Settings() {
                     </div>
 
                     {/* 卡片 2：关联客户端路径 */}
-                    <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-4 dark:border-slate-800/80 dark:bg-slate-800/40 space-y-3">
+                    <div className="rounded-xl border border-gray-200/70 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-800/40 space-y-3">
                         <div>
                             <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
                                 <Monitor className="h-3.5 w-3.5 text-indigo-500" />
                                 {t('local_settings.application_paths', '关联客户端路径')}
                             </div>
-                            <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                                 {t('local_settings.application_paths_desc', '账号切换时用于注入登录凭据并重启应用。系统默认自动识别，无需手动配置。')}
                             </p>
                         </div>
@@ -225,19 +238,19 @@ function Settings() {
                             ] as const).map(({ field, nameKey, defaultName, descKey, defaultDesc }) => {
                                 const isCustom = Boolean(config?.[field]);
                                 return (
-                                    <div key={field} className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-white dark:bg-slate-900/60 border border-gray-200/60 dark:border-slate-700/60">
+                                    <div key={field} className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-white dark:bg-slate-900/70 border border-gray-200/80 dark:border-slate-700/80 shadow-2xs">
                                         <div className="min-w-0">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{t(`local_settings.${nameKey}`, defaultName)}</span>
-                                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${isCustom ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'}`}>
+                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium ${isCustom ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'}`}>
                                                     <span className={`w-1.5 h-1.5 rounded-full ${isCustom ? 'bg-amber-500' : 'bg-emerald-500'}`} />
                                                     {isCustom ? t('local_settings.custom_path', '已自定义路径') : t('local_settings.automatic_detection', '已自动识别')}
                                                 </span>
                                             </div>
-                                            <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+                                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                                                 {t(`local_settings.${descKey}`, defaultDesc)}
                                             </p>
-                                            <div className="mt-1 font-mono text-[11px] text-gray-500 dark:text-gray-400 break-all">
+                                            <div className="mt-1.5 font-mono text-xs text-gray-600 dark:text-gray-300 break-all">
                                                 {config?.[field] || t('local_settings.auto_detect_note', '默认自动识别（推荐）')}
                                             </div>
                                         </div>
@@ -246,7 +259,7 @@ function Settings() {
                                                 type="button"
                                                 disabled={!config}
                                                 onClick={() => chooseExecutable(field)}
-                                                className="rounded px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:opacity-50"
+                                                className="rounded-lg px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:opacity-50"
                                             >
                                                 {t('local_settings.choose_executable', '自定义路径…')}
                                             </button>
@@ -254,7 +267,7 @@ function Settings() {
                                                 <button
                                                     type="button"
                                                     onClick={() => updateConfig({ [field]: undefined })}
-                                                    className="rounded px-2.5 py-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                                                    className="rounded-lg px-2.5 py-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
                                                 >
                                                     {t('local_settings.reset_detection', '重置为自动')}
                                                 </button>
@@ -274,14 +287,14 @@ function Settings() {
                 <ModelDisplaySettings embedded />
 
                 {/* 2. 定时后台刷新与多端同步 */}
-                <section className="rounded-xl border border-gray-200/80 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900/60 divide-y divide-gray-100 dark:divide-slate-800">
-                    <div className="p-5">
+                <section className="rounded-2xl border border-gray-200/80 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900/80 divide-y divide-gray-100 dark:divide-slate-800">
+                    <div className="p-5 sm:p-6">
                         <div className="flex items-start justify-between gap-4">
                             <div>
                                 <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100">
                                     <RefreshCw className="h-4 w-4 text-blue-500" />
                                     <span>{t('local_settings.auto_refresh')}</span>
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                                    <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
                                         {t('local_settings.auto_refresh_badge', '推荐开启')}
                                     </span>
                                 </div>
@@ -292,7 +305,7 @@ function Settings() {
                             {renderSwitch(Boolean(config?.auto_refresh), t('local_settings.auto_refresh'), () => updateConfig({ auto_refresh: !config?.auto_refresh }))}
                         </div>
                         <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-100 pt-3 dark:border-slate-800">
-                            <label htmlFor="refresh-interval" className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                            <label htmlFor="refresh-interval" className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
                                 <Clock3 className="h-3.5 w-3.5 text-gray-400" />
                                 {t('local_settings.refresh_interval')}
                             </label>
@@ -301,20 +314,20 @@ function Settings() {
                                 value={refreshInterval}
                                 disabled={!config || !config.auto_refresh}
                                 onChange={(event) => updateConfig({ refresh_interval: Number(event.target.value) })}
-                                className="select select-sm select-bordered w-32 border-gray-200 bg-white text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-200 text-xs"
+                                className="select select-sm select-bordered w-32 border-gray-200 bg-white text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-200 text-xs rounded-lg"
                             >
                                 {refreshOptions.map((minutes) => <option key={minutes} value={minutes}>{t('local_settings.minutes', { count: minutes })}</option>)}
                             </select>
                         </div>
                     </div>
 
-                    <div className="p-5">
+                    <div className="p-5 sm:p-6">
                         <div className="flex items-start justify-between gap-4">
                             <div>
                                 <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100">
                                     <Database className="h-4 w-4 text-emerald-500" />
                                     <span>{t('local_settings.auto_sync')}</span>
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-slate-800 dark:text-gray-300">
+                                    <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-600 dark:bg-slate-800 dark:text-gray-300">
                                         {t('local_settings.auto_sync_badge', '可选 · 默认关闭')}
                                     </span>
                                 </div>
@@ -325,7 +338,7 @@ function Settings() {
                             {renderSwitch(Boolean(config?.auto_sync), t('local_settings.auto_sync'), () => updateConfig({ auto_sync: !config?.auto_sync }))}
                         </div>
                         <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-100 pt-3 dark:border-slate-800">
-                            <label htmlFor="sync-interval" className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                            <label htmlFor="sync-interval" className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
                                 <Clock3 className="h-3.5 w-3.5 text-gray-400" />
                                 {t('local_settings.sync_interval')}
                             </label>
@@ -334,7 +347,7 @@ function Settings() {
                                 value={syncInterval}
                                 disabled={!config || !config.auto_sync}
                                 onChange={(event) => updateConfig({ sync_interval: Number(event.target.value) })}
-                                className="select select-sm select-bordered w-32 border-gray-200 bg-white text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-200 text-xs"
+                                className="select select-sm select-bordered w-32 border-gray-200 bg-white text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-200 text-xs rounded-lg"
                             >
                                 {syncOptions.map((minutes) => <option key={minutes} value={minutes}>{t('local_settings.minutes', { count: minutes })}</option>)}
                             </select>
