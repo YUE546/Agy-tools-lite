@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowLeftRight, Ban, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, Loader2, LogOut, RefreshCw, Settings, Users } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, Ban, BarChart3, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, Loader2, LogOut, RefreshCw, Settings, Users } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import { request } from '../utils/request';
@@ -12,7 +12,28 @@ import { DEFAULT_MENU_BAR_PREFERENCES, type MenuBarPreferences } from '../types/
 import { quotaTone } from '../utils/menuBarOverview';
 
 interface Appearance { native_material: boolean; reduced_transparency: boolean; high_contrast: boolean; material_kind?: string }
-interface Usage { today: { total_tokens: number; request_count: number } }
+interface Usage { today: { input_tokens: number; output_tokens: number; cached_tokens: number; total_tokens: number; request_count: number }; estimated_usd: number | null; unpriced_models: number; pricing_stale: boolean; incomplete: boolean }
+function UsageOverview({ usage, zh }: { usage: Usage | null; zh: boolean }) {
+  const values = usage ? [usage.today.input_tokens, usage.today.output_tokens, usage.today.cached_tokens] : [0, 0, 0];
+  const sum = values.reduce((total, value) => total + value, 0);
+  const colors = ['#007aff', '#ff9500', '#af52de'];
+  let offset = 0;
+  const amount = usage?.estimated_usd;
+  const cost = amount == null ? usage ? zh ? '未计价' : 'Unpriced' : '—' : '$ ' + amount.toFixed(amount > 0 && amount < 0.01 ? 4 : 2);
+  return <section className="mb-usage-overview" aria-label={zh ? '今日本机用量' : 'Today’s local usage'}>
+    <div className="mb-overview-heading"><h2>{zh ? '今日用量' : 'Today’s usage'}</h2><span>{usage?.incomplete ? zh ? '统计不完整' : 'Partial records' : zh ? '本机' : 'Local'}</span></div>
+    <div className="mb-usage-summary">
+      <div className="mb-usage-chart"><div className="mb-usage-ring">
+        <svg viewBox="0 0 88 88" role="img" aria-label={zh ? 'Token 构成' : 'Token composition'}><circle cx="44" cy="44" r="38" className="mb-usage-ring-track" strokeWidth="8" fill="none" />{sum > 0 && values.map((value, index) => { const fraction = value / sum * 100; const start = offset; offset += fraction; return value > 0 && <circle key={index} cx="44" cy="44" r="38" pathLength="100" stroke={colors[index]} strokeWidth="8" fill="none" strokeDasharray={fraction + ' ' + (100 - fraction)} strokeDashoffset={-start} transform="rotate(-90 44 44)" />; })}</svg>
+        <div><strong>{usage ? tokens(usage.today.total_tokens) : '—'}</strong><small>tokens</small></div>
+      </div></div>
+      <div className="mb-usage-metrics"><div className="mb-usage-cost"><span>{zh ? 'API 费用估算' : 'API estimate'}</span><strong>{cost}</strong></div>
+        {values.map((value, index) => <div className="mb-usage-type" key={index}><span style={{ color: colors[index] }}>{(zh ? ['输入', '输出', '缓存'] : ['Input', 'Output', 'Cached'])[index]}</span><strong>{usage ? tokens(value) : '—'}</strong></div>)}
+        <div className="mb-usage-meta"><small>{usage ? usage.today.request_count + (zh ? ' 次请求' : ' requests') : '—'}</small><small>{!usage ? zh ? '统计暂不可用' : 'Usage unavailable' : usage.unpriced_models > 0 ? zh ? '部分未计价' : 'Partly unpriced' : usage.pricing_stale && usage.today.total_tokens > 0 ? zh ? '缓存价格' : 'Cached prices' : 'USD'}</small></div>
+      </div>
+    </div>
+  </section>;
+}
 const tokens = (value: number) => value >= 1e6 ? (value / 1e6).toFixed(1) + 'M' : value >= 1e3 ? (value / 1e3).toFixed(1) + 'K' : String(value);
 function Meter({ value, label, preferences, disabled }: { value: number | null; label: string; preferences: MenuBarPreferences; disabled?: boolean }) {
   if (value === null) return <div className="mb-meter unknown" role="img" aria-label={label + ': —'} />;
@@ -50,7 +71,7 @@ export default function MenuBarDashboard() {
   const scopeName = scope === 'gemini' ? zh ? 'Gemini 系列' : 'Gemini' : scope === 'other' ? zh ? 'Claude 和 GPT 系列' : 'Claude & GPT' : zh ? 'Gemini 与 Claude/GPT' : 'Gemini / Claude & GPT';
   const windowName = (window: QuotaWindow) => window === '5h' ? zh ? '5 小时' : '5 hours' : zh ? '每周' : 'Weekly';
   const reasonName = (reason: QuotaReason | null) => reason ? ({
-    disabled: zh ? '已禁用' : 'Disabled', blocked: zh ? '待验证' : 'Verification required', forbidden: zh ? '访问受限' : 'Access denied', unreadable: zh ? '读取失败' : 'Unreadable', stale: zh ? '待刷新' : 'Refresh needed', protected: zh ? '额度保护中' : 'Protected', unknown: zh ? '未报告' : 'Not reported', expired: zh ? '已到重置时间' : 'Reset due', conflict: zh ? '数据冲突' : 'Conflicting data',
+    disabled: zh ? '禁用' : 'Disabled', blocked: zh ? '待验证' : 'Verification required', forbidden: zh ? '访问受限' : 'Access denied', unreadable: zh ? '读取失败' : 'Unreadable', stale: zh ? '待刷新' : 'Refresh needed', protected: zh ? '额度保护中' : 'Protected', unknown: zh ? '未报告' : 'Not reported', expired: zh ? '已到重置时间' : 'Reset due', conflict: zh ? '数据冲突' : 'Conflicting data',
   })[reason] : '';
   const resetLabel = (reset: string) => {
     const diff = Date.parse(reset) - now;
@@ -77,7 +98,7 @@ export default function MenuBarDashboard() {
     catch { if (mounted.current) setAppearance(null); }
   }, []);
   const readUsage = useCallback(async () => {
-    try { const next = await request<Usage>('get_local_token_usage'); if (mounted.current) setUsage(next); }
+    try { const next = await request<Usage>('get_menu_bar_usage'); if (mounted.current) setUsage(next); }
     catch { if (mounted.current) setUsage(null); }
   }, []);
   useEffect(() => {
@@ -104,7 +125,8 @@ export default function MenuBarDashboard() {
   useLayoutEffect(() => {
     if (!content.current) return;
     const element = content.current;
-    const measure = () => { setCapacity(Math.max(1, Math.floor((element.clientHeight - (Math.floor((element.clientHeight - 56) / 80) >= (snapshot?.accounts.length ?? 0) ? 56 : 84)) / 80))); setDetailCapacity(Math.max(1, Math.floor((element.clientHeight - 98) / 50))); };
+    const measure = () => { const accountArea = element.querySelector('.mb-accounts');
+      if (accountArea) setCapacity(Math.max(1, Math.floor((accountArea.clientHeight + 6) / 80))); setDetailCapacity(Math.max(1, Math.floor((element.clientHeight - 98) / 50))); };
     const observer = new ResizeObserver(measure); observer.observe(element); measure();
     return () => observer.disconnect();
   }, [detail, loading, snapshot?.accounts.length]);
@@ -148,8 +170,9 @@ export default function MenuBarDashboard() {
       <div><span className="mb-eyebrow">AntiGravity tool lite</span>{detail && <h1>{detail === 'switch' ? zh ? '自动切号' : 'Auto-switch' : zh ? '账号详情' : 'Account details'}</h1>}</div>
       <div className="mb-header-actions">{detail && <button aria-label={zh ? '返回总览' : 'Back to overview'} onClick={() => setDetail(null)}><ArrowLeft size={16} /></button>}<button aria-label={zh ? '刷新全部额度' : 'Refresh all quotas'} disabled={busy || loading} onClick={() => void refresh()}><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /></button><button aria-label={zh ? '偏好设置' : 'Settings'} onClick={() => openPage('settings')}><Settings size={16} /></button></div>
     </header>
+    {!detail && <UsageOverview usage={usage} zh={zh} />}
     {!detail && preferences.show_aggregate && <section className="mb-overview" aria-label={zh ? '聚合额度' : 'Aggregate quotas'}>
-      <div className="mb-overview-heading"><h2>{zh ? '额度概览' : 'Quota overview'}</h2><span>{scopeName}  {zh ? '平均剩余' : 'Mean remaining'}</span></div>
+      <div className="mb-overview-heading"><h2>{zh ? '剩余额度' : 'Remaining quota'}</h2><span>{scopeName}  {zh ? '平均剩余' : 'Mean remaining'}</span></div>
       {periods.map(window => { const data = aggregate(window); return <div className="mb-aggregate" key={window}>
         <div><span>{windowName(window)}</span><span className="mb-availability">{zh ? '可用 ' : 'Available '}{data.usable}/{data.total}</span><span>{zh ? '剩余' : 'Remaining'} <strong>{quotaDisplay(data.remaining)}</strong></span></div><Meter preferences={preferences} value={data.remaining} label={scopeName + ' ' + windowName(window)} />
       </div>; })}
@@ -159,15 +182,15 @@ export default function MenuBarDashboard() {
     <div className="mb-content" ref={content}>
       {detail === 'switch' ? <MenuBarSwitchDetails state={lowQuota} openSettings={() => openPage('settings')} /> : selected ? <>
         <div className="mb-detail-title"><strong>{selected.account.custom_label || selected.account.email}</strong><span>{selected.account.email}</span><small>{zh ? '缓存快照   ' : 'Cached snapshot   '}{selected.account.quota?.last_updated ? new Date(selected.account.quota.last_updated * 1000).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }) : '—'}</small></div>
-        <div className={'mb-detail-rows' + (selected.account.disabled ? ' disabled' : '')}>{details.length ? details.slice(visibleDetailPage * detailCapacity, (visibleDetailPage + 1) * detailCapacity).map((row, index) => <div className="mb-detail-row" key={row.key + index}><div><span title={row.name}>{row.name}</span><small>{row.source === 'model' ? zh ? '模型快照' : 'Model snapshot' : row.window === 'weekly' ? windowName('weekly') : row.window === '5h' ? windowName('5h') : row.window}</small><strong>{quotaDisplay(row.remaining)}</strong></div><div><Meter preferences={preferences} disabled={selected.account.disabled} value={row.remaining} label={row.name + ' ' + row.window} /><small>{selected.account.disabled ? zh ? '已禁用' : 'Disabled' : resetLabel(row.resetTime)}</small></div></div>) : <div className="mb-empty">{reasonName(selected.windows.weekly.gemini.reason)}</div>}</div>
+        <div className={'mb-detail-rows' + (selected.account.disabled ? ' disabled' : '')}>{details.length ? details.slice(visibleDetailPage * detailCapacity, (visibleDetailPage + 1) * detailCapacity).map((row, index) => <div className="mb-detail-row" key={row.key + index}><div><span title={row.name}>{row.name}</span><small>{row.source === 'model' ? zh ? '模型快照' : 'Model snapshot' : row.window === 'weekly' ? windowName('weekly') : row.window === '5h' ? windowName('5h') : row.window}</small><strong>{quotaDisplay(row.remaining)}</strong></div><div><Meter preferences={preferences} disabled={selected.account.disabled} value={row.remaining} label={row.name + ' ' + row.window} /><small>{selected.account.disabled ? zh ? '禁用' : 'Disabled' : resetLabel(row.resetTime)}</small></div></div>) : <div className="mb-empty">{reasonName(selected.windows.weekly.gemini.reason)}</div>}</div>
         {detailPages > 1 && pager(visibleDetailPage, detailPages, setDetailPage)}
       </> : detail ? <div className="mb-empty">{zh ? '账号已移除' : 'Account removed'}</div> : <>
-        <div className="mb-account-heading"><strong>{zh ? '账号额度' : 'Account quotas'}</strong><span>{zh ? accounts.length + ' 个账号' : accounts.length + ' accounts'}</span></div>
+        <div className="mb-account-heading"><strong>{zh ? '账号列表' : 'Accounts'}</strong><span>{zh ? accounts.length + ' 个账号' : accounts.length + ' accounts'}</span></div>
         <div className="mb-accounts">{loading ? <div className="mb-empty"><Loader2 size={18} className="animate-spin" />{zh ? '正在读取' : 'Loading'}</div> : !accounts.length ? <div className="mb-empty">{error ? zh ? '暂无可读取的数据' : 'Data unavailable' : zh ? '添加账号后显示额度' : 'Add accounts to see quotas'}<button onClick={() => openPage('accounts')}>{zh ? '管理账号' : 'Manage accounts'}</button></div> : visible.map(view => {
           const account = view.account; const current = account.id === snapshot?.current_account_id;
           const label = account.custom_label || account.name || account.email.split('@')[0];
           return <article className={'mb-account-row ' + (current ? 'current ' : '') + (account.disabled ? 'disabled' : '')} key={account.id}>
-            <div className="mb-account-identity"><button aria-label={(zh ? '查看 ' : 'Inspect ') + label} onClick={() => { setDetail(account.id); setDetailPage(0); }}><span>{preferences.label_style === 'label_then_email' && account.custom_label ? account.custom_label : account.email}</span><small>{preferences.label_style === 'email_only' ? '' : preferences.label_style === 'label_then_email' && account.custom_label ? account.email : account.custom_label ? account.custom_label : ''}</small></button><button className="mb-account-switch" aria-label={(zh ? '切换到 ' : 'Switch to ') + label} title={current ? snapshot?.current_identity_source === 'running_app' ? zh ? '运行中的 App 已确认' : 'Verified running app' : zh ? 'Tools 保存的账号' : 'Saved Tools account' : zh ? '切换并重新打开 App' : 'Switch and reopen app'} disabled={current || busy || !view.switchable || lowQuota.readError} onClick={() => void switchAccount(account.id)}>{switching === account.id ? <Loader2 size={12} className="animate-spin" /> : account.disabled ? <Ban size={12} /> : current ? <CheckCircle2 size={12} /> : <ArrowLeftRight size={12} />}{account.disabled ? zh ? '已禁用' : 'Disabled' : current ? zh ? '当前' : 'Current' : zh ? '切换' : 'Switch'}</button></div>
+            <div className="mb-account-identity"><button aria-label={(zh ? '查看 ' : 'Inspect ') + label} onClick={() => { setDetail(account.id); setDetailPage(0); }}><span>{preferences.label_style === 'label_then_email' && account.custom_label ? account.custom_label : account.email}</span><small>{preferences.label_style === 'email_only' ? '' : preferences.label_style === 'label_then_email' && account.custom_label ? account.email : account.custom_label ? account.custom_label : ''}</small></button><button className="mb-account-switch" aria-label={(zh ? '切换到 ' : 'Switch to ') + label} title={account.disabled ? zh ? '禁用' : 'Disabled' : current ? snapshot?.current_identity_source === 'running_app' ? zh ? '运行中的 App 已确认' : 'Verified running app' : zh ? 'Tools 保存的账号' : 'Saved Tools account' : zh ? '切换并重新打开 App' : 'Switch and reopen app'} disabled={current || busy || !view.switchable || lowQuota.readError} onClick={() => void switchAccount(account.id)}>{switching === account.id ? <Loader2 size={12} className="animate-spin" /> : account.disabled ? <Ban size={12} /> : current ? <CheckCircle2 size={12} /> : <ArrowLeftRight size={12} />}{account.disabled ? zh ? '禁用' : 'Disabled' : current ? zh ? '当前' : 'Current' : zh ? '切换' : 'Switch'}</button></div>
             <div className="mb-account-quotas">{periods.map(window => <div className="mb-account-window" key={window}><span>{windowName(window)}</span>{families.map(family => { const quota = view.windows[window][family]; const remaining = account.disabled ? 0 : quota.remaining; return <div className={'mb-mini ' + family} key={family}><Meter preferences={preferences} disabled={account.disabled} value={remaining} label={label + ' ' + (family === 'gemini' ? 'Gemini' : 'Claude / GPT') + ' ' + windowName(window)} /><strong>{quotaDisplay(remaining)}</strong></div>; })}</div>)}</div>
           </article>;
         })}</div>
@@ -175,8 +198,7 @@ export default function MenuBarDashboard() {
       </>}
     </div>
     <footer className="mb-footer">
-      <button className="mb-usage" onClick={() => openPage('dashboard')}><span>{zh ? '今日用量' : 'Today’s usage'}</span><strong>{usage ? tokens(usage.today.total_tokens) : '—'} <small>tokens</small></strong><ChevronRight size={12} /></button>
-      <div className="mb-footer-actions"><button onClick={() => openPage('accounts')}><Users size={13} />{zh ? '管理账号' : 'Accounts'}</button><button aria-label="GitHub" onClick={() => void request('plugin:opener|open_url', { url: 'https://github.com/anglee0323/antigravity-tools-lite' })}><ExternalLink size={14} /></button><button aria-label={zh ? '退出应用' : 'Quit'} onClick={() => void request('quit_app')}><LogOut size={14} /></button></div>
+      <div className="mb-footer-actions"><button onClick={() => openPage('dashboard')}><BarChart3 size={13} />{zh ? '用量看板' : 'Usage dashboard'}</button><button onClick={() => openPage('accounts')}><Users size={13} />{zh ? '管理账号' : 'Accounts'}</button><button aria-label="GitHub" onClick={() => void request('plugin:opener|open_url', { url: 'https://github.com/anglee0323/antigravity-tools-lite' })}><ExternalLink size={14} /></button><button aria-label={zh ? '退出应用' : 'Quit'} onClick={() => void request('quit_app')}><LogOut size={14} /></button></div>
     </footer>
   </div>;
 }

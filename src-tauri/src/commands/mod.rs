@@ -557,6 +557,14 @@ pub async fn get_local_token_usage(
         .map_err(|error| format!("读取本地 Token 统计任务失败: {}", error))?
 }
 
+/// Compact local daily usage for the tray, without a network pricing request.
+#[tauri::command]
+pub async fn get_menu_bar_usage() -> Result<crate::modules::menu_bar_usage::MenuBarUsage, String> {
+    let summary = get_local_token_usage().await?;
+    let pricing = crate::modules::api_pricing::cached_pricing();
+    Ok(crate::modules::menu_bar_usage::project(&summary, pricing.as_ref()))
+}
+
 /// 同步 Google 官方 API 价格，用于本地费用等价估算
 #[tauri::command]
 pub async fn get_api_pricing() -> Result<crate::modules::api_pricing::ApiPricingSnapshot, String> {

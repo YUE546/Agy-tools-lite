@@ -18,6 +18,7 @@ pub mod linux_paths;
 pub mod logger;
 pub mod migration;
 pub mod native_token_stats;
+pub mod menu_bar_usage;
 pub mod oauth;
 pub mod oauth_server;
 pub mod process;

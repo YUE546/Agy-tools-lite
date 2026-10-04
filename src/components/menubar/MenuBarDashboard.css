@@ -2,7 +2,7 @@
   --mb-text: #202127; --mb-muted: #64666f; --mb-line: rgba(40, 40, 50, .11);
   --mb-hover: rgba(40, 40, 50, .055); --mb-track: rgba(40, 40, 50, .09);
   box-sizing: border-box; width: 100%; height: 100dvh; display: flex; flex-direction: column;
-  overflow: hidden; border-radius: 22px; padding: 18px 20px 12px; gap: 12px;
+  overflow: hidden; border-radius: 22px; padding: 14px 20px 10px; gap: 8px;
   color: var(--mb-text); background: #f4f4f6;
   font: 12px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
   font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
@@ -19,7 +19,24 @@
 .mb-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .1px; color: var(--mb-muted); }
 .mb-header h1 { font-size: 22px; font-weight: 650; letter-spacing: -.7px; margin: 1px 0 0; }
 .mb-header-actions { display: flex; gap: 4px; }
-.mb-header-actions button { padding: 7px; display: flex; }
+.mb-header-actions button { padding: 5px; display: flex; }
+.mb-usage-overview { flex: none; padding-bottom: 8px; border-bottom: 1px solid var(--mb-line); }
+.mb-usage-summary { display: flex; align-items: center; gap: 20px; }
+.mb-usage-chart { width: 72px; flex: none; text-align: center; }
+.mb-usage-chart > small, .mb-usage-ring small { color: var(--mb-muted); font-size: 9px; }
+.mb-usage-ring { position: relative; width: 72px; height: 72px; }
+.mb-usage-ring svg { width: 100%; height: 100%; }
+.mb-usage-ring-track { stroke: var(--mb-track); }
+.mb-usage-ring > div { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.mb-usage-ring strong { font-size: 17px; font-weight: 650; }
+.mb-usage-metrics { flex: 1; min-width: 0; }
+.mb-usage-cost, .mb-usage-type { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.mb-usage-cost { margin-bottom: 4px; }
+.mb-usage-cost span { color: var(--mb-muted); font-size: 10px; }
+.mb-usage-cost strong { font-size: 14px; }
+.mb-usage-type { font-size: 10px; line-height: 1.4; }
+.mb-usage-type strong { font-weight: 500; }
+.mb-usage-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--mb-muted); font-size: 9px; margin-top: 3px; }
 .mb-overview { flex: none; padding-bottom: 12px; border-bottom: 1px solid var(--mb-line); }
 .mb-overview-heading h2 { font: inherit; font-weight: 600; color: var(--mb-text); margin: 0; }
 .mb-overview-heading { display: flex; justify-content: space-between; color: var(--mb-muted); font-size: 11px; margin-bottom: 8px; }
@@ -30,7 +47,7 @@
 .mb-aggregate small { display: block; margin-top: 3px; font-size: 10px; color: var(--mb-muted); }
 .mb-meter { height: 5px; border-radius: 5px; overflow: hidden; background: var(--mb-track); flex: 1; min-width: 0; }
 .mb-meter > span { height: 100%; display: block; border-radius: inherit; background: #23a467; }
-.mb-meter.warning > span { background: #d9a400; }
+.mb-meter.warning > span { background: #ffcc00; }
 .mb-meter.critical > span { background: #e34e4e; }
 .mb-meter.unknown { opacity: .65; }
 .mb-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -43,7 +60,7 @@
 .mb-account-identity > button:first-child { display: flex; flex-direction: column; gap: 0; align-items: flex-start; min-width: 0; padding: 1px 3px; margin-left: -3px; text-align: left; }
 .mb-account-identity > button:first-child > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .mb-account-identity small { font-size: 9px; color: var(--mb-muted); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.menubar-app .mb-account-switch { display: flex; align-items: center; justify-content: center; gap: 4px; width: 76px; height: 26px; padding: 3px 7px; font-size: 10px; flex: none; color: #007aff; border: 1px solid var(--mb-line); background: var(--mb-hover); }
+.menubar-app .mb-account-switch { display: flex; align-items: center; justify-content: center; gap: 4px; width: 64px; height: 26px; padding: 3px 7px; font-size: 10px; flex: none; color: #007aff; border: 1px solid var(--mb-line); background: var(--mb-hover); }
 .dark .menubar-app .mb-account-switch { color: #66b2ff; }
 .mb-account-row.current .mb-account-switch:disabled { color: #007aff; opacity: 1; }
 .dark .mb-account-row.current .mb-account-switch:disabled { color: #66b2ff; }
@@ -61,7 +78,7 @@
 .menubar-app .mb-usage { display: flex; gap: 7px; width: 100%; align-items: center; text-align: left; padding: 4px 3px; font-size: 11px; }
 .mb-usage > strong { margin-left: auto; font-size: 12px; font-weight: 550; }
 .mb-usage small { color: var(--mb-muted); font-size: 10px; font-weight: 400; }
-.mb-footer-actions { display: flex; gap: 6px; margin-top: 5px; }
+.mb-footer-actions { display: flex; gap: 6px; }
 .mb-footer-actions button { display: flex; gap: 5px; align-items: center; padding: 5px 4px; color: var(--mb-muted); font-size: 11px; }
 .mb-footer-actions button:first-child { margin-right: auto; }
 .mb-message { font-size: 10px; color: #168453; flex: none; }
@@ -88,7 +105,8 @@
 .mb-switch-detail-error { color: #c34738; }
 .mb-switch-details button { margin: 5px 5px 0 0; padding: 5px 6px; color: #007aff; }
 @media (max-width: 360px) { .menubar-app { padding: 14px; } .mb-account-identity small { max-width: 60px; } }
-@media (max-height: 430px) { .menubar-app { gap: 8px; padding-top: 10px; } .mb-header h1 { font-size: 18px; } .mb-footer .mb-usage { display: none; } .mb-overview { padding-bottom: 8px; } .mb-aggregate + .mb-aggregate { margin-top: 8px; } }
+@media (max-height: 520px) { .mb-usage-chart { width: 66px; } .mb-usage-ring { width: 66px; height: 66px; } .mb-usage-ring strong { font-size: 14px; } .mb-usage-cost strong { font-size: 12px; } .mb-usage-overview { padding-bottom: 6px; } .mb-usage-summary { gap: 14px; } .mb-usage-overview .mb-overview-heading { margin-bottom: 3px; } }
+@media (max-height: 430px) { .menubar-app { gap: 4px; padding-top: 10px; } .mb-header h1 { font-size: 18px; } .mb-usage-type { font-size: 9px; } .mb-usage-cost { margin-bottom: 3px; } .mb-usage-meta { font-size: 8px; margin-top: 1px; } .mb-footer { padding-top: 6px; } .mb-footer-actions button { font-size: 10px; } .mb-header-actions button { padding: 4px; } .mb-overview-heading { margin-bottom: 4px; font-size: 10px; } .mb-aggregate strong { font-size: 13px; } .mb-aggregate > div:first-child { margin-bottom: 3px; } .mb-overview { padding-bottom: 4px; } .mb-aggregate + .mb-aggregate { margin-top: 4px; } }
 @media (prefers-reduced-motion: reduce) { .menubar-app .animate-spin { animation: none; } }
 
 .mb-meter.disabled-quota { background: #e34e4e; }

@@ -146,7 +146,7 @@ impl QuotaRow {
             progress.setHidden(!visible); text.setHidden(!visible);
             let x = 70.0 + if scope == MenuBarQuotaScope::All { family as f64 * width } else { 0.0 };
             progress.setFrame(rect(x, self.y + 3.0, width - 49.0, 4.0)); progress.setNeedsDisplay(true);
-            text.setFrame(rect(x + width - 42.0, self.y - 3.0, 42.0, 18.0));
+            text.setFrame(rect(x + width - 44.0, self.y - 3.0, 46.0, 18.0));
         }
     }
 }
@@ -168,7 +168,9 @@ define_class!(
 fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect { NSRect::new(NSPoint::new(x, y), NSSize::new(width, height)) }
 fn label(view: &NSView, text: &str, x: f64, y: f64, width: f64, size: f64, bold: bool, secondary: bool, marker: MainThreadMarker) -> Retained<NSTextField> {
     let field = NSTextField::labelWithString(&NSString::from_str(text), marker);
-    field.setFrame(rect(x, y, width, 18.0));
+    // NSTextField adds two points of horizontal cell padding. Compensate so
+    // text, bars and action controls share the same content edges.
+    field.setFrame(rect(x - 2.0, y, width + 4.0, 18.0));
     let font = if bold { NSFont::boldSystemFontOfSize(size) } else { NSFont::systemFontOfSize(size) };
     let color = if secondary { NSColor::secondaryLabelColor() } else { NSColor::labelColor() };
     field.setFont(Some(&font)); field.setTextColor(Some(&color));
@@ -216,10 +218,81 @@ define_class!(
 );
 fn status_badge(view: &NSView, title: &str, icon: &str, color: &NSColor, frame: NSRect, marker: MainThreadMarker) {
     let badge: Retained<StatusBadge> = unsafe { msg_send![StatusBadge::alloc(marker), initWithFrame: frame] };
-    let glyph = NSImageView::new(marker); glyph.setFrame(rect(7.0, 6.0, 14.0, 14.0));
+    let text_width = if title.is_ascii() { title.len() as f64 * 5.5 } else { title.chars().count() as f64 * 11.0 };
+    let glyph_x = (frame.size.width - 19.0 - text_width) / 2.0;
+    let glyph = NSImageView::new(marker); glyph.setFrame(rect(glyph_x, 6.0, 14.0, 14.0));
     glyph.setImage(symbol(icon).as_deref()); glyph.setContentTintColor(Some(color)); badge.addSubview(&glyph);
-    let text = label(&badge, title, 26.0, 5.0, frame.size.width - 29.0, 11.0, false, false, marker);
+    let text = label(&badge, title, glyph_x + 19.0, 5.0, text_width, 11.0, false, false, marker);
     text.setTextColor(Some(color)); view.addSubview(&badge);
+}
+struct UsageRingState { values: [f64; 3] }
+define_class!(
+    #[unsafe(super = NSView)]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = UsageRingState]
+    struct UsageRing;
+    unsafe impl NSObjectProtocol for UsageRing {}
+    impl UsageRing {
+        #[unsafe(method(isFlipped))] fn flipped(&self) -> bool { true }
+        #[unsafe(method(drawRect:))]
+        fn draw(&self, _dirty: NSRect) {
+            let size = self.bounds().size.width;
+            let track = NSBezierPath::bezierPathWithOvalInRect(rect(4.0, 4.0, size - 8.0, size - 8.0));
+            NSColor::quaternaryLabelColor().setStroke(); track.setLineWidth(8.0); track.stroke();
+            let total: f64 = self.ivars().values.iter().sum();
+            if total <= 0.0 { return; }
+            let mut angle = -90.0;
+            for (index, value) in self.ivars().values.iter().enumerate() {
+                if *value <= 0.0 { continue; }
+                let next = angle + value / total * 360.0;
+                let arc = NSBezierPath::bezierPath();
+                usage_color(index).setStroke(); arc.setLineWidth(8.0);
+                arc.appendBezierPathWithArcWithCenter_radius_startAngle_endAngle_clockwise(NSPoint::new(size / 2.0, size / 2.0), (size - 8.0) / 2.0, angle, next, false);
+                arc.stroke(); angle = next;
+            }
+        }
+    }
+);
+fn usage_color(index: usize) -> Retained<NSColor> {
+    match index { 0 => NSColor::systemBlueColor(), 1 => NSColor::systemOrangeColor(), _ => NSColor::systemPurpleColor() }
+}
+fn compact_tokens(value: u64) -> String {
+    if value >= 1_000_000 { format!("{:.1}M", value as f64 / 1_000_000.0) }
+    else if value >= 1_000 { format!("{:.1}K", value as f64 / 1_000.0) }
+    else { value.to_string() }
+}
+fn usage_section(menu: &NSMenu, usage: Option<&modules::menu_bar_usage::MenuBarUsage>, zh: bool, marker: MainThreadMarker) {
+    let heading = section(marker, 29.0);
+    label(&heading, if zh { "今日用量" } else { "Today's usage" }, 20.0, 5.0, 160.0, 13.0, true, false, marker);
+    let scope = label(&heading, if usage.is_some_and(|usage| usage.incomplete) { if zh { "统计不完整" } else { "Partial records" } } else { if zh { "本机" } else { "Local" } }, 210.0, 7.0, WIDTH - 230.0, 11.0, false, true, marker);
+    scope.setAlignment(objc2_app_kit::NSTextAlignment::Right);
+    custom_item(menu, &heading, "Today's usage", marker);
+    let view = section(marker, 119.0);
+    let values = usage.map(|usage| [usage.today.input_tokens as f64, usage.today.output_tokens as f64, usage.today.cached_tokens as f64]).unwrap_or([0.0; 3]);
+    let ring = UsageRing::alloc(marker).set_ivars(UsageRingState { values });
+    let ring: Retained<UsageRing> = unsafe { msg_send![super(ring), initWithFrame: rect(20.0, 5.0, 88.0, 88.0)] };
+    view.addSubview(&ring);
+    let total = label(&view, &usage.map(|usage| compact_tokens(usage.today.total_tokens)).unwrap_or("—".into()), 25.0, 33.0, 78.0, 17.0, true, false, marker);
+    total.setAlignment(objc2_app_kit::NSTextAlignment::Center);
+    let unit = label(&view, "tokens", 25.0, 53.0, 78.0, 9.0, false, true, marker);
+    unit.setAlignment(objc2_app_kit::NSTextAlignment::Center);
+    let requests = label(&view, &usage.map(|usage| format!("{} {}", usage.today.request_count, if zh { "次请求" } else { "requests" })).unwrap_or("—".into()), 20.0, 100.0, 88.0, 10.0, false, true, marker);
+    requests.setAlignment(objc2_app_kit::NSTextAlignment::Center);
+    label(&view, if zh { "API 费用估算" } else { "API estimate" }, 130.0, 5.0, 140.0, 11.0, false, true, marker);
+    let amount = usage.and_then(|usage| usage.estimated_usd).map(|usd| if usd > 0.0 && usd < 0.01 { format!("$ {usd:.4}") } else { format!("$ {usd:.2}") }).unwrap_or(if usage.is_some() { if zh { "未计价".into() } else { "Unpriced".into() } } else { "—".into() });
+    let cost = label(&view, &amount, WIDTH - 105.0, 4.0, 85.0, 13.0, true, false, marker);
+    cost.setAlignment(objc2_app_kit::NSTextAlignment::Right);
+    for (index, name) in [if zh { "输入" } else { "Input" }, if zh { "输出" } else { "Output" }, if zh { "缓存" } else { "Cached" }].iter().enumerate() {
+        let y = 32.0 + index as f64 * 21.0;
+        label(&view, name, 142.0, y, 90.0, 11.0, false, true, marker).setTextColor(Some(&usage_color(index)));
+        let value = label(&view, &usage.map(|_| compact_tokens(values[index] as u64)).unwrap_or("—".into()), WIDTH - 105.0, y, 85.0, 11.0, false, false, marker);
+        value.setAlignment(objc2_app_kit::NSTextAlignment::Right);
+    }
+    let status = usage.map(|usage| if usage.unpriced_models > 0 { if zh { "部分未计价" } else { "Partly unpriced" } } else if usage.pricing_stale && usage.today.total_tokens > 0 { if zh { "缓存价格" } else { "Cached prices" } } else { "USD" }).unwrap_or(if zh { "统计暂不可用" } else { "Usage unavailable" });
+    let status = label(&view, status, 130.0, 100.0, WIDTH - 150.0, 10.0, false, true, marker);
+    status.setAlignment(objc2_app_kit::NSTextAlignment::Right);
+    custom_item(menu, &view, "Local usage breakdown", marker);
+    menu.addItem(&NSMenuItem::separatorItem(marker));
 }
 fn custom_item(menu: &NSMenu, view: &NSView, title: &str, marker: MainThreadMarker) -> Retained<NSMenuItem> {
     let item = unsafe { NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(marker), &NSString::from_str(title), None, &NSString::from_str("")) };
@@ -250,13 +323,16 @@ fn account_item(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry,
     let title = if secondary.is_empty() { primary.clone() } else { format!("{primary}   {secondary}") };
     let periods: Vec<_> = (0..2).filter(|period| if *period == 0 { preferences.show_session } else { preferences.show_weekly }).collect();
     let view: Retained<AccountRow> = unsafe { msg_send![AccountRow::alloc(marker), initWithFrame: rect(0.0, 0.0, WIDTH, 48.0 + periods.len() as f64 * 18.0)] };
-    let action_frame = rect(WIDTH - 104.0, 8.0, 84.0, 26.0);
-    let identity = button(&view, menu, app, &primary, Action::Details(account.id.clone()), true, rect(17.0, 4.0, WIDTH - 129.0, 22.0), Some("chevron.right"), zh, targets, marker);
-    identity.setBordered(false); identity.setAlignment(objc2_app_kit::NSTextAlignment::Left);
-    identity.setFont(Some(&NSFont::boldSystemFontOfSize(12.0))); identity.setImagePosition(NSCellImagePosition::ImageTrailing);
-    if !secondary.is_empty() { label(&view, &secondary, 20.0, 25.0, WIDTH - 130.0, 10.0, false, true, marker); }
+    let action_width = if zh { 64.0 } else { 72.0 };
+    let action_frame = rect(WIDTH - 20.0 - action_width, 8.0, action_width, 26.0);
+    label(&view, &primary, 20.0, 7.0, WIDTH - action_width - 48.0, 12.0, true, false, marker);
+    if !secondary.is_empty() { label(&view, &secondary, 20.0, 25.0, WIDTH - action_width - 48.0, 10.0, false, true, marker); }
+    // A transparent hit target preserves ordinary text alignment and color.
+    let identity = button(&view, menu, app, "", Action::Details(account.id.clone()), true, rect(20.0, 4.0, WIDTH - action_width - 48.0, 38.0), None, zh, targets, marker);
+    identity.setBordered(false);
+    unsafe { let _: () = msg_send![&*identity, setAccessibilityLabel: &*NSString::from_str(&format!("{} {primary}", if zh { "查看账号详情" } else { "Account details" }))]; }
     if account.disabled {
-        status_badge(&view, if zh { "已禁用" } else { "Disabled" }, "nosign", &NSColor::systemRedColor(), action_frame, marker);
+        status_badge(&view, if zh { "禁用" } else { "Disabled" }, "nosign", &NSColor::systemRedColor(), action_frame, marker);
     } else if current {
         status_badge(&view, if verified { if zh { "当前" } else { "Current" } } else { if zh { "记录" } else { "Saved" } }, "checkmark.circle", &NSColor::systemBlueColor(), action_frame, marker);
     } else {
@@ -308,7 +384,7 @@ fn account_details(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEnt
                 label(&row, period, 20.0, 2.0, 85.0, 12.0, false, false, marker);
                 let field = label(&row, "0%", WIDTH - 68.0, 2.0, 48.0, 12.0, true, false, marker);
                 field.setTextColor(Some(&NSColor::labelColor())); field.setAlignment(objc2_app_kit::NSTextAlignment::Right);
-                label(&row, if zh { "已禁用" } else { "Disabled" }, 108.0, 3.0, WIDTH - 180.0, 11.0, false, true, marker);
+                label(&row, if zh { "禁用" } else { "Disabled" }, 108.0, 3.0, WIDTH - 180.0, 11.0, false, true, marker);
                 bar(&row, Some(0.0), preferences, rect(20.0, 29.0, WIDTH - 40.0, 4.0), true, marker);
                 custom_item(menu, &row, period, marker);
             }
@@ -353,7 +429,7 @@ fn account_details(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEnt
     standard_item(menu, app, if zh { "在 App 中管理账号" } else { "Manage accounts in app" }, Action::Page("accounts"), true, "", preferences.show_icons, zh, targets, marker);
 }
 
-fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnapshot>, status: Option<modules::auto_switch::Status>, reserve: u8, _anchor: Option<tauri::Rect>, ticket: u64) {
+fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnapshot>, usage: Option<modules::menu_bar_usage::MenuBarUsage>, status: Option<modules::auto_switch::Status>, reserve: u8, _anchor: Option<tauri::Rect>, ticket: u64) {
     let Some(marker) = MainThreadMarker::new() else { OPEN.store(false, Ordering::Release); return; };
     if !OPEN.load(Ordering::Acquire) || GENERATION.load(Ordering::Acquire) != ticket { return; }
     let zh = config.language.starts_with("zh");
@@ -371,9 +447,10 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     label(&header, BRAND, title_x, 8.0, WIDTH - title_x - 20.0, 13.0, true, false, marker);
     custom_item(&menu, &header, BRAND, marker);
     menu.addItem(&NSMenuItem::separatorItem(marker));
+    usage_section(&menu, usage.as_ref(), zh, marker);
     if preferences.show_aggregate {
       let heading = section(marker, 29.0);
-      label(&heading, if zh { "额度概览" } else { "Quota overview" }, 20.0, 5.0, 140.0, 13.0, true, false, marker);
+      label(&heading, if zh { "剩余额度" } else { "Remaining quota" }, 20.0, 5.0, 140.0, 13.0, true, false, marker);
       let summary = label(&heading, &format!("{scope_name}  {}", if zh { "平均剩余" } else { "Mean remaining" }), 80.0, 7.0, WIDTH - 100.0, 11.0, false, true, marker);
       summary.setAlignment(objc2_app_kit::NSTextAlignment::Right);
       custom_item(&menu, &heading, "Overall quotas", marker);
@@ -389,7 +466,7 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     menu.addItem(&NSMenuItem::separatorItem(marker));
     }
     let account_header = section(marker, 29.0);
-    label(&account_header, if zh { "账号额度" } else { "Account quotas" }, 20.0, 4.0, 160.0, 13.0, true, false, marker);
+    label(&account_header, if zh { "账号列表" } else { "Accounts" }, 20.0, 4.0, 160.0, 13.0, true, false, marker);
     let count = label(&account_header, &if zh { format!("{} 个账号", accounts.len()) } else { format!("{} accounts", accounts.len()) }, 210.0, 5.0, WIDTH - 230.0, 11.0, false, true, marker);
     count.setAlignment(objc2_app_kit::NSTextAlignment::Right);
     custom_item(&menu, &account_header, "Accounts", marker);
@@ -461,13 +538,15 @@ pub fn toggle(app: &tauri::AppHandle, anchor: Option<tauri::Rect>) -> Result<(),
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let snapshot = commands::get_menu_bar_snapshot().await.ok();
+        let (snapshot, usage) = tokio::join!(commands::get_menu_bar_snapshot(), tokio::time::timeout(std::time::Duration::from_secs(2), commands::get_menu_bar_usage()));
+        let snapshot = snapshot.ok();
+        let usage = usage.ok().and_then(Result::ok);
         if !OPEN.load(Ordering::Acquire) || GENERATION.load(Ordering::Acquire) != ticket { return; }
         let config = modules::load_app_config().unwrap_or_default();
         let status = modules::auto_switch::get_auto_switch_status(app.clone()).ok();
         let reserve = modules::auto_switch::get_auto_switch_config(app.clone()).map(|config| config.reserve_percentage).unwrap_or(10);
         let handle = app.clone();
-        if handle.run_on_main_thread(move || show(app, config, snapshot, status, reserve, anchor, ticket)).is_err() { OPEN.store(false, Ordering::Release); }
+        if handle.run_on_main_thread(move || show(app, config, snapshot, usage, status, reserve, anchor, ticket)).is_err() { OPEN.store(false, Ordering::Release); }
     });
     Ok(())
 }

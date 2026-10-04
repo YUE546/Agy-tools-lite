@@ -121,6 +121,12 @@ fn cache_path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".antigravity_tools").join("api_pricing.json"))
 }
 
+pub fn cached_pricing() -> Option<ApiPricingSnapshot> {
+    let mut snapshot = read_cache()?;
+    snapshot.stale = Utc::now().timestamp().saturating_sub(snapshot.fetched_at) >= CACHE_TTL_SECONDS;
+    Some(snapshot)
+}
+
 fn read_cache() -> Option<ApiPricingSnapshot> {
     let path = cache_path()?;
     let bytes = fs::read(path).ok()?;

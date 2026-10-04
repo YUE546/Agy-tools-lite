@@ -7,6 +7,7 @@ test.beforeEach(async ({ page }) => {
     const w = window as any; const callbacks: Record<number, Function> = {}; const listeners: Record<number, any> = {}; let sequence = 1;
     let current: string | null = 'B'; let identity = 'running_app'; let preferences: any = JSON.parse(localStorage.getItem('fixture-menu-preferences') || '{"quota_scope":"all"}'); let theme = 'light'; let language = 'zh';
     let failRead = false, failRefresh = false, failSave = false, hold = false, release: (() => void) | null = null;
+    let usage: any = { today: { input_tokens: 12000, output_tokens: 1200, cached_tokens: 135000, total_tokens: 148200, request_count: 86 }, estimated_usd: 0.023625, unpriced_models: 0, pricing_stale: false, incomplete: false };
     const calls: any[] = [];
     const now = Math.floor(Date.now() / 1000);
     const account = (id: string, g = 80, c = 70) => ({ id, email: id.toLowerCase() + '@example.invalid', name: null, custom_label: '账号 ' + id, read_status: 'loaded', read_error: null, disabled: false, validation_blocked: false, validation_blocked_until: null, protected_models: [],
@@ -16,7 +17,7 @@ test.beforeEach(async ({ page }) => {
     let appearance: any = { platform: 'macos', native_material: true, material_kind: 'liquid_glass', reduced_transparency: false, high_contrast: false };
     let status: any = { phase: 'disabled', reason: null, source_account_id: 'B', source_email: 'b@example.invalid', target_account_id: 'A', target_email: 'a@example.invalid', remaining_percentage: 6, pending_id: null, mode: 'wait', process_state: 'running', last_checked: now };
     const emit = (event: string, payload: any = {}) => Object.entries(listeners).forEach(([id, listener]) => { if (listener.event === event) callbacks[listener.handler]?.({ id: Number(id), event, payload }); });
-    w.__menuFixture = { calls, emit, current: () => current, setIdentity: (id: string | null, source = 'running_app') => { current = id; identity = source; emit('menubar://opened'); }, empty: () => { accounts = []; current = null; emit('menubar://data-updated'); }, failRead: () => { failRead = true; emit('menubar://data-updated'); }, recover: () => { failRead = false; emit('menubar://data-updated'); }, failRefresh: () => { failRefresh = true; }, failSave: () => { failSave = true; }, holdSwitch: () => { hold = true; }, releaseSwitch: () => release?.(), setStatus: (patch: any) => { status = { ...status, ...patch }; emit('menubar://opened'); }, setPreferences: (patch: any) => { preferences = { ...preferences, ...patch.menu_bar, ...(patch.scope ? { quota_scope: patch.scope } : {}) }; theme = patch.theme || theme; language = patch.language || language; emit('config://updated'); }, setAppearance: (patch: any) => { appearance = { ...appearance, ...patch }; emit('menubar://appearance', appearance); }, manyModels: () => { accounts[0].quota.models = Array.from({length: 14}, (_, i) => ({ name: 'extra-model-' + i, display_name: null, percentage: 50, reset_time: new Date(Date.now() + 7200000).toISOString(), inferred_bucket_id: null })); emit('menubar://data-updated'); } };
+    w.__menuFixture = { calls, emit, setUsage: (next: any) => { usage = next; emit('menubar://opened'); }, current: () => current, setIdentity: (id: string | null, source = 'running_app') => { current = id; identity = source; emit('menubar://opened'); }, empty: () => { accounts = []; current = null; emit('menubar://data-updated'); }, failRead: () => { failRead = true; emit('menubar://data-updated'); }, recover: () => { failRead = false; emit('menubar://data-updated'); }, failRefresh: () => { failRefresh = true; }, failSave: () => { failSave = true; }, holdSwitch: () => { hold = true; }, releaseSwitch: () => release?.(), setStatus: (patch: any) => { status = { ...status, ...patch }; emit('menubar://opened'); }, setPreferences: (patch: any) => { preferences = { ...preferences, ...patch.menu_bar, ...(patch.scope ? { quota_scope: patch.scope } : {}) }; theme = patch.theme || theme; language = patch.language || language; emit('config://updated'); }, setAppearance: (patch: any) => { appearance = { ...appearance, ...patch }; emit('menubar://appearance', appearance); }, manyModels: () => { accounts[0].quota.models = Array.from({length: 14}, (_, i) => ({ name: 'extra-model-' + i, display_name: null, percentage: 50, reset_time: new Date(Date.now() + 7200000).toISOString(), inferred_bucket_id: null })); emit('menubar://data-updated'); } };
     w.__TAURI_INTERNALS__ = {
       transformCallback: (fn: Function) => { const id = sequence++; callbacks[id] = fn; return id; }, unregisterCallback: (id: number) => { delete callbacks[id]; }, convertFileSrc: (s: string) => s,
       metadata: { currentWindow: { label: 'menubar' }, currentWebview: { label: 'menubar' } },
@@ -25,7 +26,7 @@ test.beforeEach(async ({ page }) => {
         if (cmd === 'load_config') return { language, theme, auto_refresh: false, auto_sync: false, refresh_interval: 15, sync_interval: 5, pinned_quota_models: { models: [] }, quota_protection: { enabled: false, threshold_percentage: 10, monitored_models: [] }, menu_bar: preferences };
         if (cmd === 'get_menu_bar_snapshot') { if (failRead) throw new Error('Fixture unreadable'); return { indexed_total: accounts.length, loaded_count: accounts.length, failed_count: 0, accounts, current_account_id: current, current_identity_source: identity }; }
         if (cmd === 'get_menu_bar_appearance') return appearance;
-        if (cmd === 'get_local_token_usage') return { today: { total_tokens: 148200, request_count: 86 } };
+        if (cmd === 'get_menu_bar_usage') return usage;
         if (cmd === 'get_auto_switch_config') return { enabled: false, mode: 'wait', reserve_percentage: 10, candidate_min_percentage: 30, monitored_model: 'gemini-test', candidate_account_ids: ['A'], target: 'app' };
         if (cmd === 'get_auto_switch_status' || cmd === 'check_auto_switch_now') return status;
         if (cmd === 'cancel_auto_switch') { if (args.pendingId !== status.pending_id) throw new Error('Stale cancellation'); status = { ...status, phase: 'canceled', reason: 'canceled_until_recovery', pending_id: null }; return status; }
@@ -42,7 +43,7 @@ test.beforeEach(async ({ page }) => {
     };
     w.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} }; localStorage.setItem('i18nextLng', 'zh');
   });
-  await page.goto('/menubar'); await expect(page.getByRole('heading', { name: '额度概览' })).toBeVisible();
+  await page.goto('/menubar'); await expect(page.getByRole('heading', { name: '剩余额度' })).toBeVisible();
   await expect(page.locator('.mb-account-row')).not.toHaveCount(0);
 });
 async function bounded(page: Page) {
@@ -105,7 +106,7 @@ test('scope, language and accessibility material respond to backend events and s
   await expect(page.locator('.mb-availability')).toHaveText(['可用 2/5', '可用 2/5']); await expect(page.locator('.menubar-app')).toHaveAttribute('data-material', 'liquid_glass');
   await page.evaluate(() => (window as any).__menuFixture.setAppearance({ native_material: false, reduced_transparency: true, material_kind: 'opaque' })); await expect(page.locator('.menubar-app')).toHaveClass(/opaque-material/);
   await page.screenshot({ path: info.outputPath('menubar-overview-dark-browser.png') });
-  await page.evaluate(() => (window as any).__menuFixture.setPreferences({ language: 'en' })); await expect(page.getByRole('heading', { name: 'Quota overview' })).toBeVisible();
+  await page.evaluate(() => (window as any).__menuFixture.setPreferences({ language: 'en' })); await expect(page.getByRole('heading', { name: 'Remaining quota' })).toBeVisible();
   await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.goto('/settings'); await page.evaluate(() => (window as any).__menuFixture.setPreferences({ language: 'en' })); await page.getByLabel('Menu bar aggregate quotas').selectOption('other'); await expect(page.getByLabel('Menu bar aggregate quotas')).toHaveValue('other');
   await expect.poll(() => page.evaluate(() => (window as any).__menuFixture.calls.filter((call: any) => call.cmd === 'set_menu_bar_preferences').at(-1)?.args.patch.quota_scope)).toBe('other');
   await page.evaluate(() => (window as any).__menuFixture.failSave()); await page.getByLabel('Menu bar aggregate quotas').selectOption('gemini'); await expect(page.getByRole('alert').filter({ hasText: 'Could not save' })).toBeVisible(); await expect(page.getByLabel('Menu bar aggregate quotas')).toHaveValue('other');
@@ -134,7 +135,7 @@ test('family selection stays in Settings and disabled quotas show zero without a
   const disabled = page.locator('.mb-account-row.disabled');
   await expect(disabled).toHaveCount(1);
   await expect(disabled.locator('.mb-account-switch')).toBeDisabled();
-  await expect(disabled.locator('.mb-account-switch')).toHaveText('已禁用');
+  await expect(disabled.locator('.mb-account-switch')).toHaveText('禁用');
   await expect(disabled.locator('.mb-mini strong')).toHaveText(['0%']);
   await expect(page.locator('.mb-availability')).toHaveText(['可用 1/7']);
   await disabled.locator('.mb-account-identity > button:first-child').click();
@@ -142,4 +143,18 @@ test('family selection stays in Settings and disabled quotas show zero without a
   expect(await calls(page, 'switch_account')).toEqual([]);
   await page.getByRole('button', { name: '返回总览' }).click();
   await expect(page.getByRole('button', { name: '关于应用' })).toHaveCount(0); await expect(page.getByRole('button', { name: 'GitHub', exact: true })).toBeVisible();
+});
+
+test('daily usage distinguishes empty records from unknown API pricing', async ({ page }) => {
+  const usage = page.getByRole('region', { name: '今日本机用量' });
+  await expect(usage.getByRole('heading')).toHaveText('今日用量');
+  await expect(usage.locator('.mb-usage-ring strong')).toHaveText('148.2K');
+  await expect(usage.locator('.mb-usage-type strong')).toHaveText(['12.0K', '1.2K', '135.0K']);
+  await page.evaluate(() => (window as any).__menuFixture.setUsage({ today: { input_tokens: 1000, output_tokens: 0, cached_tokens: 0, total_tokens: 1000, request_count: 1 }, estimated_usd: null, unpriced_models: 1, pricing_stale: true, incomplete: true }));
+  await expect(usage.locator('.mb-usage-cost strong')).toHaveText('未计价');
+  await expect(usage).toContainText('统计不完整');
+  await page.evaluate(() => (window as any).__menuFixture.setUsage({ today: { input_tokens: 0, output_tokens: 0, cached_tokens: 0, total_tokens: 0, request_count: 0 }, estimated_usd: 0, unpriced_models: 0, pricing_stale: true, incomplete: false }));
+  await expect(usage.locator('.mb-usage-cost strong')).toHaveText('$ 0.00');
+  await expect(usage.locator('.mb-usage-ring circle')).toHaveCount(1);
+  expect(await calls(page, 'switch_account')).toEqual([]);
 });
