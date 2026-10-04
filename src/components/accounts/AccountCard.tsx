@@ -220,7 +220,7 @@ function AccountCard({
                                 label={
                                     <span className="flex items-center gap-1.5 truncate">
                                         <span>{item.title}</span>
-                                        <span className="px-1 py-0.2 rounded text-[8.5px] font-semibold bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/30 shrink-0">
+                                        <span className="shrink-0">
                                             {item.poolBadge}
                                         </span>
                                     </span>
