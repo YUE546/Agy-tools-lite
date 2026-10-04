@@ -78,6 +78,44 @@ pub fn pad_right(s: &str, target_width: usize) -> String {
     }
 }
 
+pub fn get_terminal_width() -> usize {
+    #[cfg(unix)]
+    {
+        unsafe {
+            let mut ws: libc::winsize = std::mem::zeroed();
+            if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 {
+                return ws.ws_col as usize;
+            }
+        }
+    }
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|c| c.parse::<usize>().ok())
+        .unwrap_or(80)
+}
+
+pub fn truncate_display_width(s: &str, max_w: usize) -> String {
+    let clean = strip_ansi(s);
+    if display_width(&clean) <= max_w {
+        return s.to_string();
+    }
+    let budget = if max_w > 1 { max_w - 1 } else { max_w };
+    let mut out = String::new();
+    let mut cur_w = 0;
+    for c in clean.chars() {
+        let cw = display_width(&c.to_string());
+        if cur_w + cw > budget {
+            break;
+        }
+        out.push(c);
+        cur_w += cw;
+    }
+    if max_w > 1 {
+        out.push('…');
+    }
+    out
+}
+
 pub fn pad_left(s: &str, target_width: usize) -> String {
     let w = display_width(s);
     if w >= target_width {
@@ -114,6 +152,12 @@ impl Table {
     }
 
     pub fn render(&self) -> String {
+        let term_w = get_terminal_width();
+        let max_w = term_w.saturating_sub(2).max(60);
+        self.render_with_max_width(max_w)
+    }
+
+    pub fn render_with_max_width(&self, max_width: usize) -> String {
         let num_cols = self.headers.len();
         if num_cols == 0 {
             return String::new();
@@ -129,6 +173,26 @@ impl Table {
                 if i < num_cols {
                     col_widths[i] = col_widths[i].max(display_width(cell));
                 }
+            }
+        }
+
+        let border_overhead = num_cols * 3 + 1;
+        let mut total_content_width: usize = col_widths.iter().sum();
+        let total_width = total_content_width + border_overhead;
+
+        if total_width > max_width && max_width > border_overhead {
+            let max_content_width = max_width - border_overhead;
+            while total_content_width > max_content_width {
+                let (widest_idx, &widest_w) = col_widths
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|&(_, w)| *w)
+                    .unwrap();
+                if widest_w <= 6 {
+                    break;
+                }
+                col_widths[widest_idx] -= 1;
+                total_content_width -= 1;
             }
         }
 
@@ -148,12 +212,19 @@ impl Table {
         out.push('│');
         for (i, h) in self.headers.iter().enumerate() {
             out.push(' ');
-            let cell = if self.align_right.get(i).copied().unwrap_or(false) {
-                pad_left(h, col_widths[i])
+            let w = col_widths[i];
+            let clean = strip_ansi(h);
+            let truncated = if display_width(&clean) > w {
+                truncate_display_width(&clean, w)
             } else {
-                pad_right(h, col_widths[i])
+                h.clone()
             };
-            out.push_str(&format!("\x1b[1;37m{}\x1b[0m", cell));
+            let cell = if self.align_right.get(i).copied().unwrap_or(false) {
+                pad_left(&truncated, w)
+            } else {
+                pad_right(&truncated, w)
+            };
+            out.push_str(&format!("\x1b[1m{}\x1b[0m", cell));
             out.push(' ');
             out.push('│');
         }
@@ -174,12 +245,23 @@ impl Table {
             out.push('│');
             for (i, cell) in row.iter().enumerate() {
                 out.push(' ');
-                let padded = if self.align_right.get(i).copied().unwrap_or(false) {
-                    pad_left(cell, col_widths[i])
+                let clean = strip_ansi(cell);
+                let w = col_widths[i];
+                let formatted = if display_width(&clean) > w {
+                    let truncated = truncate_display_width(&clean, w);
+                    if self.align_right.get(i).copied().unwrap_or(false) {
+                        pad_left(&truncated, w)
+                    } else {
+                        pad_right(&truncated, w)
+                    }
                 } else {
-                    pad_right(cell, col_widths[i])
+                    if self.align_right.get(i).copied().unwrap_or(false) {
+                        pad_left(cell, w)
+                    } else {
+                        pad_right(cell, w)
+                    }
                 };
-                out.push_str(&padded);
+                out.push_str(&formatted);
                 out.push(' ');
                 out.push('│');
             }
@@ -235,6 +317,32 @@ pub(crate) fn quota_brief(quota: Option<&QuotaView>, lang: Lang) -> String {
     String::new()
 }
 
+pub(crate) fn format_countdown_compact(reset_time_str: &str, lang: Lang) -> String {
+    if reset_time_str.is_empty() {
+        return String::new();
+    }
+    if let Ok(reset_dt) = chrono::DateTime::parse_from_rfc3339(reset_time_str) {
+        let now = chrono::Utc::now();
+        let diff = reset_dt.signed_duration_since(now.with_timezone(&reset_dt.timezone()));
+        if diff.num_seconds() <= 0 {
+            match lang {
+                Lang::Zh => "已重置".to_string(),
+                Lang::En => "Ready".to_string(),
+            }
+        } else {
+            let hours = diff.num_hours();
+            let mins = diff.num_minutes() % 60;
+            if hours > 0 {
+                format!("{}h", hours)
+            } else {
+                format!("{}m", mins.max(1))
+            }
+        }
+    } else {
+        String::new()
+    }
+}
+
 pub(crate) fn format_countdown(reset_time_str: &str, lang: Lang) -> String {
     if reset_time_str.is_empty() {
         return String::new();
@@ -253,9 +361,9 @@ pub(crate) fn format_countdown(reset_time_str: &str, lang: Lang) -> String {
             match lang {
                 Lang::Zh => {
                     if hours > 0 {
-                        format!("{}小时{}分后重置", hours, mins)
+                        format!("{}小时{}分", hours, mins)
                     } else {
-                        format!("{}分后重置", mins.max(1))
+                        format!("{}分", mins.max(1))
                     }
                 }
                 Lang::En => {
@@ -287,18 +395,73 @@ pub(crate) fn format_number(n: u64) -> String {
 }
 
 pub(crate) fn progress_bar(percentage: i32, width: usize) -> String {
-    let pct = percentage.clamp(0, 100) as usize;
-    let filled = (pct * width) / 100;
+    let clamped = percentage.clamp(0, 100);
+    let mut filled = ((clamped as f64 / 100.0) * width as f64).round() as usize;
+    if clamped > 0 && filled == 0 {
+        filled = 1;
+    }
+    if clamped >= 100 {
+        filled = width;
+    }
     let empty = width.saturating_sub(filled);
-    let bar: String = "█".repeat(filled) + &"░".repeat(empty);
-    let color = if pct > 50 {
+
+    let color = if clamped > 50 {
         "\x1b[32m" // green
-    } else if pct > 20 {
+    } else if clamped > 20 {
         "\x1b[33m" // yellow
     } else {
         "\x1b[31m" // red
     };
-    format!("{}{}\x1b[0m", color, bar)
+
+    let filled_part = if filled > 0 {
+        format!("{}{}\x1b[0m", color, "▰".repeat(filled))
+    } else {
+        String::new()
+    };
+
+    let empty_part = if empty > 0 {
+        format!("\x1b[38;2;180;175;165m{}\x1b[0m", "▱".repeat(empty))
+    } else {
+        String::new()
+    };
+
+    format!("{}{}", filled_part, empty_part)
+}
+
+pub fn estimate_model_cost(input: u64, output: u64, cached: u64, model: &str) -> f64 {
+    let m = model.to_lowercase();
+    let (in_p, out_p, cache_p) = if m.contains("sonnet") || m.contains("claude") || m.contains("opus") {
+        (3.0, 15.0, 0.3)
+    } else if m.contains("flash") && m.contains("image") {
+        (0.5, 60.0, 0.0)
+    } else if m.contains("3.8-flash") || m.contains("3.8") {
+        (0.75, 3.75, 0.075)
+    } else if m.contains("3.1-pro") || m.contains("pro") {
+        (2.0, 12.0, 0.2)
+    } else if m.contains("3.5-flash") {
+        (1.5, 9.0, 0.15)
+    } else if m.contains("flash-lite") {
+        (0.1, 0.4, 0.01)
+    } else if m.contains("flash") {
+        (0.5, 3.0, 0.05)
+    } else {
+        (0.75, 3.75, 0.075)
+    };
+    (input as f64 * in_p + output as f64 * out_p + cached as f64 * cache_p) / 1_000_000.0
+}
+
+pub fn format_cost(usd: f64) -> String {
+    if usd >= 1000.0 {
+        format!("${:.2}k", usd / 1000.0)
+    } else if usd >= 100.0 {
+        format!("${:.1}", usd)
+    } else if usd >= 1.0 {
+        format!("${:.2}", usd)
+    } else if usd > 0.001 {
+        format!("${:.3}", usd)
+    } else {
+        "$0.00".to_string()
+    }
 }
 
 fn open_browser(url: &str) {
@@ -451,12 +614,12 @@ pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize, lang
                 if !first {
                     print!("\x1b[{}A", items.len() + 1);
                 }
-                println!("\x1b[2K\r\x1b[1;37m{}\x1b[0m \x1b[2m{}\x1b[0m", title, hint);
+                println!("\x1b[2K\r\x1b[1m{}\x1b[0m \x1b[90m{}\x1b[0m", title, hint);
                 for (i, item) in items.iter().enumerate() {
                     if i == sel {
-                        println!("\x1b[2K\r  \x1b[1;36m➤\x1b[0m \x1b[1;37m{}\x1b[0m", item);
+                        println!("\x1b[2K\r  \x1b[1;36m➤\x1b[0m \x1b[1m{}\x1b[0m", item);
                     } else {
-                        println!("\x1b[2K\r    \x1b[2m{}\x1b[0m", item);
+                        println!("\x1b[2K\r    {}", item);
                     }
                 }
                 let _ = out.flush();
@@ -559,34 +722,41 @@ pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize, lang
     None
 }
 
-fn build_accounts_table(accounts: &[AccountView], lang: Lang) -> Table {
+fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Option<usize>) -> Table {
     let headers = match lang {
-        Lang::Zh => vec!["#", "账号 (Email / 备注)", "Gemini 配额", "Claude/GPT 配额", "状态"],
-        Lang::En => vec!["#", "Account (Email / Label)", "Gemini Quota", "Claude/GPT Quota", "Status"],
+        Lang::Zh => vec!["#", "账号 (备注)", "Gemini", "Claude/GPT", "状态"],
+        Lang::En => vec!["#", "Account (Label)", "Gemini", "Claude/GPT", "Status"],
     };
     let mut table = Table::new(headers);
 
     for (i, acc) in accounts.iter().enumerate() {
+        let is_selected = selected_idx == Some(i);
+        let prefix = if is_selected {
+            format!("➤{}", i + 1)
+        } else {
+            format!(" {}", i + 1)
+        };
+
         let label = match &acc.custom_label {
-            Some(l) if !l.trim().is_empty() => format!(" ({})", l),
+            Some(l) if !l.trim().is_empty() => format!(" ({})", l.trim()),
             _ => String::new(),
         };
         let cur = if acc.is_current { " *" } else { "" };
         let display_name = format!("{}{}{}", acc.email, label, cur);
 
         let mut gemini_quota = match lang {
-            Lang::Zh => "暂无数据".to_string(),
-            Lang::En => "No data".to_string(),
+            Lang::Zh => "暂无".to_string(),
+            Lang::En => "None".to_string(),
         };
         let mut claude_quota = match lang {
-            Lang::Zh => "暂无数据".to_string(),
-            Lang::En => "No data".to_string(),
+            Lang::Zh => "暂无".to_string(),
+            Lang::En => "None".to_string(),
         };
 
         if let Some(q) = &acc.quota {
             if q.is_forbidden {
                 gemini_quota = match lang {
-                    Lang::Zh => "额度受限".into(),
+                    Lang::Zh => "受限".into(),
                     Lang::En => "Forbidden".into(),
                 };
                 claude_quota = gemini_quota.clone();
@@ -594,8 +764,8 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang) -> Table {
                 for g in groups {
                     if let Some(b) = g.buckets.first() {
                         let pct = (b.remaining_fraction * 100.0).round() as i32;
-                        let cd = format_countdown(&b.reset_time, lang);
-                        let text = if cd.is_empty() {
+                        let cd = format_countdown_compact(&b.reset_time, lang);
+                        let text = if cd.is_empty() || pct >= 100 {
                             format!("{}%", pct)
                         } else {
                             format!("{}% ({})", pct, cd)
@@ -640,9 +810,15 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang) -> Table {
             }
         };
 
+        let row_display_name = if is_selected {
+            format!("\x1b[1;36m{}\x1b[0m", display_name)
+        } else {
+            display_name
+        };
+
         table.add_row(vec![
-            (i + 1).to_string(),
-            display_name,
+            prefix,
+            row_display_name,
             gemini_quota,
             claude_quota,
             status.to_string(),
@@ -659,8 +835,6 @@ pub fn select_account_interactive<'a>(
         return None;
     }
 
-    let table_str = build_accounts_table(accounts, lang).render();
-
     #[cfg(unix)]
     {
         if let Some(_raw) = RawTerminal::enter() {
@@ -671,32 +845,22 @@ pub fn select_account_interactive<'a>(
             let _ = stdout.flush();
 
             let prompt_text = match lang {
-                Lang::Zh => "? 请选择账号 (↑/↓ 移动  |  回车确认  |  数字键直选  |  Q 取消):",
-                Lang::En => "? Select account (↑/↓ Navigate  |  Enter Select  |  Numbers  |  Q Cancel):",
+                Lang::Zh => "? 请选择账号 (↑/↓ 移动  |  回车确认  |  数字键直选  |  0/Q 取消):",
+                Lang::En => "? Select account (↑/↓ Navigate  |  Enter Select  |  Numbers  |  0/Q Cancel):",
             };
 
             let render = |sel: usize, initial: bool| {
                 let mut out = io::stdout();
+                let table_str = build_accounts_table(accounts, lang, Some(sel)).render();
+                let table_lines = table_str.lines().count();
+                let total_lines = table_lines + 2;
+
                 if !initial {
-                    // 3 lines: prompt, selected line, empty line
-                    print!("\x1b[3A");
-                } else {
-                    print!("\x1b[2J\x1b[H");
-                    print!("{}", table_str);
+                    print!("\x1b[{}A", total_lines);
                 }
 
-                let cur = &accounts[sel];
-                let label = match &cur.custom_label {
-                    Some(l) if !l.trim().is_empty() => format!(" ({})", l),
-                    _ => String::new(),
-                };
-                let sel_indicator = match lang {
-                    Lang::Zh => format!("➤ 当前选中: [{}] {}{}", sel + 1, cur.email, label),
-                    Lang::En => format!("➤ Selected: [{}] {}{}", sel + 1, cur.email, label),
-                };
-
-                println!("\x1b[2K\r\x1b[1;37m{}\x1b[0m", prompt_text);
-                println!("\x1b[2K\r\x1b[1;36m{}\x1b[0m", sel_indicator);
+                print!("{}", table_str);
+                println!("\x1b[2K\r\x1b[1m{}\x1b[0m", prompt_text);
                 println!("\x1b[2K\r");
                 let _ = out.flush();
             };
@@ -728,15 +892,15 @@ pub fn select_account_interactive<'a>(
                             return Some(&accounts[idx]);
                         }
                     }
+                    KeyAction::Char('0') | KeyAction::Cancel => {
+                        print!("\x1b[?25h");
+                        let _ = stdout.flush();
+                        return None;
+                    }
                     KeyAction::Enter => {
                         print!("\x1b[?25h");
                         let _ = stdout.flush();
                         return Some(&accounts[selected]);
-                    }
-                    KeyAction::Cancel => {
-                        print!("\x1b[?25h");
-                        let _ = stdout.flush();
-                        return None;
                     }
                     _ => {}
                 }
@@ -744,6 +908,7 @@ pub fn select_account_interactive<'a>(
         }
     }
 
+    let table_str = build_accounts_table(accounts, lang, None).render();
     print!("{}", table_str);
     let prompt_msg = match lang {
         Lang::Zh => format!("请输入账号序号 [1-{}]: ", accounts.len()),
@@ -753,7 +918,8 @@ pub fn select_account_interactive<'a>(
     let _ = io::stdout().flush();
     let mut input = String::new();
     if io::stdin().read_line(&mut input).is_ok() {
-        if let Ok(num) = input.trim().parse::<usize>() {
+        let trimmed = input.trim();
+        if let Ok(num) = trimmed.parse::<usize>() {
             if num >= 1 && num <= accounts.len() {
                 return Some(&accounts[num - 1]);
             }
@@ -762,6 +928,7 @@ pub fn select_account_interactive<'a>(
     None
 }
 
+
 pub fn format_token_stats_human(
     summary: &crate::modules::native_token_stats::LocalTokenUsageSummary,
     lang: Lang,
@@ -769,8 +936,8 @@ pub fn format_token_stats_human(
     let mut out = String::new();
 
     let headers = match lang {
-        Lang::Zh => vec!["时间周期", "总计 Token", "输入 Token", "输出 Token", "缓存命中率", "请求次数"],
-        Lang::En => vec!["Period", "Total Tokens", "Input Tokens", "Output Tokens", "Cache Hit", "Requests"],
+        Lang::Zh => vec!["周期", "总计 Token", "输入", "输出", "缓存率", "预期费用"],
+        Lang::En => vec!["Period", "Total Tokens", "Input", "Output", "Cache Hit", "Est. Cost"],
     };
 
     let mut table = Table::new(headers);
@@ -780,8 +947,8 @@ pub fn format_token_stats_human(
 
     let periods = match lang {
         Lang::Zh => [
-            ("今日 (Today)", &summary.today),
-            ("昨日 (Yesterday)", &summary.yesterday),
+            ("今日", &summary.today),
+            ("昨日", &summary.yesterday),
             ("近 3 天", &summary.last_3_days),
             ("近 7 天", &summary.last_7_days),
             ("近 30 天", &summary.last_30_days),
@@ -795,20 +962,29 @@ pub fn format_token_stats_human(
         ],
     };
 
-    for (name, row) in periods {
+    for (i, (name, row)) in periods.iter().enumerate() {
         let total_in = row.input_tokens + row.cached_tokens;
         let hit_rate = if total_in > 0 {
             format!("{:.1}%", (row.cached_tokens as f64 / total_in as f64) * 100.0)
         } else {
             "0.0%".into()
         };
+
+        let cost = if i == 0 && !summary.by_model_today.is_empty() {
+            summary.by_model_today.iter().map(|m| {
+                estimate_model_cost(m.input_tokens, m.output_tokens, m.cached_tokens, &m.model)
+            }).sum()
+        } else {
+            estimate_model_cost(row.input_tokens, row.output_tokens, row.cached_tokens, "gemini-3.8-flash")
+        };
+
         table.add_row(vec![
             name.to_string(),
             format_number(row.total_tokens),
             format_number(row.input_tokens),
             format_number(row.output_tokens),
             hit_rate,
-            format_number(row.request_count),
+            format_cost(cost),
         ]);
     }
 
@@ -822,21 +998,22 @@ pub fn format_token_stats_human(
         out.push_str(title);
 
         let m_headers = match lang {
-            Lang::Zh => vec!["模型名称", "总计 Token", "输入 Token", "输出 Token", "缓存 Token", "请求次数"],
-            Lang::En => vec!["Model", "Total Tokens", "Input Tokens", "Output Tokens", "Cached Tokens", "Requests"],
+            Lang::Zh => vec!["模型", "总计 Token", "输入", "输出", "缓存", "预期费用"],
+            Lang::En => vec!["Model", "Total Tokens", "Input", "Output", "Cached", "Est. Cost"],
         };
         let mut m_table = Table::new(m_headers);
         for col in 1..=5 {
             m_table.set_align_right(col, true);
         }
         for m in &summary.by_model_today {
+            let cost = estimate_model_cost(m.input_tokens, m.output_tokens, m.cached_tokens, &m.model);
             m_table.add_row(vec![
                 m.model.clone(),
                 format_number(m.total_tokens),
                 format_number(m.input_tokens),
                 format_number(m.output_tokens),
                 format_number(m.cached_tokens),
-                format_number(m.request_count),
+                format_cost(cost),
             ]);
         }
         out.push_str(&m_table.render());
@@ -850,17 +1027,20 @@ pub fn format_token_stats_human(
         out.push_str(title);
 
         let m_headers = match lang {
-            Lang::Zh => vec!["模型名称", "总计 Token", "请求次数"],
-            Lang::En => vec!["Model", "Total Tokens", "Requests"],
+            Lang::Zh => vec!["模型", "总计 Token", "请求次数", "预期费用"],
+            Lang::En => vec!["Model", "Total Tokens", "Requests", "Est. Cost"],
         };
         let mut m_table = Table::new(m_headers);
         m_table.set_align_right(1, true);
         m_table.set_align_right(2, true);
+        m_table.set_align_right(3, true);
         for m in summary.by_model.iter().take(5) {
+            let cost = estimate_model_cost(m.input_tokens, m.output_tokens, m.cached_tokens, &m.model);
             m_table.add_row(vec![
                 m.model.clone(),
                 format_number(m.total_tokens),
                 format_number(m.request_count),
+                format_cost(cost),
             ]);
         }
         out.push_str(&m_table.render());
@@ -868,11 +1048,11 @@ pub fn format_token_stats_human(
 
     let footer = match lang {
         Lang::Zh => format!(
-            "\n\x1b[2m数据来源: 扫描 {} 个本地 SQLite 数据库 | 累计对话记录: {} 条\x1b[0m\n",
+            "\n数据来源: 扫描 {} 个本地 SQLite 数据库 | 累计对话记录: {} 条\n",
             summary.databases_scanned, summary.generations_scanned
         ),
         Lang::En => format!(
-            "\n\x1b[2mSource: Scanned {} local SQLite databases | Total records: {}\x1b[0m\n",
+            "\nSource: Scanned {} local SQLite databases | Total records: {}\n",
             summary.databases_scanned, summary.generations_scanned
         ),
     };
@@ -891,10 +1071,16 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
 
         // Clear screen and show minimal, professional header
         print!("\x1b[2J\x1b[H");
-        println!(
-            "\x1b[1;37mAntigravity Tools Lite\x1b[0m · \x1b[36magy-switch v{}\x1b[0m",
-            env!("CARGO_PKG_VERSION")
-        );
+        match lang {
+            Lang::Zh => println!(
+                "\x1b[1mAntigravity 账号管理\x1b[0m · \x1b[36magy-switch v{}\x1b[0m",
+                env!("CARGO_PKG_VERSION")
+            ),
+            Lang::En => println!(
+                "\x1b[1mAntigravity Tools Lite\x1b[0m · \x1b[36magy-switch v{}\x1b[0m",
+                env!("CARGO_PKG_VERSION")
+            ),
+        }
 
         if let Ok(curr) = snapshot.current() {
             let target = snapshot.current_target.as_deref().unwrap_or("app");
@@ -910,18 +1096,18 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
             };
             match lang {
                 Lang::Zh => println!(
-                    "\x1b[2m当前生效:\x1b[0m \x1b[1;32m{}{}\x1b[0m \x1b[2m[{}]\x1b[0m{}\n",
+                    "\x1b[1m当前生效:\x1b[0m \x1b[1;32m{}{}\x1b[0m [{}] {}\n",
                     curr.email, label, target, quota_part
                 ),
                 Lang::En => println!(
-                    "\x1b[2mActive:\x1b[0m \x1b[1;32m{}{}\x1b[0m \x1b[2m[{}]\x1b[0m{}\n",
+                    "\x1b[1mActive:\x1b[0m \x1b[1;32m{}{}\x1b[0m [{}] {}\n",
                     curr.email, label, target, quota_part
                 ),
             }
         } else {
             match lang {
-                Lang::Zh => println!("\x1b[2m当前生效:\x1b[0m \x1b[33m未设置 / 暂无账号\x1b[0m\n"),
-                Lang::En => println!("\x1b[2mActive:\x1b[0m \x1b[33mNone / No accounts\x1b[0m\n"),
+                Lang::Zh => println!("\x1b[1m当前生效:\x1b[0m \x1b[33m未设置 / 暂无账号\x1b[0m\n"),
+                Lang::En => println!("\x1b[1mActive:\x1b[0m \x1b[33mNone / No accounts\x1b[0m\n"),
             }
         }
 
@@ -929,12 +1115,12 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
             Lang::Zh => (
                 "选择功能:",
                 vec![
-                    "1. 切换账号      选择生效账号与同步目标 (APP / IDE)",
+                    "1. 切换账号      选择生效账号与同步目标 (桌面应用 / 独立环境)",
                     "2. 配额详情      查看各模型配额余量与重置倒计时",
-                    "3. 用量统计      本地 Token 消耗与模型分布统计",
+                    "3. 用量统计      本地 Token 消耗、预期费用与模型分布",
                     "4. 刷新配额      联网同步 Google API 最新额度",
-                    "5. 添加账号      通过 Google OAuth 授权添加新账号",
-                    "6. 账号管理      修改备注、切换启用状态或删除账号",
+                    "5. 添加账号      通过 Google OAuth 授权绑定新账号",
+                    "6. 账号管理      修改备注标签、切换启用状态或删除账号",
                     "7. 环境状态      关联应用与本地存储状态",
                     "0. 退出控制台    退出当前工具",
                 ],
@@ -942,9 +1128,9 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
             Lang::En => (
                 "Select Command:",
                 vec![
-                    "1. Switch        Switch active account and session target (APP / IDE)",
+                    "1. Switch        Switch active account and session target (App / IDE)",
                     "2. Quotas        View model quotas and reset countdowns",
-                    "3. Statistics    Inspect local token usage and model breakdown",
+                    "3. Statistics    Inspect local token usage, estimated cost & models",
                     "4. Refresh       Fetch live quotas from Google API",
                     "5. Add Account   Authorize new Google account via OAuth",
                     "6. Manage        Edit labels, toggle status, or remove accounts",
@@ -966,8 +1152,8 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
             Some(6) => show_system_status(&snapshot, root, lang),
             Some(7) | None => {
                 let exit_msg = match lang {
-                    Lang::Zh => "\n\x1b[2m已退出 agy-switch 控制台。\x1b[0m\n",
-                    Lang::En => "\n\x1b[2mExited agy-switch.\x1b[0m\n",
+                    Lang::Zh => "\n已退出 agy-switch 控制台。\n",
+                    Lang::En => "\nExited agy-switch.\n",
                 };
                 println!("{}", exit_msg);
                 break;
@@ -998,16 +1184,16 @@ fn show_account_switcher(_root: &Path, snapshot: &Snapshot, lang: Lang) {
         Lang::Zh => (
             "选择生效目标:",
             vec![
-                "1. AntiGravity APP 与 CLI (默认同步两端)",
-                "2. AntiGravity IDE (专属关联通道)",
+                "1. AntiGravity 桌面应用与命令行 (同步生效)",
+                "2. AntiGravity 独立环境 (专属通道)",
                 "0. 取消并返回",
             ],
         ),
         Lang::En => (
             "Select Target:",
             vec![
-                "1. AntiGravity APP & CLI (Default sync both)",
-                "2. AntiGravity IDE (Dedicated IDE channel)",
+                "1. Desktop App and CLI (Default sync)",
+                "2. Dedicated IDE Channel",
                 "0. Cancel",
             ],
         ),
@@ -1022,8 +1208,8 @@ fn show_account_switcher(_root: &Path, snapshot: &Snapshot, lang: Lang) {
     };
 
     let wait_msg = match lang {
-        Lang::Zh => "\n\x1b[2m正在执行账号切换并同步会话...\x1b[0m",
-        Lang::En => "\n\x1b[2mSwitching account and synchronizing session...\x1b[0m",
+        Lang::Zh => "\n正在执行账号切换并同步会话...",
+        Lang::En => "\nSwitching account and synchronizing session...",
     };
     println!("{}", wait_msg);
 
@@ -1048,17 +1234,18 @@ fn show_account_switcher(_root: &Path, snapshot: &Snapshot, lang: Lang) {
         Ok(_) => {
             let succ_msg = match lang {
                 Lang::Zh => format!(
-                    "\x1b[1;32m✓ 账号切换成功: {}\x1b[0m (目标: {})\n\x1b[2m提示: 请在终端开启新的 agy 命令以使用最新会话。\x1b[0m",
+                    "\x1b[1;32m✓ 账号切换成功: {}\x1b[0m (目标: {})\n提示: 请在终端开启新的 agy 命令以使用最新会话。\n",
                     selected.email,
                     target_ide.unwrap_or("app")
                 ),
                 Lang::En => format!(
-                    "\x1b[1;32m✓ Successfully switched to: {}\x1b[0m (target: {})\n\x1b[2mHint: Start a new agy command to use the updated session.\x1b[0m",
+                    "\x1b[1;32m✓ Successfully switched to: {}\x1b[0m (target: {})\nHint: Start a new agy command to use the updated session.\n",
                     selected.email,
                     target_ide.unwrap_or("app")
                 ),
             };
             println!("{}", succ_msg);
+
         }
         Err(err) => {
             let fail_msg = match lang {
@@ -1128,11 +1315,11 @@ fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
                     Lang::Zh => "全部账号配额总览",
                     Lang::En => "All Accounts Quota Overview",
                 };
-                println!("\x1b[1;37m{}\x1b[0m\n", header);
-                print!("{}", build_accounts_table(&snapshot.accounts, lang).render());
+                println!("\x1b[1m{}\x1b[0m\n", header);
+                print!("{}", build_accounts_table(&snapshot.accounts, lang, None).render());
                 let note = match lang {
-                    Lang::Zh => "\x1b[2m* 标注为当前生效账号\x1b[0m",
-                    Lang::En => "\x1b[2m* indicates active account\x1b[0m",
+                    Lang::Zh => "* 标注为当前生效账号",
+                    Lang::En => "* indicates active account",
                 };
                 println!("\n{}", note);
                 wait_for_key(lang);
@@ -1148,7 +1335,7 @@ fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
             Lang::Zh => format!("账号配额详情 · {}", acc.email),
             Lang::En => format!("Quota Details · {}", acc.email),
         };
-        println!("\x1b[1;37m{}\x1b[0m\n", title);
+        println!("\x1b[1m{}\x1b[0m\n", title);
 
         let status = if acc.disabled {
             match lang {
@@ -1162,8 +1349,8 @@ fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
             }
         } else if acc.is_current {
             match lang {
-                Lang::Zh => "\x1b[32m当前生效 · 正常\x1b[0m",
-                Lang::En => "\x1b[32mActive · Normal\x1b[0m",
+                Lang::Zh => "\x1b[32m当前生效\x1b[0m",
+                Lang::En => "\x1b[32mActive\x1b[0m",
             }
         } else {
             match lang {
@@ -1187,7 +1374,7 @@ fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
         let meta_rows = match lang {
             Lang::Zh => vec![
                 vec!["邮箱地址".into(), acc.email.clone()],
-                vec!["账号 ID".into(), acc.id.clone()],
+                vec!["账号标识".into(), acc.id.clone()],
                 vec!["备注标签".into(), label_str.into()],
                 vec!["当前状态".into(), status.into()],
                 vec!["订阅级别".into(), tier_str.into()],
@@ -1215,8 +1402,8 @@ fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
             }
 
             let q_headers = match lang {
-                Lang::Zh => vec!["模型 / 配额分组", "余量比例", "额度进度条", "重置倒计时"],
-                Lang::En => vec!["Model / Group", "Remaining", "Progress Bar", "Resets In"],
+                Lang::Zh => vec!["模型 / 分组", "余量", "进度", "重置倒计时"],
+                Lang::En => vec!["Model / Group", "Remaining", "Progress", "Resets In"],
             };
             let mut q_table = Table::new(q_headers);
             q_table.set_align_right(1, true);
@@ -1225,9 +1412,15 @@ fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
                 for g in groups {
                     for b in &g.buckets {
                         let pct = (b.remaining_fraction * 100.0).round() as i32;
-                        let bar = progress_bar(pct, 16);
+                        let bar = progress_bar(pct, 10);
                         let cd = format_countdown(&b.reset_time, lang);
-                        let name = format!("{} ({})", g.display_name, b.bucket_id);
+                        let name = if g.display_name.contains("Gemini") {
+                            format!("Gemini ({})", b.bucket_id)
+                        } else if g.display_name.contains("Claude") || g.display_name.contains("GPT") {
+                            format!("Claude/GPT ({})", b.bucket_id)
+                        } else {
+                            format!("{} ({})", g.display_name, b.bucket_id)
+                        };
                         q_table.add_row(vec![
                             name,
                             format!("{}%", pct),
@@ -1238,7 +1431,7 @@ fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
                 }
             } else if !q.models.is_empty() {
                 for m in &q.models {
-                    let bar = progress_bar(m.percentage, 16);
+                    let bar = progress_bar(m.percentage, 10);
                     let cd = format_countdown(&m.reset_time, lang);
                     q_table.add_row(vec![
                         m.name.clone(),
@@ -1265,14 +1458,14 @@ fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
 fn show_token_statistics(lang: Lang) {
     print!("\x1b[2J\x1b[H");
     let title = match lang {
-        Lang::Zh => "本地 Token 用量统计 (Local Token Statistics)",
-        Lang::En => "Local Token Statistics",
+        Lang::Zh => "本地 Token 用量与预期费用统计",
+        Lang::En => "Local Token Usage & Estimated Cost",
     };
-    println!("\x1b[1;37m{}\x1b[0m\n", title);
+    println!("\x1b[1m{}\x1b[0m\n", title);
 
     let wait_msg = match lang {
-        Lang::Zh => "\x1b[2m正在扫描本地 Antigravity 对话数据库...\x1b[0m\n",
-        Lang::En => "\x1b[2mScanning local Antigravity conversation databases...\x1b[0m\n",
+        Lang::Zh => "正在扫描本地 Antigravity 对话数据库...\n",
+        Lang::En => "Scanning local Antigravity conversation databases...\n",
     };
     println!("{}", wait_msg);
 
@@ -1878,11 +2071,12 @@ fn show_manage_accounts(snapshot: &Snapshot, lang: Lang) {
 fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
     print!("\x1b[2J\x1b[H");
     let title = match lang {
-        Lang::Zh => "关联应用与系统状态 (Linked Applications & Status)",
+        Lang::Zh => "关联应用与系统状态",
         Lang::En => "Linked Applications & System Status",
     };
-    println!("\x1b[1;37m{}\x1b[0m\n", title);
+    println!("\x1b[1m{}\x1b[0m\n", title);
 
+    let home = std::env::var("HOME").unwrap_or_default();
     let app_path = crate::modules::process::get_antigravity_executable_path(None);
     let app_running = crate::modules::process::is_antigravity_running(None);
     let ide_running = crate::modules::process::is_antigravity_running(Some("ide"));
@@ -1892,15 +2086,20 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
         Lang::En => "\x1b[32mRunning\x1b[0m",
     };
     let stopped_text = match lang {
-        Lang::Zh => "\x1b[2m未运行\x1b[0m",
-        Lang::En => "\x1b[2mStopped\x1b[0m",
+        Lang::Zh => "\x1b[90m未运行\x1b[0m",
+        Lang::En => "\x1b[90mStopped\x1b[0m",
     };
 
     let app_status = if app_running { running_text } else { stopped_text };
     let ide_status = if ide_running { running_text } else { stopped_text };
 
     let app_path_str = if let Some(p) = app_path {
-        p.display().to_string()
+        if !home.is_empty() && p.starts_with(&home) {
+            let rel = p.strip_prefix(&home).unwrap_or(&p);
+            format!("~/{}", rel.display())
+        } else {
+            p.display().to_string()
+        }
     } else {
         match lang {
             Lang::Zh => "未自动识别 (可在设置中手动指定)".into(),
@@ -1926,9 +2125,16 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
         }
     };
 
+    let display_root = if !home.is_empty() && root.starts_with(&home) {
+        let rel = root.strip_prefix(&home).unwrap_or(root);
+        format!("~/{}", rel.display())
+    } else {
+        root.display().to_string()
+    };
+
     let storage_status = match lang {
-        Lang::Zh => format!("{} (共 {} 个账号)", root.display(), snapshot.accounts.len()),
-        Lang::En => format!("{} ({} accounts)", root.display(), snapshot.accounts.len()),
+        Lang::Zh => format!("{} (共 {} 个账号)", display_root, snapshot.accounts.len()),
+        Lang::En => format!("{} ({} accounts)", display_root, snapshot.accounts.len()),
     };
 
     let headers = match lang {
@@ -1939,20 +2145,20 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
 
     let rows = match lang {
         Lang::Zh => vec![
-            vec!["AntiGravity Desktop APP".into(), app_status.into(), app_path_str],
-            vec!["AntiGravity IDE".into(), ide_status.into(), ide_details.into()],
-            vec!["本地数据存储 (Data Storage)".into(), "正常".into(), storage_status],
-            vec!["当前生效账号 (Active Account)".into(), "生效".into(), active_info],
+            vec!["AntiGravity 桌面应用".into(), app_status.into(), app_path_str],
+            vec!["AntiGravity 独立环境".into(), ide_status.into(), ide_details.into()],
+            vec!["本地数据存储".into(), "正常".into(), storage_status],
+            vec!["当前生效账号".into(), "生效".into(), active_info],
             vec![
-                "命令行工具 (CLI Binary)".into(),
+                "命令行工具".into(),
                 format!("v{}", env!("CARGO_PKG_VERSION")),
-                "agy-switch (兼容: agy-lite)".into(),
+                "agy-switch (兼容指令: agy-lite)".into(),
             ],
         ],
         Lang::En => vec![
-            vec!["AntiGravity Desktop APP".into(), app_status.into(), app_path_str],
-            vec!["AntiGravity IDE".into(), ide_status.into(), ide_details.into()],
-            vec!["Data Storage".into(), "Normal".into(), storage_status],
+            vec!["AntiGravity Desktop App".into(), app_status.into(), app_path_str],
+            vec!["AntiGravity IDE Channel".into(), ide_status.into(), ide_details.into()],
+            vec!["Local Data Storage".into(), "Normal".into(), storage_status],
             vec!["Active Account".into(), "Active".into(), active_info],
             vec![
                 "CLI Binary".into(),
