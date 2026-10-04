@@ -1,8 +1,10 @@
 export type AutoSwitchMode = 'wait' | 'stop';
 export type AutoSwitchTarget = 'app' | 'all' | 'app_cli' | 'ide' | 'vscode';
+export type AutoSwitchStrategy = 'round_robin' | 'priority';
 export interface AutoSwitchConfig {
     enabled: boolean;
     mode: AutoSwitchMode;
+    strategy?: AutoSwitchStrategy;
     reserve_percentage: number;
     candidate_min_percentage: number;
     monitored_model: string;

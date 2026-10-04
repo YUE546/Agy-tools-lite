@@ -295,7 +295,7 @@
     "candidate_min": "Minimum Backup Quota (%)",
     "candidate_hint": "Backup accounts must have 5-hour quota above this threshold to switch in (Free tier uses its own cycle)",
     "accounts": "Eligible Backup Accounts",
-    "accounts_hint": "Accounts rotate in selection order. Blocked and disabled accounts are excluded automatically.",
+    "accounts_hint": "Drag selected accounts to set their order. Disabled and blocked accounts are excluded.",
     "no_accounts": "Add accounts and refresh their quotas first.",
     "current": "Current",
     "safety_note": "Smart switching writes credentials safely after completion or pause. Multi-conversation states are preserved.",
@@ -347,7 +347,18 @@
       "ready": "Ready to switch shortly",
       "unsupported_client": "This client version does not support this safe switching mode",
       "state_unavailable": "Cannot read or save switch state; switching is paused"
-    }
+    },
+    "strategy_title": "Selection strategy",
+    "strategy_round_robin": "Round robin",
+    "strategy_round_robin_desc": "Start after the current account, following the candidate order.",
+    "strategy_priority": "Priority order",
+    "strategy_priority_desc": "Use the first eligible account in the candidate order.",
+    "reorder": "Reorder {{email}}",
+    "drag_instructions": "Press Space to pick up, arrow keys to move, Space to drop, or Escape to cancel.",
+    "drag_start": "Reordering {{email}}",
+    "drag_over": "Position: {{email}}",
+    "drag_end": "Order updated",
+    "drag_cancel": "Reordering canceled"
   },
   "model_display": {
     "title": "Model Quota Display",

@@ -5,6 +5,7 @@ import { Account } from '../../types/account';
 import { AutoSwitchConfig, AutoSwitchStatus, AutoSwitchTarget } from '../../types/autoSwitch';
 import * as service from '../../services/autoSwitchService';
 import { listAccounts, getCurrentAccount } from '../../services/accountService';
+import { CandidateAccounts } from './CandidateAccounts';
 import { isTauri } from '../../utils/env';
 
 const PRIMARY_BUTTON = 'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-blue-600 bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:border-slate-700 dark:disabled:bg-slate-800 dark:disabled:text-slate-500';
@@ -290,6 +291,14 @@ export function AutoSwitchSettings() {
                             ))}
                         </div>
 
+                        <div className="my-5 grid gap-3 md:grid-cols-2" role="group" aria-label={t('auto_switch.strategy_title')}>
+                            {(['priority', 'round_robin'] as const).map(strategy => (
+                                <label key={strategy} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${(draft.strategy || 'priority') === strategy ? 'border-blue-400 bg-blue-50/60 dark:bg-blue-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+                                    <input type="radio" name="auto-switch-strategy" checked={(draft.strategy || 'priority') === strategy} disabled={busy} onChange={() => patchAndSave({ strategy })} className="mt-0.5 h-4 w-4 accent-blue-600" />
+                                    <span><span className="block text-sm font-medium">{t(`auto_switch.strategy_${strategy}`)}</span><span className="mt-1 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">{t(`auto_switch.strategy_${strategy}_desc`)}</span></span>
+                                </label>
+                            ))}
+                        </div>
                         <div className="my-5 grid gap-4 sm:grid-cols-2">
                             <div className="space-y-1.5">
                                 <label htmlFor="auto-switch-target" className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
@@ -400,36 +409,7 @@ export function AutoSwitchSettings() {
                             <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">{t('auto_switch.accounts_hint')}</p>
                             {noAccountsError && <p className="mb-2 text-xs font-medium text-red-500 dark:text-red-400">{t('auto_switch.no_candidate_error')}</p>}
                             {!eligibleAccounts.length && <p className="text-xs text-amber-700 dark:text-amber-400">{t('auto_switch.no_accounts')}</p>}
-                            <div className="grid max-h-52 gap-2 overflow-y-auto sm:grid-cols-2">
-                                {eligibleAccounts.map(a => (
-                                    <label
-                                        key={a.id}
-                                        className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm transition hover:bg-slate-50/60 dark:border-slate-700 dark:hover:bg-slate-800/40"
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            className="mt-0.5 h-4 w-4 shrink-0 rounded accent-blue-600"
-                                            disabled={busy}
-                                            checked={draft.candidate_account_ids.includes(a.id)}
-                                            onChange={e =>
-                                                patchAndSave({
-                                                    candidate_account_ids: e.target.checked
-                                                        ? [...draft.candidate_account_ids, a.id]
-                                                        : draft.candidate_account_ids.filter(id => id !== a.id),
-                                                })
-                                            }
-                                        />
-                                        <span className="min-w-0 break-all text-xs font-medium text-slate-700 dark:text-slate-200">
-                                            {a.email}
-                                            {a.id === currentId && (
-                                                <span className="ml-2 inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
-                                                    {t('auto_switch.current')}
-                                                </span>
-                                            )}
-                                        </span>
-                                    </label>
-                                ))}
-                            </div>
+                            <CandidateAccounts accounts={eligibleAccounts} selected={draft.candidate_account_ids} currentId={currentId} disabled={busy} onChange={candidate_account_ids => patchAndSave({ candidate_account_ids })} />
                         </fieldset>
                     </section>
 

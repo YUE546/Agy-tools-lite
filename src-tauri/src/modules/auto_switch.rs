@@ -21,6 +21,13 @@ pub enum Mode {
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum Strategy {
+    RoundRobin,
+    #[default]
+    Priority,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Target {
     #[default]
     #[serde(alias = "all")]
@@ -46,6 +53,7 @@ impl Target {
 pub struct Config {
     pub enabled: bool,
     pub mode: Mode,
+    pub strategy: Strategy,
     pub reserve_percentage: u8,
     pub candidate_min_percentage: u8,
     pub monitored_model: String,
@@ -57,6 +65,7 @@ impl Default for Config {
         Self {
             enabled: false,
             mode: Mode::Wait,
+            strategy: Strategy::Priority,
             reserve_percentage: 10,
             candidate_min_percentage: 30,
             monitored_model: "all".into(),
@@ -1094,26 +1103,41 @@ async fn evaluate_core<E: Environment>(
         }
     }
     let mut candidate = None;
-    for id in &config.candidate_account_ids {
-        if id == &source_id {
-            continue;
-        }
-        if let Ok(a) = refresh(runtime, &environment, id, force).await {
-            if account_remaining(&a, &config.monitored_model, now)
-                .is_ok_and(|p| p >= config.candidate_min_percentage as f64)
-            {
-                candidate = Some(a);
-                break;
+    let candidate_ids = &config.candidate_account_ids;
+    let len = candidate_ids.len();
+    if len > 0 {
+        let start_idx = match config.strategy {
+            Strategy::RoundRobin => candidate_ids
+                .iter()
+                .position(|id| id == &source_id)
+                .map(|idx| (idx + 1) % len)
+                .unwrap_or(0),
+            Strategy::Priority => 0,
+        };
+
+        for step in 0..len {
+            let idx = (start_idx + step) % len;
+            let id = &candidate_ids[idx];
+            if id == &source_id {
+                continue;
             }
-        }
-        if runtime
-            .data
-            .lock()
-            .map_err(|_| "State unavailable")?
-            .revision
-            != revision
-        {
-            return Ok(false);
+            if let Ok(a) = refresh(runtime, &environment, id, force).await {
+                if account_remaining(&a, &config.monitored_model, now)
+                    .is_ok_and(|p| p >= config.candidate_min_percentage as f64)
+                {
+                    candidate = Some(a);
+                    break;
+                }
+            }
+            if runtime
+                .data
+                .lock()
+                .map_err(|_| "State unavailable")?
+                .revision
+                != revision
+            {
+                return Ok(false);
+            }
         }
     }
     let Some(candidate) = candidate else {
@@ -1453,6 +1477,7 @@ mod tests {
     #[test]
     fn opt_in_and_config_validation() {
         assert!(!Config::default().enabled);
+        assert_eq!(serde_json::from_str::<Config>("{}").unwrap().strategy, Strategy::Priority);
         assert!(!serde_json::from_str::<Config>("{}").unwrap().enabled);
         let mut c = Config::default();
         c.enabled = true;
@@ -1937,6 +1962,33 @@ mod tests {
                 assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
                 assert_eq!(env.writes.load(SeqCst), 1);
             }
+            // Exercise production selection, including wraparound, configured priority,
+            // an absent source, disabled candidates, and forbidden candidates.
+            for (strategy, source, unavailable, expected) in [
+                (Strategy::RoundRobin, "A", None, "B"),
+                (Strategy::RoundRobin, "B", None, "C"),
+                (Strategy::RoundRobin, "C", None, "A"),
+                (Strategy::Priority, "B", None, "A"),
+                (Strategy::RoundRobin, "X", None, "A"),
+                (Strategy::RoundRobin, "A", Some("disabled"), "C"),
+                (Strategy::Priority, "C", Some("forbidden"), "B"),
+            ] {
+                let r = fixture_setup(Mode::Wait);
+                for id in ["A", "B", "C", "X"] {
+                    let mut a = account_fixture(id, 0.8, 0.8);
+                    if id == source { a.quota = Some(quota(0.08, 0.08)); }
+                    if id == "B" && unavailable == Some("disabled") { a.disabled = true; }
+                    if id == "A" && unavailable == Some("forbidden") { a.quota.as_mut().unwrap().is_forbidden = true; }
+                    account::save_account(&a).unwrap();
+                }
+                account::set_current_account_id(source).unwrap();
+                { let mut d = r.data.lock().unwrap(); d.config.strategy = strategy; d.config.candidate_account_ids = vec!["A".into(), "B".into(), "C".into()]; }
+                let env = FixtureEnvironment::default();
+                env.process.store(2, SeqCst); // Inspect selection without mutating native credentials.
+                assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+                assert_eq!(r.data.lock().unwrap().status.target_account_id.as_deref(), Some(expected));
+                assert_eq!(env.writes.load(SeqCst), 0);
+            }
             // The shared switch core preserves newer quota/disable metadata.
             fixture_setup(Mode::Wait);
             account::switch_merge_fixture_check();
@@ -2080,4 +2132,5 @@ mod tests {
             );
         });
     }
+
 }
