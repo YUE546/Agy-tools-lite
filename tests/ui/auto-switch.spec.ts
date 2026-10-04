@@ -40,12 +40,12 @@ test.beforeEach(async ({ page }) => {
         localStorage.setItem('i18nextLng', 'zh');
     });
     await page.goto('/settings');
-    await page.getByRole('tab', { name: '智能换号策略', exact: true }).click();
-    await expect(page.getByRole('tabpanel', { name: '智能换号策略', exact: true })).toBeVisible();
+    await page.getByRole('tab', { name: '智能切换策略', exact: true }).click();
+    await expect(page.getByRole('tabpanel', { name: '智能切换策略', exact: true })).toBeVisible();
 });
 
 async function enable(page: any, stop = false) {
-    if (!await page.getByLabel('启用智能换号策略').isChecked()) await page.getByText('启用智能换号策略', { exact: true }).click();
+    if (!await page.getByLabel('启用智能切换策略').isChecked()) await page.getByText('启用智能切换策略', { exact: true }).click();
     await expect(page.getByText('已自动保存', { exact: true })).toBeVisible();
     await page.getByLabel('监测模型', { exact: true }).selectOption('gemini');
     await page.getByLabel('backup@example.invalid', { exact: true }).check();
@@ -55,7 +55,7 @@ async function enable(page: any, stop = false) {
 }
 
 test('default off, explicit configuration, real command contract, cancellation', async ({ page }, testInfo) => {
-    await expect(page.getByLabel('启用智能换号策略')).not.toBeChecked();
+    await expect(page.getByLabel('启用智能切换策略')).not.toBeChecked();
     await expect(page.getByRole('button', { name: '保存设置', exact: true })).toHaveCount(0);
     await enable(page);
     await expect(page.getByText('当前账号剩余 8%').first()).toBeVisible();

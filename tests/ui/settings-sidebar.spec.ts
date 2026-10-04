@@ -6,8 +6,8 @@ test.beforeEach(async ({ page }, info) => {
   await page.goto('/settings'); await expect(page.getByRole('tab', { name: '常规偏好', exact: true })).toHaveAttribute('aria-selected', 'true');
 });
 test('three retained panels preserve fields and localization is absent', async ({ page }) => {
-  expect(await page.getByRole('tab').allTextContents()).toEqual(['常规偏好', '配额与模型', '智能换号策略']);
-  for (const name of ['配额与模型', '智能换号策略', '常规偏好']) {
+  expect(await page.getByRole('tab').allTextContents()).toEqual(['常规偏好', '配额与模型', '智能切换策略']);
+  for (const name of ['配额与模型', '智能切换策略', '常规偏好']) {
     await page.getByRole('tab', { name, exact: true }).click(); await expect(page.getByRole('tabpanel')).toHaveCount(1); await expect(page.getByRole('tabpanel', { name, exact: true })).toBeVisible();
   }
   await expect(page.getByText('/synthetic/antigravity-tools', { exact: true })).toBeVisible();

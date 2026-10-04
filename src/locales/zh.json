@@ -253,9 +253,9 @@
     "forbidden": "账号被拒绝（403）"
   },
   "auto_switch": {
-    "title": "智能换号策略",
+    "title": "智能切换策略",
     "description": "当活跃账号额度触碰预留红线时，智能选择额度充足的备用账号并自动完成无缝轮换。",
-    "enable": "启用智能换号策略",
+    "enable": "启用智能切换策略",
     "mode": "换号时机",
     "mode_wait": "任务完成后换号",
     "mode_stop": "到达阈值自动暂停换号",
@@ -370,7 +370,7 @@
     "general_description": "管理界面主题、显示语言、开机启动与本地执行环境路径。",
     "quota": "配额与模型",
     "quota_description": "自定义卡片与列表中要监控展示的模型，并管理后台定时刷新与状态同步频率。",
-    "auto_switch": "智能换号策略",
+    "auto_switch": "智能切换策略",
     "auto_switch_description": "配置低额度自动轮换引擎、配额保护阈值与账号切换规则。",
     "appearance_and_language": "界面外观与语言",
     "appearance_and_language_desc": "自定义应用的主题色彩偏好与多语言界面展示。",
