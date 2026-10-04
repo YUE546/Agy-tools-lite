@@ -118,7 +118,9 @@ async fn fetch_page(client: &reqwest::Client, url: &str) -> Result<String, Strin
 }
 
 fn cache_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".antigravity_tools").join("api_pricing.json"))
+    let root = std::env::var_os("ABV_DATA_DIR").filter(|path| !path.to_string_lossy().trim().is_empty()).map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".antigravity_tools")))?;
+    Some(root.join("api_pricing.json"))
 }
 
 pub fn cached_pricing() -> Option<ApiPricingSnapshot> {

@@ -61,7 +61,7 @@ fn normalized(model: &str) -> String {
     model.strip_suffix("-n").unwrap_or(&model).chars().filter(|c| c.is_ascii_alphanumeric()).collect()
 }
 
-fn estimate(models: &[LocalTokenModel], prices: &[ApiPricing]) -> (Option<f64>, usize) {
+pub(crate) fn estimate(models: &[LocalTokenModel], prices: &[ApiPricing]) -> (Option<f64>, usize) {
     let mut usd = 0.0;
     let mut priced = 0;
     let mut unpriced = 0;

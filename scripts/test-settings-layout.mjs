@@ -43,6 +43,7 @@ const Settings = compile('../src/pages/Settings.tsx', {
     '../stores/useConfigStore': { useConfigStore: () => settingsStore },
     '../utils/request': { request: async command => { calls.push(command); return '/synthetic/data'; } },
     '../components/common/ToastContainer': { showToast() {} }, '@tauri-apps/plugin-dialog': { open: async () => null },
+    '../components/settings/UpdateSettings': { default: 'UpdateSettings' },
     '../components/settings/DesktopSettings': { default: 'DesktopSettings' },
     '../components/settings/ModelDisplaySettings': { default: 'ModelDisplaySettings' },
     '../components/autoSwitch/AutoSwitch': { AutoSwitchSettings: 'AutoSwitchSettings' },

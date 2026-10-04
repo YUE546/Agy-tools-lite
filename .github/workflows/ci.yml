@@ -48,7 +48,7 @@ jobs:
         run: npm run build
 
       - name: Test menu-bar quota presentation
-        run: node scripts/test-menubar-logic.mjs && node scripts/test-menubar-overview.mjs && node scripts/test-account-dashboard.mjs
+        run: node scripts/test-menubar-logic.mjs && node scripts/test-menubar-overview.mjs && node scripts/test-account-dashboard.mjs && node scripts/test-model-pricing.mjs
 
       - name: Test settings category component contracts
         run: node scripts/test-settings-layout.mjs
@@ -93,6 +93,9 @@ jobs:
 
       - name: Test App identity and metadata guards
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib app_
+
+      - name: Test public release metadata guards
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib modules::updater::tests
 
       - name: Test serialized desktop preferences
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib modules::config::tests

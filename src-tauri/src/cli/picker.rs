@@ -510,40 +510,24 @@ pub(crate) fn progress_bar(percentage: i32, width: usize) -> String {
     format!("{}{}", filled_part, empty_part)
 }
 
-pub fn estimate_model_cost(input: u64, output: u64, cached: u64, model: &str) -> f64 {
-    let m = model.to_lowercase();
-    let (in_p, out_p, cache_p) = if m.contains("sonnet") || m.contains("claude") || m.contains("opus") {
-        (3.0, 15.0, 0.3)
-    } else if m.contains("flash") && m.contains("image") {
-        (0.5, 60.0, 0.0)
-    } else if m.contains("3.8-flash") || m.contains("3.8") {
-        (0.75, 3.75, 0.075)
-    } else if m.contains("3.1-pro") || m.contains("pro") {
-        (2.0, 12.0, 0.2)
-    } else if m.contains("3.5-flash") {
-        (1.5, 9.0, 0.15)
-    } else if m.contains("flash-lite") {
-        (0.1, 0.4, 0.01)
-    } else if m.contains("flash") {
-        (0.5, 3.0, 0.05)
-    } else {
-        (0.75, 3.75, 0.075)
-    };
-    (input as f64 * in_p + output as f64 * out_p + cached as f64 * cache_p) / 1_000_000.0
+fn estimate_model_cost(input: u64, output: u64, cached: u64, model: &str) -> Option<f64> {
+    let entry = crate::modules::native_token_stats::LocalTokenModel { model: model.into(), input_tokens: input, output_tokens: output, cached_tokens: cached, total_tokens: input + output + cached, request_count: 0 };
+    estimate_cost(&[entry]).0
 }
-
-pub fn format_cost(usd: f64) -> String {
-    if usd >= 1000.0 {
-        format!("${:.2}k", usd / 1000.0)
-    } else if usd >= 100.0 {
-        format!("${:.1}", usd)
-    } else if usd >= 1.0 {
-        format!("${:.2}", usd)
-    } else if usd > 0.001 {
-        format!("${:.3}", usd)
-    } else {
-        "$0.00".to_string()
-    }
+fn estimate_cost(models: &[crate::modules::native_token_stats::LocalTokenModel]) -> (Option<f64>, usize) {
+    let pricing = crate::modules::api_pricing::cached_pricing();
+    crate::modules::menu_bar_usage::estimate(models, pricing.as_ref().map(|p| p.prices.as_slice()).unwrap_or_default())
+}
+fn period_cost(summary: &crate::modules::native_token_stats::LocalTokenUsageSummary, period: usize, total: u64, lang: Lang) -> String {
+    let models = match period { 0 => &summary.by_model_today, 1 => &summary.by_model_yesterday, 2 => &summary.by_model_3_days, 3 => &summary.by_model_7_days, _ => &summary.by_model };
+    if models.is_empty() && total > 0 { return format_cost(None, lang); }
+    let (cost, missing) = estimate_cost(models);
+    let value = format_cost(cost, lang);
+    if cost.is_some() && missing > 0 { match lang { Lang::Zh => format!("{}（部分）", value), Lang::En => format!("{} (partial)", value) } } else { value }
+}
+fn format_cost(usd: Option<f64>, lang: Lang) -> String {
+    let Some(usd) = usd else { return match lang { Lang::Zh => "未计价".into(), Lang::En => "Unpriced".into() }; };
+    if usd == 0.0 { "$0.00".into() } else if usd < 0.01 { format!("${:.4}", usd) } else { format!("${:.2}", usd) }
 }
 
 fn open_browser(url: &str) {
@@ -679,6 +663,9 @@ pub enum PromptResult {
 }
 
 pub fn prompt_line_with_cancel(prompt: &str, max_chars: usize) -> PromptResult {
+    prompt_input(prompt, max_chars, false)
+}
+fn prompt_input(prompt: &str, max_chars: usize, secret: bool) -> PromptResult {
     print!("{}", prompt);
     let _ = io::stdout().flush();
 
@@ -733,7 +720,7 @@ pub fn prompt_line_with_cancel(prompt: &str, max_chars: usize) -> PromptResult {
                     }
                     b'\x08' | 127 => {
                         if let Some(c) = buffer.pop() {
-                            let w = display_width(&c.to_string());
+                            let w = if secret { 1 } else { display_width(&c.to_string()) };
                             if w > 0 {
                                 let _ = write!(stdout, "\x1b[{}D\x1b[K", w);
                                 let _ = stdout.flush();
@@ -779,7 +766,7 @@ pub fn prompt_line_with_cancel(prompt: &str, max_chars: usize) -> PromptResult {
                                 if let Some(c) = s.chars().next() {
                                     if max_chars == 0 || buffer.chars().count() < max_chars {
                                         buffer.push(c);
-                                        let _ = write!(stdout, "{}", c);
+                                        let _ = write!(stdout, "{}", if secret { '*' } else { c });
                                         let _ = stdout.flush();
                                     }
                                 }
@@ -791,6 +778,8 @@ pub fn prompt_line_with_cancel(prompt: &str, max_chars: usize) -> PromptResult {
         }
     }
 
+    // Refuse credential entry if a terminal with echo disabled is unavailable.
+    if secret { return PromptResult::Cancelled; }
     let mut line = String::new();
     if io::stdin().read_line(&mut line).is_ok() {
         PromptResult::Confirmed(line.trim().to_string())
@@ -1015,8 +1004,8 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
                             }
                         }
                         None => match lang {
-                            Lang::Zh => "5小时: 100%".to_string(),
-                            Lang::En => "5-Hour: 100%".to_string(),
+                            Lang::Zh => "5小时: 未知".to_string(),
+                            Lang::En => "5-Hour: Unknown".to_string(),
                         },
                     };
 
@@ -1035,8 +1024,8 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
                             }
                         }
                         None => match lang {
-                            Lang::Zh => "周限:  100%".to_string(),
-                            Lang::En => "Weekly: 100%".to_string(),
+                            Lang::Zh => "周限:  未知".to_string(),
+                            Lang::En => "Weekly: Unknown".to_string(),
                         },
                     };
 
@@ -1217,7 +1206,7 @@ pub fn format_token_stats_human(
     let mut out = String::new();
 
     let headers = match lang {
-        Lang::Zh => vec!["周期", "总计 Token", "输入", "输出", "缓存率", "预期费用"],
+        Lang::Zh => vec!["周期", "总计 Token", "输入", "输出", "缓存率", "预估费用"],
         Lang::En => vec!["Period", "Total Tokens", "Input", "Output", "Cache Hit", "Est. Cost"],
     };
 
@@ -1251,13 +1240,7 @@ pub fn format_token_stats_human(
             "0.0%".into()
         };
 
-        let cost = if i == 0 && !summary.by_model_today.is_empty() {
-            summary.by_model_today.iter().map(|m| {
-                estimate_model_cost(m.input_tokens, m.output_tokens, m.cached_tokens, &m.model)
-            }).sum()
-        } else {
-            estimate_model_cost(row.input_tokens, row.output_tokens, row.cached_tokens, "gemini-3.8-flash")
-        };
+        let cost = period_cost(&summary, i, row.total_tokens, lang);
 
         table.add_row(vec![
             name.to_string(),
@@ -1265,7 +1248,7 @@ pub fn format_token_stats_human(
             format_number(row.input_tokens),
             format_number(row.output_tokens),
             hit_rate,
-            format_cost(cost),
+            cost,
         ]);
     }
 
@@ -1294,7 +1277,7 @@ pub fn format_token_stats_human(
                 format_number(m.input_tokens),
                 format_number(m.output_tokens),
                 format_number(m.cached_tokens),
-                format_cost(cost),
+                format_cost(cost, lang),
             ]);
         }
         out.push_str(&m_table.render());
@@ -1321,7 +1304,7 @@ pub fn format_token_stats_human(
                 m.model.clone(),
                 format_number(m.total_tokens),
                 format_number(m.request_count),
-                format_cost(cost),
+                format_cost(cost, lang),
             ]);
         }
         out.push_str(&m_table.render());
@@ -1380,18 +1363,18 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
             };
             match lang {
                 Lang::Zh => println!(
-                    "\x1b[1m当前生效:\x1b[0m \x1b[1;32m{}{}\x1b[0m [{}] {}\n",
+                    "\x1b[1m当前选择:\x1b[0m \x1b[1;32m{}{}\x1b[0m [{}] {}\n",
                     curr.email, label, target, quota_part
                 ),
                 Lang::En => println!(
-                    "\x1b[1mActive:\x1b[0m \x1b[1;32m{}{}\x1b[0m [{}] {}\n",
+                    "\x1b[1mSelected:\x1b[0m \x1b[1;32m{}{}\x1b[0m [{}] {}\n",
                     curr.email, label, target, quota_part
                 ),
             }
         } else {
             match lang {
-                Lang::Zh => println!("\x1b[1m当前生效:\x1b[0m \x1b[33m未设置 / 暂无账号\x1b[0m\n"),
-                Lang::En => println!("\x1b[1mActive:\x1b[0m \x1b[33mNone / No accounts\x1b[0m\n"),
+                Lang::Zh => println!("\x1b[1m当前选择:\x1b[0m \x1b[33m未设置 / 暂无账号\x1b[0m\n"),
+                Lang::En => println!("\x1b[1mSelected:\x1b[0m \x1b[33mNone / No accounts\x1b[0m\n"),
             }
         }
 
@@ -1408,7 +1391,7 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
                 ],
             ),
             Lang::En => (
-                "Select Command:",
+                "Select a section:",
                 vec![
                     "1. Accounts & Quotas   Switch active account, inspect model quotas, edit labels & manage",
                     "2. Statistics          Local token usage, estimated cost & model rankings",
@@ -1623,6 +1606,7 @@ fn show_accounts_and_quotas_hub(root: &Path, lang: Lang) {
                 let runtime = match tokio::runtime::Runtime::new() {
                     Ok(rt) => rt,
                     Err(e) => {
+                        let _ = e;
                         let err_msg = match lang {
                             Lang::Zh => format!("\x1b[31m启动异步运行时失败: {}\x1b[0m", e),
                             Lang::En => format!("\x1b[31mFailed to start async runtime: {}\x1b[0m", e),
@@ -1943,6 +1927,7 @@ fn show_token_statistics(lang: Lang) {
     let summary = match crate::modules::native_token_stats::get_local_token_usage() {
         Ok(s) => s,
         Err(e) => {
+            let _ = e;
             let err_msg = match lang {
                 Lang::Zh => format!("\x1b[31m读取本地 Token 统计失败: {}\x1b[0m", e),
                 Lang::En => format!("\x1b[31mFailed to read token statistics: {}\x1b[0m", e),
@@ -1995,20 +1980,14 @@ fn show_token_statistics(lang: Lang) {
                 } else {
                     "0.0%".into()
                 };
-                let cost = if i == 0 && !summary.by_model_today.is_empty() {
-                    summary.by_model_today.iter().map(|m| {
-                        estimate_model_cost(m.input_tokens, m.output_tokens, m.cached_tokens, &m.model)
-                    }).sum()
-                } else {
-                    estimate_model_cost(row.input_tokens, row.output_tokens, row.cached_tokens, "gemini-3.8-flash")
-                };
+                let cost = period_cost(&summary, i, row.total_tokens, lang);
                 table.add_row(vec![
                     name.to_string(),
                     format_number(row.total_tokens),
                     format_number(row.input_tokens),
                     format_number(row.output_tokens),
                     hit_rate,
-                    format_cost(cost),
+                    cost,
                 ]);
             }
             print!("{}", table.render());
@@ -2037,7 +2016,7 @@ fn show_token_statistics(lang: Lang) {
                         m.model.clone(),
                         format_number(m.total_tokens),
                         format_number(m.request_count),
-                        format_cost(cost),
+                        format_cost(cost, lang),
                     ]);
                 }
                 print!("{}", m_table.render());
@@ -2091,7 +2070,7 @@ fn show_token_statistics(lang: Lang) {
                         format_number(m.input_tokens),
                         format_number(m.output_tokens),
                         format_number(m.cached_tokens),
-                        format_cost(cost),
+                        format_cost(cost, lang),
                     ]);
                 }
                 print!("{}", m_table.render());
@@ -2148,7 +2127,8 @@ fn show_refresh_quotas(root: &Path, lang: Lang) {
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
-            println!("\x1b[31mRuntime error: {}\x1b[0m", e);
+            let _ = e;
+            println!("{}", match lang { Lang::Zh => "无法启动登录服务", Lang::En => "Could not start the sign-in service" });
             wait_for_key(lang);
             return;
         }
@@ -2273,6 +2253,7 @@ fn show_refresh_quotas(root: &Path, lang: Lang) {
                     print!("{}", q_table.render());
                 }
                 Err(e) => {
+                    let _ = e;
                     let fail_msg = match lang {
                         Lang::Zh => format!("\x1b[31m刷新失败: {}\x1b[0m", e),
                         Lang::En => format!("\x1b[31mRefresh failed: {}\x1b[0m", e),
@@ -2313,6 +2294,7 @@ fn show_refresh_quotas(root: &Path, lang: Lang) {
                     }
                 }
                 Err(e) => {
+                    let _ = e;
                     let fail_msg = match lang {
                         Lang::Zh => format!("\x1b[31m批量刷新失败: {}\x1b[0m", e),
                         Lang::En => format!("\x1b[31mBatch refresh failed: {}\x1b[0m", e),
@@ -2388,6 +2370,7 @@ fn show_refresh_quotas(root: &Path, lang: Lang) {
                     print!("{}", q_table.render());
                 }
                 Err(e) => {
+                    let _ = e;
                     let fail_msg = match lang {
                         Lang::Zh => format!("\x1b[31m刷新失败: {}\x1b[0m", e),
                         Lang::En => format!("\x1b[31mRefresh failed: {}\x1b[0m", e),
@@ -2426,7 +2409,7 @@ fn show_add_account(_root: &Path, lang: Lang) {
                 "选择添加方式:",
                 vec![
                     "1. 浏览器一键授权 (Google OAuth 自动登录)",
-                    "2. 手动输入 Refresh Token",
+                    "2. 手动输入刷新凭据",
                     "0. 返回主菜单",
                 ],
             ),
@@ -2460,9 +2443,10 @@ fn show_add_account(_root: &Path, lang: Lang) {
             let auth_url = match runtime.block_on(crate::modules::oauth_server::prepare_oauth_url(None, None)) {
                 Ok(url) => url,
                 Err(e) => {
+                    let _ = e;
                     let err_msg = match lang {
-                        Lang::Zh => format!("\x1b[31m准备授权服务失败: {}\x1b[0m", e),
-                        Lang::En => format!("\x1b[31mFailed to prepare authorization: {}\x1b[0m", e),
+                        Lang::Zh => "\x1b[31m无法启动授权服务，请检查网络后重试。\x1b[0m".to_string(),
+                        Lang::En => "\x1b[31mCould not start authorization. Check your connection and try again.\x1b[0m".to_string(),
                     };
                     println!("{}", err_msg);
                     wait_for_key(lang);
@@ -2486,9 +2470,10 @@ fn show_add_account(_root: &Path, lang: Lang) {
             let token_res = match runtime.block_on(crate::modules::oauth_server::complete_oauth_flow(None)) {
                 Ok(t) => t,
                 Err(e) => {
+                    let _ = e;
                     let fail_msg = match lang {
-                        Lang::Zh => format!("\x1b[31m授权流程失败: {}\x1b[0m", e),
-                        Lang::En => format!("\x1b[31mAuthorization failed: {}\x1b[0m", e),
+                        Lang::Zh => "\x1b[31m授权未完成，请重新发起登录。\x1b[0m".to_string(),
+                        Lang::En => "\x1b[31mAuthorization did not complete. Start sign-in again.\x1b[0m".to_string(),
                     };
                     println!("{}", fail_msg);
                     wait_for_key(lang);
@@ -2543,9 +2528,10 @@ fn show_add_account(_root: &Path, lang: Lang) {
                     println!("{}", succ_msg);
                 }
                 Err(e) => {
+                    let _ = e;
                     let fail_msg = match lang {
-                        Lang::Zh => format!("\x1b[31m添加账号失败: {}\x1b[0m", e),
-                        Lang::En => format!("\x1b[31mFailed to add account: {}\x1b[0m", e),
+                        Lang::Zh => "\x1b[31m无法添加账号，请检查授权和网络后重试。\x1b[0m".to_string(),
+                        Lang::En => "\x1b[31mCould not add the account. Check authorization and your connection.\x1b[0m".to_string(),
                     };
                     println!("{}", fail_msg);
                 }
@@ -2570,7 +2556,7 @@ fn show_add_account(_root: &Path, lang: Lang) {
                 Lang::Zh => "请输入 Google Refresh Token: ",
                 Lang::En => "Enter Google Refresh Token: ",
             };
-            let refresh_token = match prompt_line_with_cancel(prompt_text, 0) {
+            let refresh_token = match prompt_input(prompt_text, 0, true) {
                 PromptResult::Confirmed(token) => token,
                 PromptResult::Cancelled => {
                     continue;
@@ -2621,9 +2607,10 @@ fn show_add_account(_root: &Path, lang: Lang) {
                     println!("{}", succ_msg);
                 }
                 Err(e) => {
+                    let _ = e;
                     let fail_msg = match lang {
-                        Lang::Zh => format!("\x1b[31m导入失败: {}\x1b[0m", e),
-                        Lang::En => format!("\x1b[31mImport failed: {}\x1b[0m", e),
+                        Lang::Zh => "\x1b[31m无法验证凭据，请检查凭据和网络后重试。\x1b[0m".to_string(),
+                        Lang::En => "\x1b[31mCould not verify the credentials. Check them and your connection.\x1b[0m".to_string(),
                     };
                     println!("{}", fail_msg);
                 }
@@ -2742,4 +2729,26 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
     print!("{}", table.render());
 
     wait_for_key(lang);
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::*;
+    #[test]
+    fn unpriced_costs_are_localized_and_never_reported_as_free() {
+        assert_eq!(format_cost(None, Lang::Zh), "未计价");
+        assert_eq!(format_cost(None, Lang::En), "Unpriced");
+        assert_eq!(format_cost(Some(0.0), Lang::En), "$0.00");
+        assert_eq!(format_cost(Some(0.003), Lang::En), "$0.0030");
+    }
+    #[test]
+    fn absent_quota_windows_are_unknown_in_both_languages() {
+        let account: AccountView = serde_json::from_value(serde_json::json!({"id":"fixture","email":"example@example.invalid","is_current":false,"disabled":false,"validation_blocked":false,"quota":{"last_updated":1,"models":[],"quota_groups":[{"display_name":"Gemini Models","buckets":[{"bucket_id":"gemini-weekly","window":"weekly","remaining_fraction":0.7,"reset_time":""}]}]}})).unwrap();
+        for lang in [Lang::Zh, Lang::En] {
+            let rendered = build_accounts_table(&[serde_json::from_value(serde_json::to_value(&account).unwrap()).unwrap()], lang, None).render();
+            assert!(rendered.contains("70%"));
+            assert!(!rendered.contains("100%"));
+            assert!(rendered.contains(match lang { Lang::Zh => "未知", Lang::En => "Unknown" }));
+        }
+    }
 }

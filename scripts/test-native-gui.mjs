@@ -220,9 +220,9 @@ try {
         await until(() => execute("return document.body.innerText.includes('example-1@example.invalid') && document.body.innerText.includes('example-2@example.invalid')"), 'synthetic accounts from Rust');
         await screenshot('accounts-light');
         await click('a[href="/settings"]');
-        await click('#settings-tab-lowQuota');
+        await click('#settings-tab-autoSwitch');
         await until(() => execute("return !!document.querySelector('select[aria-label=\"Model to monitor\"]')"), 'native settings form');
-        assert.equal(await execute("return document.querySelector('main input[type=checkbox]').checked"), false);
+        assert.equal(await execute("return document.querySelector('#settings-panel-autoSwitch input[type=checkbox]').checked"), false);
         assert.equal(await execute("return document.querySelectorAll('input[name=auto-switch-mode]').length"), 2);
         await screenshot('settings-light');
         await click('nav button[title="Switch to Dark Mode"]');

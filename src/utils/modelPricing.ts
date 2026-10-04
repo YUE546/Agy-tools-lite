@@ -18,6 +18,7 @@ export function findModelPricing(model: string, snapshot: { prices: ModelPricing
 
 export function estimateApiCost(models: Array<{ model: string; input_tokens: number; output_tokens: number; cached_tokens: number }>, snapshot: { prices: ModelPricing[] } | null) {
     return models.reduce((result, model) => {
+        if (model.input_tokens === 0 && model.output_tokens === 0 && model.cached_tokens === 0) return result;
         const price = findModelPricing(model.model, snapshot);
         if (!price) result.unpricedModels += 1;
         else {
