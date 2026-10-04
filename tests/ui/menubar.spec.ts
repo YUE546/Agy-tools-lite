@@ -42,7 +42,7 @@ test.beforeEach(async ({ page }) => {
     };
     w.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} }; localStorage.setItem('i18nextLng', 'zh');
   });
-  await page.goto('/menubar'); await expect(page.getByRole('heading', { name: '总览' })).toBeVisible();
+  await page.goto('/menubar'); await expect(page.getByRole('heading', { name: '额度概览' })).toBeVisible();
   await expect(page.locator('.mb-account-row')).not.toHaveCount(0);
 });
 async function bounded(page: Page) {
@@ -105,7 +105,7 @@ test('scope, language and accessibility material respond to backend events and s
   await expect(page.locator('.mb-availability')).toHaveText(['可用 2/5', '可用 2/5']); await expect(page.locator('.menubar-app')).toHaveAttribute('data-material', 'liquid_glass');
   await page.evaluate(() => (window as any).__menuFixture.setAppearance({ native_material: false, reduced_transparency: true, material_kind: 'opaque' })); await expect(page.locator('.menubar-app')).toHaveClass(/opaque-material/);
   await page.screenshot({ path: info.outputPath('menubar-overview-dark-browser.png') });
-  await page.evaluate(() => (window as any).__menuFixture.setPreferences({ language: 'en' })); await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+  await page.evaluate(() => (window as any).__menuFixture.setPreferences({ language: 'en' })); await expect(page.getByRole('heading', { name: 'Quota overview' })).toBeVisible();
   await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.goto('/settings'); await page.evaluate(() => (window as any).__menuFixture.setPreferences({ language: 'en' })); await page.getByLabel('Menu bar aggregate quotas').selectOption('other'); await expect(page.getByLabel('Menu bar aggregate quotas')).toHaveValue('other');
   await expect.poll(() => page.evaluate(() => (window as any).__menuFixture.calls.filter((call: any) => call.cmd === 'set_menu_bar_preferences').at(-1)?.args.patch.quota_scope)).toBe('other');
   await page.evaluate(() => (window as any).__menuFixture.failSave()); await page.getByLabel('Menu bar aggregate quotas').selectOption('gemini'); await expect(page.getByRole('alert').filter({ hasText: 'Could not save' })).toBeVisible(); await expect(page.getByLabel('Menu bar aggregate quotas')).toHaveValue('other');

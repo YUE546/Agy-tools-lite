@@ -114,15 +114,15 @@ function AccountCard({
                             onChange={() => onSelect()}
                             onClick={(e) => e.stopPropagation()}
                         />
-                        {isCurrent && (
-                            <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                        )}
                         <h3 className={cn(
                             "text-sm truncate flex-1 min-w-0",
                             isCurrent ? "font-bold text-blue-800 dark:text-blue-300" : "font-semibold text-gray-900 dark:text-base-content"
                         )} title={account.email}>
                             {account.email}
                         </h3>
+                        {isCurrent && (
+                            <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                        )}
                     </div>
 
                     {/* Row 2: Badges (左侧严格对齐上方方框选择框) + Last Used Date (靠右) */}

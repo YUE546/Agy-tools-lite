@@ -321,15 +321,15 @@ function AccountRowContent({
             <td className="px-2 py-1 align-middle">
                 <div className="flex flex-col justify-center gap-1">
                     <div className="flex items-center gap-1.5 min-w-0">
-                        {isCurrent && (
-                            <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                        )}
                         <span className={cn(
                             "text-sm break-all transition-colors leading-tight",
                             isCurrent ? "font-bold text-blue-800 dark:text-blue-300" : "font-medium text-gray-900 dark:text-base-content"
                         )} title={account.email}>
                             {account.email}
                         </span>
+                        {isCurrent && (
+                            <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                        )}
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0 flex-wrap">

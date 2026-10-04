@@ -100,7 +100,7 @@ define_class!(
         #[unsafe(method(drawRect:))]
         fn draw(&self, _dirty: NSRect) {
             let bounds = self.bounds();
-            if self.ivars().disabled { NSColor::systemRedColor().colorWithAlphaComponent(0.3).setFill(); } else { NSColor::quaternaryLabelColor().setFill(); }
+            if self.ivars().disabled { NSColor::systemRedColor().setFill(); } else { NSColor::quaternaryLabelColor().setFill(); }
             NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(bounds, 3.0, 3.0).fill();
             if let Some(value) = self.ivars().value {
                 let color = quota_color(Some(value), &self.ivars().preferences);
@@ -207,8 +207,7 @@ fn account_item(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry,
     if !secondary.is_empty() { label(&view, &secondary, 20.0, 25.0, WIDTH - 110.0, 10.0, false, true, marker); }
     let action_title = if current { if verified { if zh { "当前" } else { "Current" } } else { if zh { "记录" } else { "Saved" } } } else { if zh { "切换" } else { "Switch" } };
     if account.disabled {
-        let state = label(&view, if zh { "已禁用" } else { "Disabled" }, action_x, 12.0, 64.0, 11.0, true, false, marker);
-        state.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        button(&view, menu, app, if zh { "已禁用" } else { "Disabled" }, Action::Noop, false, rect(action_x - 7.0, 8.0, 72.0, 26.0), Some("nosign"), zh, targets, marker);
     } else { button(&view, menu, app, action_title, if current { Action::Noop } else { Action::Switch(account.id.clone()) }, !current && !busy && can_switch(account, chrono::Utc::now().timestamp()), rect(action_x, 8.0, 64.0, 26.0), Some(if current { "checkmark" } else { "arrow.left.arrow.right" }), zh, targets, marker); }
     // Disabled rows display usable quota as zero without changing the cached
     // observations or the aggregate calculation, which still excludes them.
@@ -220,7 +219,7 @@ fn account_item(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry,
             let progress = bar(&view, windows[period][family], preferences, rect(70.0, y + 3.0, 100.0, 4.0), account.disabled, marker);
             let field = label(&view, &projection::percent(windows[period][family]), 180.0, y - 3.0, 42.0, 11.0, false, true, marker);
             let color = NSColor::labelColor();
-            field.setTextColor(Some(&color));
+            field.setTextColor(Some(&color)); field.setAlignment(objc2_app_kit::NSTextAlignment::Right);
             (progress, field)
         }).collect();
         let row = QuotaRow { cells, y }; row.apply(preferences.display_scope);
@@ -310,7 +309,7 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     menu.addItem(&NSMenuItem::separatorItem(marker));
     if preferences.show_aggregate {
       let heading = section(marker, 29.0);
-      label(&heading, if zh { "总览" } else { "Overview" }, 20.0, 5.0, 110.0, 13.0, true, false, marker);
+      label(&heading, if zh { "额度概览" } else { "Quota overview" }, 20.0, 5.0, 140.0, 13.0, true, false, marker);
       let summary = label(&heading, &format!("{scope_name}  {}", if zh { "平均剩余" } else { "Mean remaining" }), 80.0, 7.0, WIDTH - 100.0, 11.0, false, true, marker);
       summary.setAlignment(objc2_app_kit::NSTextAlignment::Right);
       custom_item(&menu, &heading, "Overall quotas", marker);
@@ -327,7 +326,9 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     menu.addItem(&NSMenuItem::separatorItem(marker));
     }
     let account_header = section(marker, 29.0);
-    label(&account_header, &if zh { format!("{} 个账号", accounts.len()) } else { format!("Accounts ({})", accounts.len()) }, 20.0, 4.0, 160.0, 13.0, true, false, marker);
+    label(&account_header, if zh { "账号额度" } else { "Account quotas" }, 20.0, 4.0, 160.0, 13.0, true, false, marker);
+    let count = label(&account_header, &if zh { format!("{} 个账号", accounts.len()) } else { format!("{} accounts", accounts.len()) }, 210.0, 5.0, WIDTH - 230.0, 11.0, false, true, marker);
+    count.setAlignment(objc2_app_kit::NSTextAlignment::Right);
     custom_item(&menu, &account_header, "Accounts", marker);
     let busy = BUSY.load(Ordering::Acquire) || status.as_ref().is_none_or(|status| status.phase == "switching");
     if snapshot.is_none() { readonly_item(&menu, if zh { "账号读取失败，请重试" } else { "Could not read accounts. Retry." }, marker); }

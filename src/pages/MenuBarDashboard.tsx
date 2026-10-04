@@ -149,7 +149,7 @@ export default function MenuBarDashboard() {
       <div className="mb-header-actions">{detail && <button aria-label={zh ? '返回总览' : 'Back to overview'} onClick={() => setDetail(null)}><ArrowLeft size={16} /></button>}<button aria-label={zh ? '刷新全部额度' : 'Refresh all quotas'} disabled={busy || loading} onClick={() => void refresh()}><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /></button><button aria-label={zh ? '偏好设置' : 'Settings'} onClick={() => openPage('settings')}><Settings size={16} /></button></div>
     </header>
     {!detail && preferences.show_aggregate && <section className="mb-overview" aria-label={zh ? '聚合额度' : 'Aggregate quotas'}>
-      <div className="mb-overview-heading"><h2>{zh ? '总览' : 'Overview'}</h2><span>{scopeName}  {zh ? '平均剩余' : 'Mean remaining'}</span></div>
+      <div className="mb-overview-heading"><h2>{zh ? '额度概览' : 'Quota overview'}</h2><span>{scopeName}  {zh ? '平均剩余' : 'Mean remaining'}</span></div>
       {periods.map(window => { const data = aggregate(window); return <div className="mb-aggregate" key={window}>
         <div><span>{windowName(window)}</span><span className="mb-availability" title={(zh ? '有效数据 ' : 'Reported ') + data.covered + '/' + data.total}>{zh ? '可用 ' : 'Available '}{data.usable}/{data.total}</span><span>{zh ? '剩余' : 'Remaining'} <strong>{quotaDisplay(data.remaining)}</strong></span></div><Meter preferences={preferences} value={data.remaining} label={scopeName + ' ' + windowName(window)} />
       </div>; })}
@@ -162,7 +162,7 @@ export default function MenuBarDashboard() {
         <div className={'mb-detail-rows' + (selected.account.disabled ? ' disabled' : '')}>{details.length ? details.slice(visibleDetailPage * detailCapacity, (visibleDetailPage + 1) * detailCapacity).map((row, index) => <div className="mb-detail-row" key={row.key + index}><div><span title={row.name}>{row.name}</span><small>{row.source === 'model' ? zh ? '模型快照' : 'Model snapshot' : row.window === 'weekly' ? windowName('weekly') : row.window === '5h' ? windowName('5h') : row.window}</small><strong>{quotaDisplay(row.remaining)}</strong></div><div><Meter preferences={preferences} disabled={selected.account.disabled} value={row.remaining} label={row.name + ' ' + row.window} /><small>{selected.account.disabled ? zh ? '已禁用' : 'Disabled' : resetLabel(row.resetTime)}</small></div></div>) : <div className="mb-empty">{reasonName(selected.windows.weekly.gemini.reason)}</div>}</div>
         {detailPages > 1 && pager(visibleDetailPage, detailPages, setDetailPage)}
       </> : detail ? <div className="mb-empty">{zh ? '账号已移除' : 'Account removed'}</div> : <>
-        <div className="mb-account-heading"><span>{zh ? accounts.length + ' 个账号' : 'Accounts (' + accounts.length + ')'}</span></div>
+        <div className="mb-account-heading"><strong>{zh ? '账号额度' : 'Account quotas'}</strong><span>{zh ? accounts.length + ' 个账号' : accounts.length + ' accounts'}</span></div>
         <div className="mb-accounts">{loading ? <div className="mb-empty"><Loader2 size={18} className="animate-spin" />{zh ? '正在读取' : 'Loading'}</div> : !accounts.length ? <div className="mb-empty">{error ? zh ? '暂无可读取的数据' : 'Data unavailable' : zh ? '添加账号后显示额度' : 'Add accounts to see quotas'}<button onClick={() => openPage('accounts')}>{zh ? '管理账号' : 'Manage accounts'}</button></div> : visible.map(view => {
           const account = view.account; const current = account.id === snapshot?.current_account_id;
           const label = account.custom_label || account.name || account.email.split('@')[0];
