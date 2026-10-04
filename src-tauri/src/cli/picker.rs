@@ -94,6 +94,22 @@ pub fn get_terminal_width() -> usize {
         .unwrap_or(80)
 }
 
+pub fn get_terminal_height() -> usize {
+    #[cfg(unix)]
+    {
+        unsafe {
+            let mut ws: libc::winsize = std::mem::zeroed();
+            if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_row > 0 {
+                return ws.ws_row as usize;
+            }
+        }
+    }
+    std::env::var("LINES")
+        .ok()
+        .and_then(|c| c.parse::<usize>().ok())
+        .unwrap_or(24)
+}
+
 pub fn truncate_display_width(s: &str, max_w: usize) -> String {
     let clean = strip_ansi(s);
     if display_width(&clean) <= max_w {
@@ -1265,24 +1281,22 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
             Lang::Zh => (
                 "选择功能:",
                 vec![
-                    "1. 账号与配额    切换当前生效账号、查看各模型详细配额与重置倒计时",
-                    "2. 用量统计      本地 Token 消耗、预期费用与模型分布",
+                    "1. 账号与配额    切换生效账号、查看各模型配额明细、修改备注与启停管理",
+                    "2. 用量统计      本地 Token 消耗、预期费用与模型排行",
                     "3. 刷新配额      联网同步 Google API 最新额度",
                     "4. 添加账号      通过 Google OAuth 授权绑定新账号",
-                    "5. 账号管理      修改备注标签、切换启用状态或删除账号",
-                    "6. 环境状态      关联应用与本地存储状态",
+                    "5. 环境状态      关联应用与本地存储状态",
                     "0. 退出控制台    退出当前工具",
                 ],
             ),
             Lang::En => (
                 "Select Command:",
                 vec![
-                    "1. Accounts & Quotas   Switch active account, inspect model quotas & reset countdowns",
-                    "2. Statistics          Inspect local token usage, estimated cost & models",
+                    "1. Accounts & Quotas   Switch active account, inspect model quotas, edit labels & manage",
+                    "2. Statistics          Local token usage, estimated cost & model rankings",
                     "3. Refresh             Fetch live quotas from Google API",
                     "4. Add Account         Authorize new Google account via OAuth",
-                    "5. Manage              Edit labels, toggle status, or remove accounts",
-                    "6. Status              Inspect linked applications and storage",
+                    "5. Status              Inspect linked applications and storage",
                     "0. Exit                Quit agy-switch",
                 ],
             ),
@@ -1291,13 +1305,12 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
         let choice = select_menu_interactive(title, &menu_items, 0, lang);
 
         match choice {
-            Some(0) => show_accounts_and_quotas_hub(root, &snapshot, lang),
+            Some(0) => show_accounts_and_quotas_hub(root, lang),
             Some(1) => show_token_statistics(lang),
             Some(2) => show_refresh_quotas(&snapshot, lang),
             Some(3) => show_add_account(lang),
-            Some(4) => show_manage_accounts(&snapshot, lang),
-            Some(5) => show_system_status(&snapshot, root, lang),
-            Some(6) | None => {
+            Some(4) => show_system_status(&snapshot, root, lang),
+            Some(5) | None => {
                 let exit_msg = match lang {
                     Lang::Zh => "\n已退出 agy-switch 控制台。\n",
                     Lang::En => "\nExited agy-switch.\n",
@@ -1314,6 +1327,9 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
 enum HubAction {
     Switch(usize),
     ViewDetails(usize),
+    EditLabel(usize),
+    ToggleStatus(usize),
+    Delete(usize),
     Back,
 }
 
@@ -1335,8 +1351,8 @@ fn select_account_hub_action(
                 Lang::En => "* indicates active account",
             };
             let prompt_text = match lang {
-                Lang::Zh => "操作: (↑/↓ 移动光标  |  回车 切换该账号  |  V 查看详细模型进度  |  数字键直选  |  0/Q 返回)",
-                Lang::En => "Action: (↑/↓ Navigate  |  Enter Switch  |  V Model Details  |  Numbers  |  0/Q Back)",
+                Lang::Zh => "操作: (↑/↓ 移动  |  回车 切换  |  V 详情  |  R 备注  |  T 启/禁  |  X 删除  |  0 返回)",
+                Lang::En => "Action: (↑/↓ Move  |  Enter Switch  |  V Details  |  R Label  |  T Toggle  |  X Delete  |  0 Back)",
             };
 
             let render = |sel: usize, initial: bool| {
@@ -1385,12 +1401,33 @@ fn select_account_hub_action(
                         }
                     }
                     KeyAction::Enter => {
+                        print!("\x1b[?25h");
+                        let _ = stdout.flush();
                         return HubAction::Switch(*selected);
                     }
-                    KeyAction::Char('v') | KeyAction::Char('V') | KeyAction::Char('d') | KeyAction::Char('D') | KeyAction::Char(' ') => {
+                    KeyAction::Char('v') | KeyAction::Char('V') | KeyAction::Char(' ') => {
+                        print!("\x1b[?25h");
+                        let _ = stdout.flush();
                         return HubAction::ViewDetails(*selected);
                     }
+                    KeyAction::Char('r') | KeyAction::Char('R') => {
+                        print!("\x1b[?25h");
+                        let _ = stdout.flush();
+                        return HubAction::EditLabel(*selected);
+                    }
+                    KeyAction::Char('t') | KeyAction::Char('T') => {
+                        print!("\x1b[?25h");
+                        let _ = stdout.flush();
+                        return HubAction::ToggleStatus(*selected);
+                    }
+                    KeyAction::Char('x') | KeyAction::Char('X') => {
+                        print!("\x1b[?25h");
+                        let _ = stdout.flush();
+                        return HubAction::Delete(*selected);
+                    }
                     KeyAction::Char('0') | KeyAction::Cancel => {
+                        print!("\x1b[?25h");
+                        let _ = stdout.flush();
                         return HubAction::Back;
                     }
                     _ => {}
@@ -1399,10 +1436,20 @@ fn select_account_hub_action(
         }
     }
 
+    print!("\x1b[?25h");
+    let _ = io::stdout().flush();
     HubAction::Back
 }
 
-fn show_accounts_and_quotas_hub(_root: &Path, snapshot: &Snapshot, lang: Lang) {
+fn show_accounts_and_quotas_hub(root: &Path, lang: Lang) {
+    let mut snapshot = match Snapshot::read(root) {
+        Ok(s) => s,
+        Err(_) => Snapshot {
+            accounts: Vec::new(),
+            current_target: None,
+        },
+    };
+
     if snapshot.accounts.is_empty() {
         let msg = match lang {
             Lang::Zh => "\n\x1b[33m暂无已保存账号，请使用主菜单 [4] 添加 Google 账号。\x1b[0m",
@@ -1416,6 +1463,20 @@ fn show_accounts_and_quotas_hub(_root: &Path, snapshot: &Snapshot, lang: Lang) {
     let mut selected = snapshot.accounts.iter().position(|a| a.is_current).unwrap_or(0);
 
     loop {
+        if snapshot.accounts.is_empty() {
+            let msg = match lang {
+                Lang::Zh => "\n\x1b[33m暂无已保存账号。\x1b[0m",
+                Lang::En => "\n\x1b[33mNo saved accounts.\x1b[0m",
+            };
+            println!("{}", msg);
+            wait_for_key(lang);
+            break;
+        }
+
+        if selected >= snapshot.accounts.len() {
+            selected = snapshot.accounts.len().saturating_sub(1);
+        }
+
         print!("\x1b[2J\x1b[H");
         let header = match lang {
             Lang::Zh => "账号与配额中心",
@@ -1500,7 +1561,9 @@ fn show_accounts_and_quotas_hub(_root: &Path, snapshot: &Snapshot, lang: Lang) {
                         };
                         println!("{}", succ_msg);
                         wait_for_key(lang);
-                        break;
+                        if let Ok(reloaded) = Snapshot::read(root) {
+                            snapshot = reloaded;
+                        }
                     }
                     Err(err) => {
                         let fail_msg = match lang {
@@ -1514,6 +1577,113 @@ fn show_accounts_and_quotas_hub(_root: &Path, snapshot: &Snapshot, lang: Lang) {
             }
             HubAction::ViewDetails(idx) => {
                 show_single_account_quota(&snapshot.accounts[idx], lang);
+            }
+            HubAction::EditLabel(idx) => {
+                let target_acc = &snapshot.accounts[idx];
+                print!("\x1b[2J\x1b[H");
+                let edit_header = match lang {
+                    Lang::Zh => format!("修改备注标签 · \x1b[1;36m{}\x1b[0m\n", target_acc.email),
+                    Lang::En => format!("Edit Custom Label · \x1b[1;36m{}\x1b[0m\n", target_acc.email),
+                };
+                println!("{}", edit_header);
+
+                let prompt = match lang {
+                    Lang::Zh => format!(
+                        "当前备注: {}\n请输入新的备注标签 (回车保持不变，输入 - 清除当前备注，最多15字): ",
+                        target_acc.custom_label.as_deref().unwrap_or("无")
+                    ),
+                    Lang::En => format!(
+                        "Current Label: {}\nEnter new label (Press Enter to keep, enter - to clear, max 15 chars): ",
+                        target_acc.custom_label.as_deref().unwrap_or("None")
+                    ),
+                };
+                let new_label = prompt_line(&prompt);
+                if new_label.is_empty() {
+                    // Keep unchanged
+                } else if new_label == "-" {
+                    if let Ok(mut acc) = crate::modules::account::load_account(&target_acc.id) {
+                        acc.custom_label = None;
+                        let _ = crate::modules::account::save_account(&acc);
+                        if let Ok(reloaded) = Snapshot::read(root) {
+                            snapshot = reloaded;
+                        }
+                    }
+                } else if new_label.chars().count() > 15 {
+                    let err_msg = match lang {
+                        Lang::Zh => "\x1b[31m标签长度不能超过 15 个字符\x1b[0m",
+                        Lang::En => "\x1b[31mLabel cannot exceed 15 characters\x1b[0m",
+                    };
+                    println!("{}", err_msg);
+                    wait_for_key(lang);
+                } else {
+                    if let Ok(mut acc) = crate::modules::account::load_account(&target_acc.id) {
+                        acc.custom_label = Some(new_label);
+                        let _ = crate::modules::account::save_account(&acc);
+                        if let Ok(reloaded) = Snapshot::read(root) {
+                            snapshot = reloaded;
+                        }
+                    }
+                }
+            }
+            HubAction::ToggleStatus(idx) => {
+                let target_acc = &snapshot.accounts[idx];
+                if let Ok(mut acc) = crate::modules::account::load_account(&target_acc.id) {
+                    acc.disabled = !acc.disabled;
+                    if acc.disabled {
+                        acc.disabled_at = Some(chrono::Utc::now().timestamp());
+                        acc.disabled_reason = Some("Manually disabled via CLI".to_string());
+                    } else {
+                        acc.disabled_at = None;
+                        acc.disabled_reason = None;
+                    }
+                    let _ = crate::modules::account::save_account(&acc);
+                    if let Ok(reloaded) = Snapshot::read(root) {
+                        snapshot = reloaded;
+                    }
+                }
+            }
+            HubAction::Delete(idx) => {
+                let target_acc = &snapshot.accounts[idx];
+                print!("\x1b[2J\x1b[H");
+                let del_header = match lang {
+                    Lang::Zh => format!("删除账号 · \x1b[1;31m{}\x1b[0m\n", target_acc.email),
+                    Lang::En => format!("Delete Account · \x1b[1;31m{}\x1b[0m\n", target_acc.email),
+                };
+                println!("{}", del_header);
+
+                let confirm_prompt = match lang {
+                    Lang::Zh => format!(
+                        "警告: 此操作将永久移除该账号的本地凭证与配置！\n确定要永久删除账号 {} 吗？(y/N): ",
+                        target_acc.email
+                    ),
+                    Lang::En => format!(
+                        "Warning: This will permanently remove local credentials & settings!\nPermanently delete account {}? (y/N): ",
+                        target_acc.email
+                    ),
+                };
+                let confirm = prompt_line(&confirm_prompt);
+                if confirm.eq_ignore_ascii_case("y") || confirm.eq_ignore_ascii_case("yes") {
+                    match crate::modules::account::delete_account(&target_acc.id) {
+                        Ok(_) => {
+                            let del_msg = match lang {
+                                Lang::Zh => "\x1b[1;32m✓ 账号已成功删除\x1b[0m",
+                                Lang::En => "\x1b[1;32m✓ Account deleted successfully\x1b[0m",
+                            };
+                            println!("{}", del_msg);
+                            wait_for_key(lang);
+                            if let Ok(reloaded) = Snapshot::read(root) {
+                                snapshot = reloaded;
+                            }
+                            if snapshot.accounts.is_empty() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            println!("\x1b[31mDelete error: {}\x1b[0m", e);
+                            wait_for_key(lang);
+                        }
+                    }
+                }
             }
             HubAction::Back => break,
         }
@@ -1664,31 +1834,211 @@ fn show_single_account_quota(acc: &AccountView, lang: Lang) {
 
 fn show_token_statistics(lang: Lang) {
     print!("\x1b[2J\x1b[H");
-    let title = match lang {
-        Lang::Zh => "本地 Token 用量与预期费用统计",
-        Lang::En => "Local Token Usage & Estimated Cost",
-    };
-    println!("\x1b[1m{}\x1b[0m\n", title);
-
     let wait_msg = match lang {
         Lang::Zh => "正在扫描本地 Antigravity 对话数据库...\n",
         Lang::En => "Scanning local Antigravity conversation databases...\n",
     };
-    println!("{}", wait_msg);
+    print!("{}", wait_msg);
+    let _ = io::stdout().flush();
 
-    match crate::modules::native_token_stats::get_local_token_usage() {
-        Ok(summary) => {
-            println!("{}", format_token_stats_human(&summary, lang));
-        }
+    let summary = match crate::modules::native_token_stats::get_local_token_usage() {
+        Ok(s) => s,
         Err(e) => {
             let err_msg = match lang {
                 Lang::Zh => format!("\x1b[31m读取本地 Token 统计失败: {}\x1b[0m", e),
                 Lang::En => format!("\x1b[31mFailed to read token statistics: {}\x1b[0m", e),
             };
             println!("{}", err_msg);
+            wait_for_key(lang);
+            return;
+        }
+    };
+
+    let mut show_today_detail = false;
+
+    loop {
+        print!("\x1b[2J\x1b[H");
+        if !show_today_detail {
+            let title = match lang {
+                Lang::Zh => "本地 Token 用量与预期费用统计",
+                Lang::En => "Local Token Usage & Estimated Cost",
+            };
+            println!("\x1b[1m{}\x1b[0m\n", title);
+
+            let headers = match lang {
+                Lang::Zh => vec!["周期", "总计 Token", "输入", "输出", "缓存率", "预期费用"],
+                Lang::En => vec!["Period", "Total Tokens", "Input", "Output", "Cache Hit", "Est. Cost"],
+            };
+            let mut table = Table::new(headers);
+            for col in 1..=5 {
+                table.set_align_right(col, true);
+            }
+            let periods = match lang {
+                Lang::Zh => [
+                    ("今日", &summary.today),
+                    ("昨日", &summary.yesterday),
+                    ("近 3 天", &summary.last_3_days),
+                    ("近 7 天", &summary.last_7_days),
+                    ("近 30 天", &summary.last_30_days),
+                ],
+                Lang::En => [
+                    ("Today", &summary.today),
+                    ("Yesterday", &summary.yesterday),
+                    ("Last 3 Days", &summary.last_3_days),
+                    ("Last 7 Days", &summary.last_7_days),
+                    ("Last 30 Days", &summary.last_30_days),
+                ],
+            };
+            for (i, (name, row)) in periods.iter().enumerate() {
+                let total_in = row.input_tokens + row.cached_tokens;
+                let hit_rate = if total_in > 0 {
+                    format!("{:.1}%", (row.cached_tokens as f64 / total_in as f64) * 100.0)
+                } else {
+                    "0.0%".into()
+                };
+                let cost = if i == 0 && !summary.by_model_today.is_empty() {
+                    summary.by_model_today.iter().map(|m| {
+                        estimate_model_cost(m.input_tokens, m.output_tokens, m.cached_tokens, &m.model)
+                    }).sum()
+                } else {
+                    estimate_model_cost(row.input_tokens, row.output_tokens, row.cached_tokens, "gemini-3.8-flash")
+                };
+                table.add_row(vec![
+                    name.to_string(),
+                    format_number(row.total_tokens),
+                    format_number(row.input_tokens),
+                    format_number(row.output_tokens),
+                    hit_rate,
+                    format_cost(cost),
+                ]);
+            }
+            print!("{}", table.render());
+
+            if !summary.by_model.is_empty() {
+                let top_title = match lang {
+                    Lang::Zh => "【近 30 天主要模型用量排行】",
+                    Lang::En => "[Top Models: Last 30 Days]",
+                };
+                println!("\n{}", top_title);
+
+                let m_headers = match lang {
+                    Lang::Zh => vec!["模型", "总计 Token", "请求次数", "预期费用"],
+                    Lang::En => vec!["Model", "Total Tokens", "Requests", "Est. Cost"],
+                };
+                let mut m_table = Table::new(m_headers);
+                m_table.set_align_right(1, true);
+                m_table.set_align_right(2, true);
+                m_table.set_align_right(3, true);
+
+                let term_h = get_terminal_height();
+                let limit = if term_h >= 28 { 5 } else { 3 };
+                for m in summary.by_model.iter().take(limit) {
+                    let cost = estimate_model_cost(m.input_tokens, m.output_tokens, m.cached_tokens, &m.model);
+                    m_table.add_row(vec![
+                        m.model.clone(),
+                        format_number(m.total_tokens),
+                        format_number(m.request_count),
+                        format_cost(cost),
+                    ]);
+                }
+                print!("{}", m_table.render());
+            }
+
+            let footer = match lang {
+                Lang::Zh => format!(
+                    "\n\x1b[90m数据来源: 扫描 {} 个本地 SQLite 数据库 | 累计对话: {} 条\x1b[0m\n",
+                    summary.databases_scanned, summary.generations_scanned
+                ),
+                Lang::En => format!(
+                    "\n\x1b[90mSource: Scanned {} local SQLite databases | {} conversations\x1b[0m\n",
+                    summary.databases_scanned, summary.generations_scanned
+                ),
+            };
+            print!("{}", footer);
+
+            let prompt = match lang {
+                Lang::Zh => "\x1b[1m操作: (M 查看今日模型明细  |  回车/0 返回主菜单)\x1b[0m ",
+                Lang::En => "\x1b[1mAction: (M Today's Models  |  Enter/0 Back)\x1b[0m ",
+            };
+            print!("{}", prompt);
+            let _ = io::stdout().flush();
+        } else {
+            let title = match lang {
+                Lang::Zh => "今日各模型用量明细",
+                Lang::En => "Model Breakdown: Today",
+            };
+            println!("\x1b[1m【{}】\x1b[0m\n", title);
+
+            if summary.by_model_today.is_empty() {
+                let msg = match lang {
+                    Lang::Zh => "\x1b[33m今日暂无模型用量记录。\x1b[0m\n",
+                    Lang::En => "\x1b[33mNo model usage recorded today.\x1b[0m\n",
+                };
+                println!("{}", msg);
+            } else {
+                let m_headers = match lang {
+                    Lang::Zh => vec!["模型", "总计 Token", "输入", "输出", "缓存", "预期费用"],
+                    Lang::En => vec!["Model", "Total Tokens", "Input", "Output", "Cached", "Est. Cost"],
+                };
+                let mut m_table = Table::new(m_headers);
+                for col in 1..=5 {
+                    m_table.set_align_right(col, true);
+                }
+                for m in &summary.by_model_today {
+                    let cost = estimate_model_cost(m.input_tokens, m.output_tokens, m.cached_tokens, &m.model);
+                    m_table.add_row(vec![
+                        m.model.clone(),
+                        format_number(m.total_tokens),
+                        format_number(m.input_tokens),
+                        format_number(m.output_tokens),
+                        format_number(m.cached_tokens),
+                        format_cost(cost),
+                    ]);
+                }
+                print!("{}", m_table.render());
+            }
+
+            let footer = match lang {
+                Lang::Zh => format!(
+                    "\n\x1b[90m数据来源: 扫描 {} 个本地 SQLite 数据库 | 累计对话: {} 条\x1b[0m\n",
+                    summary.databases_scanned, summary.generations_scanned
+                ),
+                Lang::En => format!(
+                    "\n\x1b[90mSource: Scanned {} local SQLite databases | {} conversations\x1b[0m\n",
+                    summary.databases_scanned, summary.generations_scanned
+                ),
+            };
+            print!("{}", footer);
+
+            let prompt = match lang {
+                Lang::Zh => "\x1b[1m操作: (M 返回用量总览  |  回车/0 返回主菜单)\x1b[0m ",
+                Lang::En => "\x1b[1mAction: (M Back to Overview  |  Enter/0 Back)\x1b[0m ",
+            };
+            print!("{}", prompt);
+            let _ = io::stdout().flush();
+        }
+
+        #[cfg(unix)]
+        {
+            if let Some(_raw) = RawTerminal::enter() {
+                match read_key_action() {
+                    KeyAction::Char('m') | KeyAction::Char('M') | KeyAction::Char('\t') => {
+                        show_today_detail = !show_today_detail;
+                    }
+                    KeyAction::Enter | KeyAction::Char('0') | KeyAction::Char('q') | KeyAction::Char('Q') | KeyAction::Cancel => {
+                        break;
+                    }
+                    _ => {}
+                }
+            } else {
+                break;
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            break;
         }
     }
-    wait_for_key(lang);
 }
 
 fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
@@ -2116,173 +2466,6 @@ fn show_add_account(lang: Lang) {
     }
 }
 
-fn show_manage_accounts(snapshot: &Snapshot, lang: Lang) {
-    if snapshot.accounts.is_empty() {
-        let msg = match lang {
-            Lang::Zh => "\n\x1b[33m暂无已保存账号。\x1b[0m",
-            Lang::En => "\n\x1b[33mNo saved accounts.\x1b[0m",
-        };
-        println!("{}", msg);
-        wait_for_key(lang);
-        return;
-    }
-
-    print!("\x1b[2J\x1b[H");
-    let header = match lang {
-        Lang::Zh => "账号管理与设置",
-        Lang::En => "Account Management",
-    };
-    println!("\x1b[1m{}\x1b[0m\n", header);
-
-    let selected = match select_account_interactive(&snapshot.accounts, lang) {
-        Some(acc) => acc,
-        None => return,
-    };
-
-    print!("\x1b[2J\x1b[H");
-
-    let (title, sub_items) = match lang {
-        Lang::Zh => (
-            format!("管理账号: {} (ID: {})", selected.email, selected.id),
-            vec![
-                "1. 修改备注标签 (最多15字)",
-                "2. 切换启用/禁用状态",
-                "3. 删除账号 (永久移除)",
-                "0. 返回主菜单",
-            ],
-        ),
-        Lang::En => (
-            format!("Manage Account: {} (ID: {})", selected.email, selected.id),
-            vec![
-                "1. Edit Custom Label (max 15 chars)",
-                "2. Toggle Enable / Disable",
-                "3. Delete Account (permanent)",
-                "0. Back to main menu",
-            ],
-        ),
-    };
-
-    let sub_choice = select_menu_interactive(&title, &sub_items, 0, lang);
-
-    match sub_choice {
-        Some(0) => {
-            let prompt = match lang {
-                Lang::Zh => format!(
-                    "\n当前备注: {}\n请输入新的备注标签 (直接回车可清除当前备注): ",
-                    selected.custom_label.as_deref().unwrap_or("无")
-                ),
-                Lang::En => format!(
-                    "\nCurrent Label: {}\nEnter new label (Press Enter to clear): ",
-                    selected.custom_label.as_deref().unwrap_or("None")
-                ),
-            };
-            let new_label = prompt_line(&prompt);
-            if new_label.chars().count() > 15 {
-                let err_msg = match lang {
-                    Lang::Zh => "\x1b[31m标签长度不能超过 15 个字符\x1b[0m",
-                    Lang::En => "\x1b[31mLabel cannot exceed 15 characters\x1b[0m",
-                };
-                println!("{}", err_msg);
-            } else {
-                match crate::modules::account::load_account(&selected.id) {
-                    Ok(mut acc) => {
-                        acc.custom_label = if new_label.is_empty() {
-                            None
-                        } else {
-                            Some(new_label.clone())
-                        };
-                        if let Err(e) = crate::modules::account::save_account(&acc) {
-                            println!("\x1b[31mSave error: {}\x1b[0m", e);
-                        } else if new_label.is_empty() {
-                            let clr_msg = match lang {
-                                Lang::Zh => "\x1b[1;32m✓ 备注标签已成功清除\x1b[0m",
-                                Lang::En => "\x1b[1;32m✓ Label cleared successfully\x1b[0m",
-                            };
-                            println!("{}", clr_msg);
-                        } else {
-                            let upd_msg = match lang {
-                                Lang::Zh => format!("\x1b[1;32m✓ 备注标签已更新为: {}\x1b[0m", new_label),
-                                Lang::En => format!("\x1b[1;32m✓ Label updated to: {}\x1b[0m", new_label),
-                            };
-                            println!("{}", upd_msg);
-                        }
-                    }
-                    Err(e) => println!("\x1b[31mLoad error: {}\x1b[0m", e),
-                }
-            }
-            wait_for_key(lang);
-        }
-        Some(1) => {
-            match crate::modules::account::load_account(&selected.id) {
-                Ok(mut acc) => {
-                    acc.disabled = !acc.disabled;
-                    if acc.disabled {
-                        acc.disabled_at = Some(chrono::Utc::now().timestamp());
-                        acc.disabled_reason = Some("Manually disabled via CLI".to_string());
-                    } else {
-                        acc.disabled_at = None;
-                        acc.disabled_reason = None;
-                    }
-                    if let Err(e) = crate::modules::account::save_account(&acc) {
-                        println!("\x1b[31mSave error: {}\x1b[0m", e);
-                    } else {
-                        let status_text = if acc.disabled {
-                            match lang {
-                                Lang::Zh => "\x1b[33m已禁用\x1b[0m",
-                                Lang::En => "\x1b[33mDisabled\x1b[0m",
-                            }
-                        } else {
-                            match lang {
-                                Lang::Zh => "\x1b[32m正常启用\x1b[0m",
-                                Lang::En => "\x1b[32mEnabled\x1b[0m",
-                            }
-                        };
-                        let toggle_msg = match lang {
-                            Lang::Zh => format!("\x1b[1;32m✓ 账号状态已切换为: {}\x1b[0m", status_text),
-                            Lang::En => format!("\x1b[1;32m✓ Account status changed to: {}\x1b[0m", status_text),
-                        };
-                        println!("{}", toggle_msg);
-                    }
-                }
-                Err(e) => println!("\x1b[31mLoad error: {}\x1b[0m", e),
-            }
-            wait_for_key(lang);
-        }
-        Some(2) => {
-            let confirm_prompt = match lang {
-                Lang::Zh => format!(
-                    "\n确定要永久删除账号 {} 吗？此操作无法撤销！(y/N): ",
-                    selected.email
-                ),
-                Lang::En => format!(
-                    "\nPermanently delete account {}? Cannot be undone! (y/N): ",
-                    selected.email
-                ),
-            };
-            let confirm = prompt_line(&confirm_prompt);
-            if confirm.eq_ignore_ascii_case("y") || confirm.eq_ignore_ascii_case("yes") {
-                match crate::modules::account::delete_account(&selected.id) {
-                    Ok(_) => {
-                        let del_msg = match lang {
-                            Lang::Zh => "\x1b[1;32m✓ 账号已成功删除\x1b[0m",
-                            Lang::En => "\x1b[1;32m✓ Account deleted successfully\x1b[0m",
-                        };
-                        println!("{}", del_msg);
-                    }
-                    Err(e) => println!("\x1b[31mDelete error: {}\x1b[0m", e),
-                }
-            } else {
-                let cancel_msg = match lang {
-                    Lang::Zh => "\x1b[2m已取消删除操作。\x1b[0m",
-                    Lang::En => "\x1b[2mDeletion cancelled.\x1b[0m",
-                };
-                println!("{}", cancel_msg);
-            }
-            wait_for_key(lang);
-        }
-        _ => {}
-    }
-}
 
 fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
     print!("\x1b[2J\x1b[H");
