@@ -6,7 +6,7 @@ mod switch_lock;
 use output::{AccountView, Snapshot};
 use std::path::{Path, PathBuf};
 
-const HELP: &str = "agy-switch - Antigravity Tools Lite CLI\n\nUsage:\n  agy-switch                         Interactive dashboard / menu (TUI)\n  agy-switch accounts list [--json]\n  agy-switch current [--json]\n  agy-switch quota [ACCOUNT_ID|EMAIL] [--json]\n  agy-switch switch [ACCOUNT_ID|EMAIL] [--target app|ide] [--json]\n  agy-switch stats [--json]\n  agy-switch refresh [ACCOUNT_ID|EMAIL] [--json]\n  agy-switch --help\n  agy-switch --version\n\nRead commands use local cached data only and never open the GUI or refresh tokens.\n'current' is Tools Lite's recorded account, not a live credential-store check.\n'switch' may refresh tokens, close/restart Antigravity, and update credentials.\nDefault target 'app' synchronizes APP credentials and an initialized agy session.\nThere is no CLI-only target: APP and agy may share the same credential store.\nQuit older Tools Lite versions before switching; they do not share the switch lock.\nAccounts can be managed interactively via TUI or through the GUI. ABV_DATA_DIR overrides the data directory.\n";
+const HELP: &str = "agy-switch - Antigravity Tools Lite CLI\n\nUsage:\n  agy-switch                         Interactive dashboard / menu (TUI)\n  agy-switch accounts list [--json]\n  agy-switch current [--json]\n  agy-switch quota [ACCOUNT_ID|EMAIL] [--json]\n  agy-switch switch [ACCOUNT_ID|EMAIL] [--target app|ide] [--json]\n  agy-switch stats [--json]\n  agy-switch refresh [ACCOUNT_ID|EMAIL] [--json]\n  agy-switch --help\n  agy-switch --version\n\nRead commands use local cached data only and never open the GUI or refresh tokens.\n'current' is Tools Lite's recorded account, not a live credential-store check.\n'switch' may refresh tokens, close/restart Antigravity, and update credentials.\nDefault target 'app' synchronizes APP credentials and an initialized agy session.\nThere is no CLI-only target: APP and agy may share the same credential store.\nAccounts can be managed interactively via TUI or through the GUI. ABV_DATA_DIR overrides the data directory.\n";
 
 #[derive(Debug, PartialEq)]
 enum Command {
@@ -49,14 +49,8 @@ impl CliError {
 }
 
 fn is_tty() -> bool {
-    #[cfg(unix)]
-    unsafe {
-        libc::isatty(libc::STDIN_FILENO) == 1 && libc::isatty(libc::STDOUT_FILENO) == 1
-    }
-    #[cfg(not(unix))]
-    {
-        false
-    }
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
 fn parse(args: &[String], interactive: bool) -> Result<(Command, bool)> {
@@ -141,6 +135,12 @@ pub fn run_if_requested() -> Option<i32> {
         }
         let _ = AttachConsole(u32::MAX);
     }
+    Some(run())
+}
+
+/// Console entry point: always selects CLI mode, even if the executable is renamed.
+pub fn run() -> i32 {
+    let args: Vec<_> = std::env::args_os().collect();
     let json = args.iter().any(|arg| arg == "--json");
     let interactive = is_tty() && !json;
     let strings: std::result::Result<Vec<String>, _> = args
@@ -152,7 +152,7 @@ pub fn run_if_requested() -> Option<i32> {
         .map_err(|_| CliError::usage())
         .and_then(|args| parse(&args, interactive))
         .and_then(|(command, json)| execute(command, json));
-    Some(match result {
+    match result {
         Ok(output) => {
             if !output.is_empty() {
                 println!("{output}");
@@ -170,7 +170,7 @@ pub fn run_if_requested() -> Option<i32> {
             }
             error.code
         }
-    })
+    }
 }
 
 pub(crate) fn data_dir() -> Result<PathBuf> {

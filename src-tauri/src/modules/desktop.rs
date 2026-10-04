@@ -420,17 +420,21 @@ pub fn toggle_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Re
     toggle_web_dashboard(app, rect)
 }
 
+/// Prepare the hidden WebView once; tray clicks reuse an already rendered panel.
 #[cfg(not(target_os = "macos"))]
-fn toggle_web_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Result<(), String> {
-    let runtime = app.state::<DesktopRuntime>();
-    let _transition = runtime.panel_transition.lock().map_err(|e| e.to_string())?;
-    if let Some(window) = app.get_webview_window(DASHBOARD_LABEL) {
-        if window.is_visible().unwrap_or(false) {
-            return window.hide().map_err(|e| e.to_string());
-        }
-    }
-    let window = match app.get_webview_window(DASHBOARD_LABEL) {
-        Some(window) => window,
+pub fn warm_dashboard(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let runtime = app.state::<DesktopRuntime>();
+        let Ok(_transition) = runtime.panel_transition.lock() else { return; };
+        if let Err(error) = web_dashboard(&app) { modules::logger::log_warn(&format!("Quick dashboard prewarm failed: {error}")); }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn web_dashboard(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
+    match app.get_webview_window(DASHBOARD_LABEL) {
+        Some(window) => Ok(window),
         None => {
             let builder =
                 WebviewWindowBuilder::new(app, DASHBOARD_LABEL, WebviewUrl::App("menubar".into()))
@@ -442,13 +446,28 @@ fn toggle_web_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Re
                     .skip_taskbar(true)
                     .always_on_top(true)
                     .shadow(true);
-            #[cfg(target_os = "macos")]
-            let builder = builder
-                .transparent(true)
-                .background_color(tauri::window::Color(0, 0, 0, 0));
-            builder.build().map_err(|e| e.to_string())?
+            builder.build().map_err(|e| e.to_string())
         }
-    };
+    }
+
+}
+
+#[tauri::command]
+pub fn open_project_page(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener().open_url("https://github.com/anglee0323/antigravity-tools-lite", None::<&str>).map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn toggle_web_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Result<(), String> {
+    let runtime = app.state::<DesktopRuntime>();
+    let _transition = runtime.panel_transition.lock().map_err(|e| e.to_string())?;
+    if let Some(window) = app.get_webview_window(DASHBOARD_LABEL) {
+        if window.is_visible().unwrap_or(false) {
+            return window.hide().map_err(|e| e.to_string());
+        }
+    }
+    let window = web_dashboard(app)?;
     let anchor = rect.or_else(|| {
         app.tray_by_id("main")
             .and_then(|tray| tray.rect().ok().flatten())

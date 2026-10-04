@@ -94,11 +94,11 @@ test('all packages, exact checksums and exact generated cask are required before
 });
 
 test('success stages a draft, checks downloaded bytes, and only then publishes', () => fixture(directory => {
-  assert.equal(verifyAssets(directory, context).length, 7);
+  assert.equal(verifyAssets(directory, context).length, 11);
   const api = fakeGithub(); publishRelease(directory, context, api.run);
-  assert.ok(api.isPublic()); assert.equal(api.files.size, 8);
+  assert.ok(api.isPublic()); assert.equal(api.files.size, 12);
   const manifest = JSON.parse(readFileSync(join(directory, 'release-manifest.json'), 'utf8'));
-  assert.equal(manifest.source_commit, context.commit); assert.equal(manifest.files.length, 7);
+  assert.equal(manifest.source_commit, context.commit); assert.equal(manifest.files.length, 11);
   const edit = api.calls.findIndex(a => a[1] === 'edit');
   assert.ok(edit > api.calls.findIndex(a => a[1] === 'download'));
   assert.ok(api.calls.some(a => a[1]?.endsWith('/releases/123')));

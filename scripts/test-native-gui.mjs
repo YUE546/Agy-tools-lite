@@ -51,7 +51,9 @@ function fixture(pricingHome) {
         id: `fixture-${i + 1}`, email: `example-${i + 1}@example.invalid`, name: `Example account ${i + 1} (synthetic)`,
         custom_label: 'Synthetic example data', created_at: now, last_used: now, disabled: false,
         token: { access_token: '', refresh_token: '', expires_in: 0, expiry_timestamp: 0, token_type: 'Bearer' },
-        quota: { models: [{ name: 'gemini-test', display_name: 'Gemini example model', percentage, reset_time: '2030-01-01T00:00:00Z' }], last_updated: now },
+        quota: { models: [{ name: 'gemini-test', display_name: 'Gemini example model', percentage, reset_time: '2030-01-01T00:00:00Z' }], last_updated: now,
+            quota_groups: ['Gemini Models', 'Claude and GPT models'].map((display_name, family) => ({ display_name,
+                buckets: ['5h', 'weekly'].map(window => ({ bucket_id: `${family ? '3p' : 'gemini'}-${window}`, window, remaining_fraction: (percentage + family * 10) / 100, remaining_fraction_known: true, reset_time: '2030-01-01T00:00:00Z' })) })) },
     }));
     json(join(data, 'accounts.json'), { version: '2.0', current_account_id: null, current_target_ide: null, accounts: accounts.map(({ token, quota, ...a }) => a) });
     for (const account of accounts) json(join(data, 'accounts', `${account.id}.json`), account);
@@ -67,11 +69,11 @@ function isolatedEnv(info) {
     Object.assign(env, { HOME: home, USERPROFILE: home, APPDATA: join(home, 'AppData/Roaming'), LOCALAPPDATA: join(home, 'AppData/Local'), ABV_DATA_DIR: data,
         XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local/share'), XDG_CACHE_HOME: join(home, '.cache'), XDG_RUNTIME_DIR: join(root, 'runtime'),
         TMP: root, TEMP: root, TMPDIR: root, ANTIGRAVITY_DISABLE_TRAY: '1', MSEDGEDRIVER_TELEMETRY_OPTOUT: '1', WEBVIEW2_USER_DATA_FOLDER: join(root, 'webview'), RUST_LOG: 'warn' });
-    if (windows) env.WEBVIEW2_BROWSER_EXECUTABLE_FOLDER = info.runtime;
+    if (windows) { env.WEBVIEW2_BROWSER_EXECUTABLE_FOLDER = info.runtime; env.ANTIGRAVITY_NATIVE_GUI_TEST = '1'; }
     return env;
 }
 // Validate actual screenshot pixels as well as DOM. A successful blank PNG is a failure.
-function inspectPng(bytes) {
+function inspectPng(bytes, panel = false) {
     assert.equal(bytes.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
     const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20), depth = bytes[24], type = bytes[25];
     assert.equal(depth, 8); assert.ok([2, 6].includes(type), `Unsupported screenshot PNG type ${type}`); assert.equal(bytes[28], 0);
@@ -94,7 +96,7 @@ function inspectPng(bytes) {
         previous = row;
     }
     const deviation = Math.sqrt(Math.max(0, squares / count - (sum / count) ** 2));
-    assert.ok(width >= 600 && height >= 400 && colors.size >= 24 && deviation >= 8 && opaque / count > 0.99, `Blank/invalid capture: ${width}x${height}, colors=${colors.size}, deviation=${deviation}`);
+    assert.ok(width >= (panel ? 400 : 600) && height >= 400 && colors.size >= 24 && deviation >= 8 && opaque / count > 0.99, `Blank/invalid capture: ${width}x${height}, colors=${colors.size}, deviation=${deviation}`);
     return { width, height, colors: colors.size, luminance_deviation: Number(deviation.toFixed(2)), sha256: hash(bytes) };
 }
 const endpoint = 'http://127.0.0.1:4444';
@@ -121,7 +123,7 @@ async function ipc(commandName) {
     const result = await command('POST', '/execute/async', { script: "const done=arguments[arguments.length-1]; window.__TAURI_INTERNALS__.invoke(arguments[0]).then(value=>done({value}),error=>done({error:String(error)}));", args: [commandName] });
     assert.equal(result.error, undefined); return result.value;
 }
-async function screenshot(name) {
+async function screenshot(name, panel = false) {
     const layout = await execute("return {width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth+1,route:location.pathname,theme:document.documentElement.dataset.theme,text:document.body.innerText.length}");
     assert.equal(layout.overflow, false); assert.ok(layout.text > 100);
     await command('POST', '/execute/async', { script: 'const done=arguments[arguments.length-1]; document.fonts.ready.then(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>done(true))));', args: [] });
@@ -129,7 +131,7 @@ async function screenshot(name) {
     try {
         await until(async () => {
             bytes = Buffer.from(await command('GET', '/screenshot'), 'base64');
-            pixels = inspectPng(bytes); return true;
+            pixels = inspectPng(bytes, panel); return true;
         }, `nonblank native pixels for ${name}`, 10000);
     } catch (e) {
         // Diagnostic comes only from our app session. Never reuse a rejected image as acceptance evidence.
@@ -163,14 +165,15 @@ try {
     if (!selfTest) {
         binary = resolve(process.argv[2] || `src-tauri/target/debug/antigravity-tools${windows ? '.exe' : ''}`);
         assertNoLinks(binary);
-        report = { ...report, source_head: process.env.SOURCE_HEAD, checkout_commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), run_id: process.env.GITHUB_RUN_ID, binary_sha256: hash(readFileSync(binary)), profile: 'debug, custom-protocol, same executable as CLI smoke', tauri_driver_version: '2.0.6', native_driver_version: windows ? info.driver_version : execFileSync('dpkg-query', ['-W', '-f=${Version}', 'webkit2gtk-driver'], { encoding: 'utf8' }) };
+        report = { ...report, source_head: process.env.SOURCE_HEAD, checkout_commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), run_id: process.env.GITHUB_RUN_ID, binary_sha256: hash(readFileSync(binary)), profile: 'debug, custom-protocol; Windows also enables native-gui-test', tauri_driver_version: '2.0.6', native_driver_version: windows ? info.driver_version : execFileSync('dpkg-query', ['-W', '-f=${Version}', 'webkit2gtk-driver'], { encoding: 'utf8' }) };
         assert.match(report.source_head || '', /^[a-f0-9]{40}$/);
         assert.equal(report.checkout_commit, report.source_head, 'Test must use the exact requested source SHA');
     }
     if (windows && !selfTest) {
         report.windows_driver = info;
         const wry = readFileSync('src-tauri/Cargo.lock', 'utf8').match(/\[\[package\]\]\r?\nname = "wry"\r?\nversion = "([^"]+)"/)[1];
-        if (knownWindowsBlock(info, wry)) {
+        report.automation = 'Debug-only native-gui-test feature passes the driver port through the WebView2 API; release builds cannot use this path';
+        if (knownWindowsBlock(info, wry) && process.env.NATIVE_GUI_TEST_FEATURE !== '1') {
             throw new EnvironmentBlocked('Windows native GUI NOT TESTED: elevated hosted runner + WebView2 150+ + Wry 0.54.1 cannot establish a WebDriver session. No registry/security workaround is applied. https://github.com/tauri-apps/wry/issues/1782');
         }
         const paths = [join(info.known_home, '.gemini'), join(info.known_home, '.antigravity_tools'), join(info.known_roaming, 'com.lbjlaq.antigravity-tools-lite'), join(info.known_local, 'com.lbjlaq.antigravity-tools-lite')];
@@ -238,6 +241,18 @@ try {
         await click('nav button[title="Switch to Light Mode"]');
         await until(() => execute("return document.documentElement.dataset.theme === 'light'"), 'light theme restored');
         await screenshot('settings-light-760');
+        // Same native WebView, now exercise the compact cross-platform dashboard route.
+        await execute("history.pushState({}, '', '/menubar'); dispatchEvent(new PopStateEvent('popstate')); return true");
+        await until(() => execute("return document.querySelector('.mb-eyebrow')?.textContent === 'AntiGravity tool lite' && document.querySelectorAll('.mb-account-row').length === 2"), 'native quick dashboard');
+        rect = await command('POST', '/window/rect', { width: 424, height: 720 });
+        for (let i = 0; i < 4; i++) { const width = await execute('return innerWidth'); if (width === 424) break; rect = await command('POST', '/window/rect', { width: Math.round(rect.width + 424 - width), height: 720 }); await delay(200); }
+        assert.equal(await execute('return innerWidth'), 424);
+        assert.equal(await execute("return ['Today’s usage','Remaining quota','Accounts'].every(t=>document.body.innerText.includes(t)) && !/[\u3400-\u9fff]/.test(document.body.innerText)"), true);
+        assert.equal(await execute("return [...document.querySelectorAll('.mb-account-switch')].every(e=>{const r=e.getBoundingClientRect(); const p=e.closest('article').querySelector('.mb-mini:last-child strong').getBoundingClientRect(); return Math.abs(r.right-p.right)<2})"), true);
+        assert.deepEqual(await execute("return [...document.querySelectorAll('.mb-account-row .mb-mini strong')].map(e=>e.textContent)"), ['8%', '18%', '8%', '18%', '80%', '90%', '80%', '90%']);
+        assert.equal(await execute("return [...document.querySelectorAll('.mb-account-window > span')].every(e=>e.getBoundingClientRect().height < 15)"), true, 'Quota window labels must remain on one line');
+        await screenshot('quick-dashboard-light', true);
+        report.checks.push('Native 424px compact dashboard: all three sections, English copy, account/action right alignment; viewport test, not tray placement');
         for (const [path, original] of originals) assert.equal(readFileSync(join(data, path), 'utf8'), original, `Unchanged ${path}`);
         const config = JSON.parse(readFileSync(join(data, 'gui_config.json'))); assert.equal(config.auto_refresh, false); assert.equal(config.auto_sync, false); assert.equal(config.quota_protection.enabled, false);
         report.checks.push('Dashboard, synthetic accounts, Settings controls, persisted light/dark theme, exact 760px viewport without horizontal overflow', 'No account/config mutation except theme; no switch/refresh/login/import/autostart action');

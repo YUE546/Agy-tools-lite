@@ -1,6 +1,7 @@
 use super::output::{AccountView, QuotaView, Snapshot};
 use super::{CliError, HeadlessIntegration};
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
+use crossterm::{event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers}, terminal, execute, cursor};
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,35 +80,13 @@ pub fn pad_right(s: &str, target_width: usize) -> String {
 }
 
 pub fn get_terminal_width() -> usize {
-    #[cfg(unix)]
-    {
-        unsafe {
-            let mut ws: libc::winsize = std::mem::zeroed();
-            if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 {
-                return ws.ws_col as usize;
-            }
-        }
-    }
-    std::env::var("COLUMNS")
-        .ok()
-        .and_then(|c| c.parse::<usize>().ok())
-        .unwrap_or(80)
+    terminal::size().map(|(width, _)| usize::from(width)).ok().filter(|v| *v > 0)
+        .or_else(|| std::env::var("COLUMNS").ok()?.parse().ok()).unwrap_or(80)
 }
 
 pub fn get_terminal_height() -> usize {
-    #[cfg(unix)]
-    {
-        unsafe {
-            let mut ws: libc::winsize = std::mem::zeroed();
-            if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_row > 0 {
-                return ws.ws_row as usize;
-            }
-        }
-    }
-    std::env::var("LINES")
-        .ok()
-        .and_then(|c| c.parse::<usize>().ok())
-        .unwrap_or(24)
+    terminal::size().map(|(_, height)| usize::from(height)).ok().filter(|v| *v > 0)
+        .or_else(|| std::env::var("LINES").ok()?.parse().ok()).unwrap_or(24)
 }
 
 pub fn truncate_display_width(s: &str, max_w: usize) -> String {
@@ -487,9 +466,9 @@ pub(crate) fn progress_bar(percentage: i32, width: usize) -> String {
     }
     let empty = width.saturating_sub(filled);
 
-    let color = if clamped > 50 {
+    let color = if clamped > 60 {
         "\x1b[32m" // green
-    } else if clamped > 20 {
+    } else if clamped >= 20 {
         "\x1b[33m" // yellow
     } else {
         "\x1b[31m" // red
@@ -531,129 +510,68 @@ fn format_cost(usd: Option<f64>, lang: Lang) -> String {
 }
 
 fn open_browser(url: &str) {
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(url).spawn();
-    #[cfg(target_os = "linux")]
-    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
-    #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
-        .spawn();
+    let _ = tauri_plugin_opener::open_url(url, None::<&str>);
 }
 
-#[cfg(unix)]
 struct AlternateScreenGuard;
-
-#[cfg(unix)]
 impl AlternateScreenGuard {
     fn enter() -> Option<Self> {
-        unsafe {
-            if libc::isatty(libc::STDIN_FILENO) == 1 && libc::isatty(libc::STDOUT_FILENO) == 1 {
-                print!("\x1b[?1049h\x1b[2J\x1b[H");
-                let _ = io::stdout().flush();
-                Some(Self)
-            } else {
-                None
-            }
-        }
+        if !super::is_tty() { return None; }
+        execute!(io::stdout(), terminal::EnterAlternateScreen, terminal::Clear(terminal::ClearType::All), cursor::MoveTo(0, 0)).ok()?;
+        Some(Self)
     }
 }
-
-#[cfg(unix)]
 impl Drop for AlternateScreenGuard {
-    fn drop(&mut self) {
-        unsafe {
-            let seq = b"\x1b[?1049l\x1b[?25h";
-            let _ = libc::write(libc::STDOUT_FILENO, seq.as_ptr() as *const libc::c_void, seq.len());
-        }
-    }
+    fn drop(&mut self) { let _ = execute!(io::stdout(), terminal::LeaveAlternateScreen, cursor::Show); }
 }
 
-#[cfg(unix)]
-struct RawTerminal {
-    orig: libc::termios,
-}
-
-#[cfg(unix)]
+struct RawTerminal;
 impl RawTerminal {
     fn enter() -> Option<Self> {
+        if !super::is_tty() { return None; }
+        terminal::enable_raw_mode().ok()?;
+        // The existing renderer uses normal newlines as well as explicit cursor moves.
+        #[cfg(unix)]
         unsafe {
-            if libc::isatty(libc::STDIN_FILENO) != 1 || libc::isatty(libc::STDOUT_FILENO) != 1 {
-                return None;
+            let mut raw = std::mem::zeroed();
+            if libc::tcgetattr(libc::STDIN_FILENO, &mut raw) == 0 {
+                raw.c_oflag |= libc::OPOST | libc::ONLCR;
+                let _ = libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw);
             }
-            let mut orig = std::mem::zeroed();
-            if libc::tcgetattr(libc::STDIN_FILENO, &mut orig) != 0 {
-                return None;
-            }
-            let mut raw = orig;
-            libc::cfmakeraw(&mut raw);
-            raw.c_oflag |= libc::OPOST | libc::ONLCR;
-            raw.c_cc[libc::VMIN] = 0;
-            raw.c_cc[libc::VTIME] = 1; // 100ms
-            if libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw) != 0 {
-                return None;
-            }
-            Some(Self { orig })
         }
+        Some(Self)
     }
 }
-
-#[cfg(unix)]
 impl Drop for RawTerminal {
     fn drop(&mut self) {
-        unsafe {
-            libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.orig);
-            let seq = b"\x1b[?25h";
-            let _ = libc::write(libc::STDOUT_FILENO, seq.as_ptr() as *const libc::c_void, seq.len());
-        }
+        let _ = terminal::disable_raw_mode();
+        let _ = execute!(io::stdout(), cursor::Show);
     }
 }
 
-enum KeyAction {
-    Up,
-    Down,
-    Enter,
-    Cancel,
-    SelectIndex(usize),
-    Char(char),
-    None,
+#[derive(Debug, PartialEq)]
+enum KeyAction { Up, Down, Enter, Cancel, SelectIndex(usize), Char(char), None }
+fn key_action(key: KeyEvent) -> KeyAction {
+    if key.kind == KeyEventKind::Release { return KeyAction::None; }
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') { return KeyAction::Cancel; }
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k' | 'K') => KeyAction::Up,
+        KeyCode::Down | KeyCode::Char('j' | 'J') => KeyAction::Down,
+        KeyCode::Enter | KeyCode::Right => KeyAction::Enter,
+        KeyCode::Esc | KeyCode::Left | KeyCode::Char('q' | 'Q') => KeyAction::Cancel,
+        KeyCode::Char(c @ '1'..='9') => KeyAction::SelectIndex((c as u8 - b'1') as usize),
+        KeyCode::Tab => KeyAction::Char('\t'),
+        KeyCode::Char(c) => KeyAction::Char(c),
+        _ => KeyAction::None,
+    }
 }
-
-#[cfg(unix)]
 fn read_key_action() -> KeyAction {
-    let mut byte = [0u8; 1];
-    let mut stdin = io::stdin();
-
     loop {
-        match stdin.read(&mut byte) {
-            Ok(1) => break,
-            Ok(0) => continue,
-            _ => return KeyAction::Cancel,
+        match event::read() {
+            Ok(Event::Key(key)) => return key_action(key),
+            Ok(_) => continue,
+            Err(_) => return KeyAction::Cancel,
         }
-    }
-
-    match byte[0] {
-        b'\r' | b'\n' => KeyAction::Enter,
-        b'\x03' | b'q' | b'Q' => KeyAction::Cancel,
-        b'k' | b'K' => KeyAction::Up,
-        b'j' | b'J' => KeyAction::Down,
-        b'0' => KeyAction::Char('0'),
-        b'1'..=b'9' => KeyAction::SelectIndex((byte[0] - b'1') as usize),
-        b'\x1b' => {
-            let mut seq = [0u8; 2];
-            match stdin.read(&mut seq[0..1]) {
-                Ok(1) if seq[0] == b'[' || seq[0] == b'O' => match stdin.read(&mut seq[1..2]) {
-                    Ok(1) => match seq[1] {
-                        b'A' => KeyAction::Up,
-                        b'B' => KeyAction::Down,
-                        _ => KeyAction::None,
-                    },
-                    _ => KeyAction::Cancel,
-                },
-                _ => KeyAction::Cancel,
-            }
-        }
-        b => KeyAction::Char(b as char),
     }
 }
 
@@ -669,111 +587,31 @@ fn prompt_input(prompt: &str, max_chars: usize, secret: bool) -> PromptResult {
     print!("{}", prompt);
     let _ = io::stdout().flush();
 
-    #[cfg(unix)]
-    {
-        if let Some(raw) = RawTerminal::enter() {
-            let mut buffer = String::new();
-            let mut stdin = io::stdin();
-            let mut stdout = io::stdout();
-
-            let _ = write!(stdout, "\x1b[?25h");
-            let _ = stdout.flush();
-
-            loop {
-                let mut byte = [0u8; 1];
-                match stdin.read(&mut byte) {
-                    Ok(1) => {}
-                    Ok(0) => continue,
-                    _ => {
-                        drop(raw);
-                        return PromptResult::Cancelled;
+    if let Some(_raw) = RawTerminal::enter() {
+        let mut buffer = String::new();
+        loop {
+            let key = match event::read() {
+                Ok(Event::Key(key)) if key.kind != KeyEventKind::Release => key,
+                Ok(_) => continue,
+                Err(_) => return PromptResult::Cancelled,
+            };
+            if key.code == KeyCode::Esc || (key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c')) {
+                println!(); return PromptResult::Cancelled;
+            }
+            match key.code {
+                KeyCode::Enter => { println!(); return PromptResult::Confirmed(buffer.trim().to_string()); }
+                KeyCode::Backspace => {
+                    if let Some(c) = buffer.pop() {
+                        let width = if secret { 1 } else { display_width(&c.to_string()) };
+                        let _ = execute!(io::stdout(), cursor::MoveLeft(width as u16), terminal::Clear(terminal::ClearType::UntilNewLine));
                     }
                 }
-
-                match byte[0] {
-                    b'\r' | b'\n' => {
-                        let _ = writeln!(stdout);
-                        let _ = stdout.flush();
-                        drop(raw);
-                        return PromptResult::Confirmed(buffer.trim().to_string());
-                    }
-                    b'\x03' => {
-                        let _ = writeln!(stdout);
-                        let _ = stdout.flush();
-                        drop(raw);
-                        return PromptResult::Cancelled;
-                    }
-                    b'\x1b' => {
-                        let mut seq = [0u8; 2];
-                        match stdin.read(&mut seq[0..1]) {
-                            Ok(1) if seq[0] == b'[' || seq[0] == b'O' => {
-                                let _ = stdin.read(&mut seq[1..2]);
-                                continue;
-                            }
-                            _ => {
-                                let _ = writeln!(stdout);
-                                let _ = stdout.flush();
-                                drop(raw);
-                                return PromptResult::Cancelled;
-                            }
-                        }
-                    }
-                    b'\x08' | 127 => {
-                        if let Some(c) = buffer.pop() {
-                            let w = if secret { 1 } else { display_width(&c.to_string()) };
-                            if w > 0 {
-                                let _ = write!(stdout, "\x1b[{}D\x1b[K", w);
-                                let _ = stdout.flush();
-                            }
-                        }
-                    }
-                    b => {
-                        if b >= 32 || b >= 0x80 {
-                            let char_len = if b < 0x80 {
-                                1
-                            } else if (b & 0xE0) == 0xC0 {
-                                2
-                            } else if (b & 0xF0) == 0xE0 {
-                                3
-                            } else if (b & 0xF8) == 0xF0 {
-                                4
-                            } else {
-                                1
-                            };
-
-                            let mut char_bytes = vec![b];
-                            if char_len > 1 {
-                                let mut rest = vec![0u8; char_len - 1];
-                                let mut read_so_far = 0;
-                                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(300);
-                                while read_so_far < rest.len() && std::time::Instant::now() < deadline {
-                                    match stdin.read(&mut rest[read_so_far..]) {
-                                        Ok(0) => {
-                                            std::thread::sleep(std::time::Duration::from_millis(5));
-                                        }
-                                        Ok(n) => {
-                                            read_so_far += n;
-                                        }
-                                        Err(_) => break,
-                                    }
-                                }
-                                if read_so_far == rest.len() {
-                                    char_bytes.extend(rest);
-                                }
-                            }
-
-                            if let Ok(s) = std::str::from_utf8(&char_bytes) {
-                                if let Some(c) = s.chars().next() {
-                                    if max_chars == 0 || buffer.chars().count() < max_chars {
-                                        buffer.push(c);
-                                        let _ = write!(stdout, "{}", if secret { '*' } else { c });
-                                        let _ = stdout.flush();
-                                    }
-                                }
-                            }
-                        }
+                KeyCode::Char(c) if !c.is_control() && !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+                    if max_chars == 0 || buffer.chars().count() < max_chars {
+                        buffer.push(c); print!("{}", if secret { '*' } else { c }); let _ = io::stdout().flush();
                     }
                 }
+                _ => {}
             }
         }
     }
@@ -795,7 +633,6 @@ fn wait_for_key(lang: Lang) {
     };
     print!("\n\x1b[2m{}\x1b[0m", msg);
     let _ = io::stdout().flush();
-    #[cfg(unix)]
     {
         if let Some(_raw) = RawTerminal::enter() {
             let _ = read_key_action();
@@ -813,7 +650,6 @@ pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize, lang
         return None;
     }
 
-    #[cfg(unix)]
     {
         if let Some(_raw) = RawTerminal::enter() {
             let mut selected = initial.min(items.len() - 1);
@@ -1103,7 +939,6 @@ pub fn select_account_interactive<'a>(
         return None;
     }
 
-    #[cfg(unix)]
     {
         if let Some(_raw) = RawTerminal::enter() {
             let mut selected = accounts.iter().position(|a| a.is_current).unwrap_or(0);
@@ -1326,7 +1161,6 @@ pub fn format_token_stats_human(
 }
 
 pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
-    #[cfg(unix)]
     let _alt_screen = AlternateScreenGuard::enter();
 
     loop {
@@ -1439,7 +1273,6 @@ fn select_account_hub_action(
     selected: &mut usize,
     lang: Lang,
 ) -> HubAction {
-    #[cfg(unix)]
     {
         if let Some(_raw) = RawTerminal::enter() {
             let mut stdout = io::stdout();
@@ -2096,8 +1929,7 @@ fn show_token_statistics(lang: Lang) {
             let _ = io::stdout().flush();
         }
 
-        #[cfg(unix)]
-        {
+            {
             if let Some(_raw) = RawTerminal::enter() {
                 match read_key_action() {
                     KeyAction::Char('m') | KeyAction::Char('M') | KeyAction::Char('\t') => {
@@ -2115,10 +1947,6 @@ fn show_token_statistics(lang: Lang) {
             } else {
                 break;
             }
-        }
-        #[cfg(not(unix))]
-        {
-            break;
         }
     }
 }
@@ -2734,6 +2562,17 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
 #[cfg(test)]
 mod presentation_tests {
     use super::*;
+    #[test]
+    fn keyboard_navigation_is_identical_across_platforms() {
+        for (code, expected) in [(KeyCode::Up, KeyAction::Up), (KeyCode::Down, KeyAction::Down),
+            (KeyCode::Left, KeyAction::Cancel), (KeyCode::Right, KeyAction::Enter),
+            (KeyCode::Esc, KeyAction::Cancel), (KeyCode::Enter, KeyAction::Enter),
+            (KeyCode::Char('2'), KeyAction::SelectIndex(1))] {
+            assert_eq!(key_action(KeyEvent::new(code, KeyModifiers::NONE)), expected);
+        }
+        assert_eq!(key_action(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)), KeyAction::Cancel);
+        assert_eq!(key_action(KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Release)), KeyAction::None);
+    }
     #[test]
     fn unpriced_costs_are_localized_and_never_reported_as_free() {
         assert_eq!(format_cost(None, Lang::Zh), "未计价");

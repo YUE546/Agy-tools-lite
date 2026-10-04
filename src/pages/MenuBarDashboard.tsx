@@ -9,9 +9,10 @@ import { aggregateMenuBar, menuBarAccount, quotaDisplay, type MenuBarSnapshot, t
 import { MenuBarSwitchDetails, useMenuBarSwitchStatus } from '../components/menubar/LowQuotaStatus';
 import '../components/menubar/MenuBarDashboard.css';
 import { DEFAULT_MENU_BAR_PREFERENCES, menuBarResetTimeDisplay, type MenuBarPreferences } from '../types/config';
+import logo from '../assets/logo.png';
 import { quotaTone } from '../utils/menuBarOverview';
 
-interface Appearance { native_material: boolean; reduced_transparency: boolean; high_contrast: boolean; material_kind?: string }
+interface Appearance { platform?: string; native_material: boolean; reduced_transparency: boolean; high_contrast: boolean; material_kind?: string }
 interface Usage { today: { input_tokens: number; output_tokens: number; cached_tokens: number; total_tokens: number; request_count: number }; estimated_usd: number | null; unpriced_models: number; pricing_stale: boolean; incomplete: boolean }
 function UsageOverview({ usage, zh }: { usage: Usage | null; zh: boolean }) {
   const values = usage ? [usage.today.input_tokens, usage.today.output_tokens, usage.today.cached_tokens] : [0, 0, 0];
@@ -125,7 +126,7 @@ export default function MenuBarDashboard() {
     if (!content.current) return;
     const element = content.current;
     const measure = () => { const accountArea = element.querySelector('.mb-accounts');
-      if (accountArea) setCapacity(Math.max(1, Math.floor((accountArea.clientHeight + 6) / 80))); };
+      if (accountArea) { const row = accountArea.querySelector('.mb-account-row'); const rowHeight = row ? row.getBoundingClientRect().height + parseFloat(getComputedStyle(row).marginBottom) : 86; setCapacity(Math.max(1, Math.floor((accountArea.clientHeight + 6) / rowHeight))); } };
     const observer = new ResizeObserver(measure); observer.observe(element); measure();
     return () => observer.disconnect();
   }, [detail, loading, snapshot?.accounts.length]);
@@ -159,9 +160,9 @@ export default function MenuBarDashboard() {
   const pager = (index: number, total: number, update: (page: number) => void) => <nav className="mb-pagination" aria-label={zh ? '分页' : 'Pagination'}>
     <button aria-label={zh ? '上一页' : 'Previous page'} disabled={index === 0} onClick={() => update(index - 1)}><ChevronLeft size={13} /></button><span>{index + 1} / {total}</span><button aria-label={zh ? '下一页' : 'Next page'} disabled={index + 1 >= total} onClick={() => update(index + 1)}><ChevronRight size={13} /></button>
   </nav>;
-  return <div className={'menubar-app ' + (appearance?.native_material ? 'native-material' : 'opaque-material') + (appearance?.high_contrast ? ' high-contrast' : '')} data-material={appearance?.material_kind || (appearance?.native_material ? 'vibrancy' : 'opaque')}>
+  return <div className={'menubar-app ' + (appearance?.native_material ? 'native-material' : 'opaque-material') + (appearance?.high_contrast ? ' high-contrast' : '')} data-language={zh ? 'zh' : 'en'} data-platform={appearance?.platform || 'unknown'} data-material={appearance?.material_kind || (appearance?.native_material ? 'vibrancy' : 'opaque')}>
     <header className="mb-header">
-      <div><span className="mb-eyebrow">AntiGravity tool lite</span>{detail && <h1>{zh ? '自动切号' : 'Auto-switch'}</h1>}</div>
+      <div className="mb-brand">{preferences.show_icons && <img src={logo} alt="" width="24" height="24" />}<div><span className="mb-eyebrow">AntiGravity tool lite</span>{detail && <h1>{zh ? '智能切换' : 'Auto-switch'}</h1>}</div></div>
       <div className="mb-header-actions">{detail && <button aria-label={zh ? '返回总览' : 'Back to overview'} onClick={() => setDetail(null)}><ArrowLeft size={16} /></button>}<button aria-label={zh ? '刷新全部额度' : 'Refresh all quotas'} disabled={busy || loading} onClick={() => void refresh()}><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /></button><button aria-label={zh ? '偏好设置' : 'Settings'} onClick={() => openPage('settings')}><Settings size={16} /></button></div>
     </header>
     {!detail && <UsageOverview usage={usage} zh={zh} />}
@@ -176,6 +177,7 @@ export default function MenuBarDashboard() {
     <div className="mb-content" ref={content}>
       {detail === 'switch' ? <MenuBarSwitchDetails state={lowQuota} openSettings={() => openPage('settings')} /> : <>
         <div className="mb-account-heading"><strong>{zh ? '账号列表' : 'Accounts'}</strong><span>{zh ? accounts.length + ' 个账号' : accounts.length + ' accounts'}</span></div>
+        <div className="mb-family-heading">{families.map(family => <span key={family}>{family === 'gemini' ? zh ? 'Gemini 系列' : 'Gemini' : zh ? 'Claude 和 GPT 系列' : 'Claude & GPT'}</span>)}</div>
         <div className="mb-accounts">{loading ? <div className="mb-empty"><Loader2 size={18} className="animate-spin" />{zh ? '正在读取' : 'Loading'}</div> : !accounts.length ? <div className="mb-empty">{error ? zh ? '暂无可读取的数据' : 'Data unavailable' : zh ? '添加账号后显示额度' : 'Add accounts to see quotas'}<button onClick={() => openPage('accounts')}>{zh ? '管理账号' : 'Manage accounts'}</button></div> : visible.map(view => {
           const account = view.account; const current = account.id === snapshot?.current_account_id;
           const label = account.custom_label || account.name || account.email.split('@')[0];
@@ -188,7 +190,7 @@ export default function MenuBarDashboard() {
       </>}
     </div>
     <footer className="mb-footer">
-      <div className="mb-footer-actions"><button onClick={() => openPage('dashboard')}><BarChart3 size={13} />{zh ? '用量看板' : 'Usage dashboard'}</button><button onClick={() => openPage('accounts')}><Users size={13} />{zh ? '管理账号' : 'Accounts'}</button><button aria-label="GitHub" onClick={() => void request('plugin:opener|open_url', { url: 'https://github.com/anglee0323/antigravity-tools-lite' })}><ExternalLink size={14} /></button><button aria-label={zh ? '退出应用' : 'Quit'} onClick={() => void request('quit_app')}><LogOut size={14} /></button></div>
+      <div className="mb-footer-actions"><button onClick={() => openPage('dashboard')}>{preferences.show_icons && <BarChart3 size={13} />}{zh ? '用量看板' : 'Usage dashboard'}</button><button onClick={() => openPage('accounts')}>{preferences.show_icons && <Users size={13} />}{zh ? '管理账号' : 'Accounts'}</button><button aria-label="GitHub" onClick={() => void request('open_project_page')}>{preferences.show_icons ? <ExternalLink size={14} /> : 'GitHub'}</button><button aria-label={zh ? '退出应用' : 'Quit'} onClick={() => void request('quit_app')}>{preferences.show_icons ? <LogOut size={14} /> : zh ? '退出' : 'Quit'}</button></div>
     </footer>
   </div>;
 }
