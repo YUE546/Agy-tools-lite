@@ -28,7 +28,9 @@ export function packageNames(version) {
   releaseVersion(`v${version}`);
   return [`Antigravity-Tools-Lite-${version}-macos-arm64.zip`,
     `Antigravity-Tools-Lite-${version}-windows-x64-setup.exe`,
-    `Antigravity-Tools-Lite-${version}-linux-amd64.deb`];
+    `Antigravity-Tools-Lite-${version}-linux-amd64.deb`,
+    `agy-switch-${version}-windows-x64.zip`,
+    `agy-switch-${version}-linux-amd64.tar.gz`];
 }
 
 export function sha256(file) { return createHash('sha256').update(readFileSync(file)).digest('hex'); }
@@ -44,7 +46,7 @@ export function verifyAssets(directory, { tag, repository }) {
   const packages = packageNames(version);
   const expected = [...packages, ...packages.map(p => `${p}.sha256`), 'antigravity-tools-lite.rb'].sort();
   const actual = readdirSync(directory).filter(name => name !== 'release-manifest.json').sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Release must contain exactly all three packages, their checksums, and the generated cask');
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Release must contain exactly all desktop and CLI packages, their checksums, and the generated cask');
   for (const name of packages) {
     const digest = sha256(join(directory, name));
     if (readFileSync(join(directory, `${name}.sha256`), 'utf8') !== `${digest}  ${name}\n`) throw new Error(`Checksum mismatch: ${name}`);
@@ -72,7 +74,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     else if (command === 'checksum' && args.length === 1) writeChecksum(args[0]);
     else if (command === 'verify' && args.length === 4) {
       writeManifest(args[0], { tag: args[1], commit: args[2], repository: args[3] });
-      console.log('Verified all three packages, checksums, generated cask and source manifest; no publication performed');
+      console.log('Verified all desktop and CLI packages, checksums, generated cask and source manifest; no publication performed');
     } else throw new Error('Usage: release-assets.mjs source TAG | checksum FILE | verify DIRECTORY TAG COMMIT OWNER/REPOSITORY');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

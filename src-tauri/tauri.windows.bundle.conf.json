@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "target/release/agy-switch.exe": "agy-switch.exe"
+    }
+  }
+}

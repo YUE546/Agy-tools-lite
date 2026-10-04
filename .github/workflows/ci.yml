@@ -82,6 +82,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: native-platform-build-${{ matrix.platform }}
+          cache-on-failure: true
+
       - name: Test CLI child-process stdio isolation
         run: node scripts/test-cli-launch.mjs
 
