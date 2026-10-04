@@ -1,6 +1,10 @@
 import { Bot, BrainCircuit, Sparkles } from 'lucide-react';
 import type { ModelQuota } from '../types/account';
-import { getModelProtectionKey } from '../utils/modelCategory';
+import {
+    getModelProtectionKey,
+    getCanonicalModelKey,
+    getCanonicalModelDisplayName,
+} from '../utils/modelCategory';
 
 const Gemini = { Color: Sparkles };
 const Claude = { Color: BrainCircuit };
@@ -347,6 +351,10 @@ export {
     categorizeModel,
     getModelProtectionKey,
     getModelDisplayName,
+    getCanonicalModelKey,
+    getCanonicalModelDisplayName,
+    getCanonicalModelSublabel,
+    getCanonicalModelTag,
     findQuotaModel,
     findImageQuotaModel,
     ensurePinnedImageSelector,
@@ -357,8 +365,8 @@ export {
 } from '../utils/modelCategory';
 
 export const DEFAULT_PINNED_MODELS: string[] = [
-    'gemini-3.1-pro-high',
-    'gemini-3.8-flash-high',
+    'gemini-3.1-pro',
+    'gemini-3.8-flash',
     'claude-sonnet-4-6',
 ];
 
@@ -372,88 +380,65 @@ export interface DisplayQuotaModelItem {
 
 /**
  * 获取卡片与表格统一展示的模型列表
- * 严格对齐用户配置的 pinnedConfigIds 决定显示项，选多少个就展示多少个，绝不折叠或丢弃任何合法模型
+ * 智能折叠同模型的不同档位（如 High/Medium/Low），同系列合并展示，确保前台越简洁越好且不遗漏
  */
 export function getDisplayQuotaModels(
     accountModels: ModelQuota[] | undefined,
     pinnedConfigIds: string[] | undefined
 ): DisplayQuotaModelItem[] {
-    const pinned = (pinnedConfigIds && pinnedConfigIds.length > 0)
+    const rawPinned = (pinnedConfigIds && pinnedConfigIds.length > 0)
         ? pinnedConfigIds
         : DEFAULT_PINNED_MODELS;
 
-    const lowerAccountModelsMap = new Map<string, ModelQuota>();
+    // 1. 归一化并去重用户勾选的主模型 Key 列表
+    const pinnedKeys: string[] = [];
+    for (const selectorId of rawPinned) {
+        const canon = getCanonicalModelKey(selectorId);
+        if (canon && !pinnedKeys.includes(canon)) {
+            pinnedKeys.push(canon);
+        }
+    }
+
+    // 2. 将账号的实际模型按主模型 Key 汇聚（若存在多个档位，择优选取 High 或有效项）
+    const accountCanonMap = new Map<string, ModelQuota>();
     for (const m of (accountModels || [])) {
-        if (m.name) {
-            lowerAccountModelsMap.set(m.name.toLowerCase().trim(), m);
+        if (!m.name) continue;
+        const canon = getCanonicalModelKey(m.name);
+        const existing = accountCanonMap.get(canon);
+        if (!existing) {
+            accountCanonMap.set(canon, m);
+        } else {
+            const mLower = m.name.toLowerCase();
+            const exLower = existing.name.toLowerCase();
+            if (mLower.includes('high') && !exLower.includes('high')) {
+                accountCanonMap.set(canon, m);
+            }
         }
     }
 
     const results: DisplayQuotaModelItem[] = [];
 
-    for (const selectorId of pinned) {
-        const normId = selectorId.toLowerCase().trim();
-        // 1. 优先从账号真实配额中按名字精确查找
-        let rawModel = lowerAccountModelsMap.get(normId);
+    for (const canonKey of pinnedKeys) {
+        const rawModel = accountCanonMap.get(canonKey);
+        const label = getCanonicalModelDisplayName(canonKey);
+        const protectedKey = getModelProtectionKey(canonKey) || canonKey;
 
-        // 2. 如果账号中没有完全同名项，再通过轻度归一化查找兼容别名
-        if (!rawModel) {
-            for (const [accName, accModel] of lowerAccountModelsMap.entries()) {
-                if (accName === normId || accName.replace(/-/g, '') === normId.replace(/-/g, '')) {
-                    rawModel = accModel;
-                    break;
-                }
-            }
+        let Icon = Gemini.Color;
+        if (canonKey.includes('claude')) {
+            Icon = Claude.Color;
+        } else if (canonKey.includes('gpt') || canonKey.includes('oss')) {
+            Icon = OpenAI.Avatar;
         }
 
-        const conf = MODEL_CONFIG[normId] || (rawModel?.name ? MODEL_CONFIG[rawModel.name.toLowerCase()] : undefined);
-
-        const formatName = (str: string) => {
-            return str
-                .split('-')
-                .map(part => {
-                    const p = part.toLowerCase();
-                    if (p === 'gpt') return 'GPT';
-                    if (p === 'oss') return 'OSS';
-                    if (p === 'high') return '(High)';
-                    if (p === 'low') return '(Low)';
-                    if (p === 'medium') return '(Medium)';
-                    if (p === 'thinking') return '(Thinking)';
-                    return part.charAt(0).toUpperCase() + part.slice(1);
-                })
-                .join(' ')
-                .replace(/\s+\(/g, ' (');
-        };
-
-        const fallbackLabel = formatName(normId);
-
-        // 仅在明确具备可读显示名时采纳，避免原始全小写连字符透传
-        const cleanDisplayName = rawModel?.display_name && rawModel.display_name !== rawModel.name && !rawModel.display_name.includes('-')
-            ? rawModel.display_name
-            : undefined;
-
-        const label = cleanDisplayName
-            || conf?.label
-            || conf?.shortLabel
-            || (rawModel?.display_name ? formatName(rawModel.display_name) : undefined)
-            || (rawModel?.name ? formatName(rawModel.name) : undefined)
-            || fallbackLabel;
-
-        const protectedKey = getModelProtectionKey(rawModel?.name || selectorId)
-            || conf?.protectedKey
-            || selectorId;
-
-        const Icon = conf?.Icon || (normId.includes('claude') ? Claude.Color : normId.includes('gemini') ? Gemini.Color : Bot);
-
         results.push({
-            id: rawModel?.name || selectorId,
+            id: canonKey,
             label,
             protectedKey,
             Icon,
-            data: rawModel || ({ name: selectorId, percentage: 0 } as ModelQuota),
+            data: rawModel || ({ name: canonKey, percentage: 0 } as ModelQuota),
         });
     }
 
-    return sortModels(results);
+    return results;
 }
 

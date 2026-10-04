@@ -280,7 +280,10 @@ function Settings() {
                             <div>
                                 <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100">
                                     <RefreshCw className="h-4 w-4 text-blue-500" />
-                                    {t('local_settings.auto_refresh')}
+                                    <span>{t('local_settings.auto_refresh')}</span>
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                                        {t('local_settings.auto_refresh_badge', '推荐开启')}
+                                    </span>
                                 </div>
                                 <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
                                     {t('local_settings.auto_refresh_desc')}
@@ -310,7 +313,10 @@ function Settings() {
                             <div>
                                 <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100">
                                     <Database className="h-4 w-4 text-emerald-500" />
-                                    {t('local_settings.auto_sync')}
+                                    <span>{t('local_settings.auto_sync')}</span>
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-slate-800 dark:text-gray-300">
+                                        {t('local_settings.auto_sync_badge', '可选 · 默认关闭')}
+                                    </span>
                                 </div>
                                 <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
                                     {t('local_settings.auto_sync_desc')}

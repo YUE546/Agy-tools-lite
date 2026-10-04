@@ -1,32 +1,40 @@
 import { useMemo, useState } from 'react';
-import { Bot, BrainCircuit, Check, RefreshCw, Sparkles } from 'lucide-react';
+import { Bot, BrainCircuit, Check, RefreshCw, RotateCcw, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useAccountStore } from '../../stores/useAccountStore';
-import { DEFAULT_PINNED_MODELS, MODEL_CONFIG, getModelSortWeight } from '../../config/modelConfig';
-import { getModelDisplayName } from '../../utils/modelCategory';
+import {
+    DEFAULT_PINNED_MODELS,
+    getModelSortWeight,
+    getCanonicalModelKey,
+    getCanonicalModelDisplayName,
+    getCanonicalModelSublabel,
+    getCanonicalModelTag,
+} from '../../config/modelConfig';
 import { showToast } from '../common/ToastContainer';
 
 interface ModelOption {
     id: string;
     label: string;
+    sublabel?: string;
     group: 'gemini' | 'claude' | 'other';
     iconType: 'gemini' | 'claude' | 'bot';
     tag?: string;
 }
 
-// 兜底基准模型
-const BASELINE_MODELS: ModelOption[] = [
-    { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', group: 'gemini', iconType: 'gemini', tag: 'PRO' },
-    { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)', group: 'gemini', iconType: 'gemini', tag: 'FLASH' },
-    { id: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image', group: 'gemini', iconType: 'gemini', tag: 'IMAGE' },
-    { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', group: 'gemini', iconType: 'gemini', tag: 'LITE' },
+// 兜底基准主模型（已预先归并多档位）
+const BASELINE_CANONICAL_MODELS: ModelOption[] = [
+    { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', group: 'gemini', iconType: 'gemini', tag: 'PRO', sublabel: '涵盖 Pro Agent · High · Low' },
+    { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', group: 'gemini', iconType: 'gemini', tag: 'FLASH', sublabel: '涵盖 High · Medium · Low' },
+    { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', group: 'gemini', iconType: 'gemini', tag: 'FLASH', sublabel: '涵盖 High · Low' },
     { id: 'gemini-3-flash', label: 'Gemini 3 Flash', group: 'gemini', iconType: 'gemini', tag: 'FLASH' },
+    { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', group: 'gemini', iconType: 'gemini', tag: 'LITE' },
     { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', group: 'gemini', iconType: 'gemini', tag: 'PRO' },
     { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', group: 'gemini', iconType: 'gemini', tag: 'FLASH' },
+    { id: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image', group: 'gemini', iconType: 'gemini', tag: 'IMAGE' },
     { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)', group: 'claude', iconType: 'claude', tag: 'SONNET' },
     { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 (Thinking)', group: 'claude', iconType: 'claude', tag: 'OPUS' },
-    { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', group: 'other', iconType: 'bot', tag: 'OPENAI' },
+    { id: 'gpt-oss-120b', label: 'GPT-OSS 120B', group: 'other', iconType: 'bot', tag: 'OPENAI' },
 ];
 
 function detectModelGroup(id: string): 'gemini' | 'claude' | 'other' {
@@ -34,18 +42,6 @@ function detectModelGroup(id: string): 'gemini' | 'claude' | 'other' {
     if (lower.includes('claude') || lower.includes('opus') || lower.includes('sonnet')) return 'claude';
     if (lower.includes('gemini') || lower.includes('imagen')) return 'gemini';
     return 'other';
-}
-
-function detectModelTag(id: string, label: string): string | undefined {
-    const combined = (id + ' ' + label).toUpperCase();
-    if (combined.includes('THINKING')) return 'THINKING';
-    if (combined.includes('IMAGE')) return 'IMAGE';
-    if (combined.includes('PRO')) return 'PRO';
-    if (combined.includes('FLASH')) return 'FLASH';
-    if (combined.includes('LITE')) return 'LITE';
-    if (combined.includes('OPUS')) return 'OPUS';
-    if (combined.includes('SONNET')) return 'SONNET';
-    return undefined;
 }
 
 interface ModelDisplaySettingsProps {
@@ -60,44 +56,42 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
     const refreshAllQuotas = useAccountStore(state => state.refreshAllQuotas);
     const [isRefreshing, setIsRefreshing] = useState(false);
 
-    // 当前用户勾选的模型列表
+    // 当前用户勾选的主模型列表（标准化去重）
     const currentPinned = useMemo(() => {
         const configured = config?.pinned_quota_models?.models;
-        if (configured && configured.length > 0) return configured;
-        return DEFAULT_PINNED_MODELS;
+        const source = (configured && configured.length > 0) ? configured : DEFAULT_PINNED_MODELS;
+        return Array.from(new Set(source.map(getCanonicalModelKey)));
     }, [config?.pinned_quota_models?.models]);
 
-    // 实时从所有账号中提取真实活跃模型
+    // 实时从所有账号中提取真实活跃的主模型（自动去重归并同系列 High/Medium/Low 档位）
     const allModels = useMemo(() => {
         const map = new Map<string, ModelOption>();
 
-        // 1. 优先提取当前所有账号真实返回的活跃模型列表
+        // 1. 优先提取当前所有账号真实返回的活跃主模型
         for (const account of accounts) {
             for (const m of account.quota?.models || []) {
                 if (!m.name) continue;
-                const id = m.name;
-                const norm = id.toLowerCase();
-                if (!map.has(norm)) {
-                    const cfg = MODEL_CONFIG[norm];
-                    const label = m.display_name || cfg?.label || getModelDisplayName(m) || id;
-                    const group = detectModelGroup(id);
+                const canonKey = getCanonicalModelKey(m.name);
+                if (!map.has(canonKey)) {
+                    const label = getCanonicalModelDisplayName(canonKey);
+                    const group = detectModelGroup(canonKey);
                     const iconType: ModelOption['iconType'] = group === 'claude' ? 'claude' : group === 'gemini' ? 'gemini' : 'bot';
-                    map.set(norm, {
-                        id,
+                    map.set(canonKey, {
+                        id: canonKey,
                         label,
                         group,
                         iconType,
-                        tag: detectModelTag(id, label),
+                        tag: getCanonicalModelTag(canonKey),
+                        sublabel: getCanonicalModelSublabel(canonKey),
                     });
                 }
             }
         }
 
-        // 2. 兜底补齐基准模型
-        for (const bm of BASELINE_MODELS) {
-            const norm = bm.id.toLowerCase();
-            if (!map.has(norm)) {
-                map.set(norm, bm);
+        // 2. 兜底补齐常用基准主模型
+        for (const bm of BASELINE_CANONICAL_MODELS) {
+            if (!map.has(bm.id)) {
+                map.set(bm.id, bm);
             }
         }
 
@@ -110,18 +104,18 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
         });
     }, [accounts]);
 
-    const handleToggleModel = async (modelId: string) => {
+    const handleToggleModel = async (canonKey: string) => {
         if (!config) return;
-        const exists = currentPinned.includes(modelId);
+        const exists = currentPinned.includes(canonKey);
         let next: string[];
         if (exists) {
-            next = currentPinned.filter(id => id !== modelId);
+            next = currentPinned.filter(id => id !== canonKey);
             if (next.length === 0) {
                 showToast(t('model_display.empty_tip', '请至少保留一个模型'), 'warning');
                 return;
             }
         } else {
-            next = [...currentPinned, modelId];
+            next = [...currentPinned, canonKey];
         }
 
         try {
@@ -130,6 +124,19 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
                 pinned_quota_models: { models: next }
             }, true);
             showToast(t('model_display.saved', '已更新卡片展示模型'), 'success');
+        } catch (err) {
+            showToast(String(err), 'error');
+        }
+    };
+
+    const handleResetDefault = async () => {
+        if (!config) return;
+        try {
+            await saveConfig({
+                ...config,
+                pinned_quota_models: { models: DEFAULT_PINNED_MODELS }
+            }, true);
+            showToast(t('model_display.reset_success', '已恢复默认推荐模型'), 'success');
         } catch (err) {
             showToast(String(err), 'error');
         }
@@ -201,6 +208,15 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
+                            onClick={handleResetDefault}
+                            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1"
+                            title={t('model_display.reset_default_title', '恢复为推荐的 3 个核心模型')}
+                        >
+                            <RotateCcw className="w-3 h-3 text-gray-500" />
+                            <span>{t('model_display.reset_default', '恢复推荐')}</span>
+                        </button>
+                        <button
+                            type="button"
                             onClick={handleSelectAll}
                             className="px-2.5 py-1 text-xs font-medium rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
                         >
@@ -248,9 +264,15 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
                                                         <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate" title={model.label}>
                                                             {model.label}
                                                         </div>
-                                                        <div className="text-[10px] font-mono text-gray-400 dark:text-gray-500 truncate" title={model.id}>
-                                                            {model.id}
-                                                        </div>
+                                                        {model.sublabel ? (
+                                                            <div className="text-[10px] text-gray-400 dark:text-gray-500 truncate" title={model.sublabel}>
+                                                                {model.sublabel}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="text-[10px] font-mono text-gray-400 dark:text-gray-500 truncate" title={model.id}>
+                                                                {model.id}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
 
@@ -277,7 +299,7 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-gray-100 dark:border-slate-800 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                    💡 {t('model_display.hint', '勾选或取消勾选后实时保存生效。账号卡片与表格将按照你勾选的模型展示对应配额与倒计时。')}
+                    💡 {t('model_display.hint', '勾选后实时生效。已为您自动合并同系列多档位（如 High/Medium/Low），前台卡片与表格将以最简洁的合并视图监控其实际共享额度。')}
                 </div>
             </section>
 

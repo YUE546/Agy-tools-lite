@@ -249,7 +249,7 @@ export default function MenuBarDashboard() {
         } else if (cleanName.includes("claude-3-5")) {
           cleanName = "Claude 3.5 Sonnet";
         } else if (cleanName.includes("flash") && cleanName.includes("3.8")) {
-          cleanName = "Gemini 3.8 Flash (High)";
+          cleanName = "Gemini 3.8 Flash";
         } else if (cleanName.includes("flash") && cleanName.includes("image")) {
           cleanName = "Gemini 3.1 Flash Image";
         } else if (cleanName.includes("flash")) {
