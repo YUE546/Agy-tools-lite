@@ -313,12 +313,15 @@ fn remaining_single_model(q: &QuotaData, model: &str, now: i64) -> Result<f64, &
         .unwrap_or("")
         .to_ascii_lowercase()
         .contains("free");
-    let short = match short {
-        Some(v) => v,
-        None if free => 100.0,
-        None => return Err("unknown_pool"),
-    };
-    Ok(weekly.min(short).min(m.percentage as f64))
+
+    // 仅以 5 小时短周期配额为限制，不限制周线；仅在无 5h 桶的 Free 账号下回退使用周配额
+    if let Some(s) = short {
+        Ok(s.min(m.percentage as f64))
+    } else if free {
+        Ok(weekly.min(m.percentage as f64))
+    } else {
+        Err("unknown_pool")
+    }
 }
 fn usable(a: &Account) -> bool {
     !a.disabled && !a.validation_blocked && !a.quota.as_ref().is_some_and(|q| q.is_forbidden)
@@ -1433,12 +1436,12 @@ mod tests {
         assert_eq!(Target::Vscode.argument(), Some("vscode"));
     }
     #[test]
-    fn considers_both_windows_and_provider_ids_not_labels() {
-        assert_eq!(remaining(&quota(0.08, 0.8), "gemini-test", NOW), Ok(8.0));
+    fn prefers_5h_window_without_weekly_restriction() {
+        assert_eq!(remaining(&quota(0.08, 0.8), "gemini-test", NOW), Ok(80.0));
         assert_eq!(remaining(&quota(0.8, 0.08), "gemini-test", NOW), Ok(8.0));
-        assert_eq!(remaining(&quota(0.08, 0.8), "all", NOW), Ok(8.0));
+        assert_eq!(remaining(&quota(0.08, 0.8), "all", NOW), Ok(80.0));
         assert_eq!(remaining(&quota(0.8, 0.08), "", NOW), Ok(8.0));
-        assert_eq!(remaining(&quota(0.08, 0.8), "gemini", NOW), Ok(8.0));
+        assert_eq!(remaining(&quota(0.08, 0.8), "gemini", NOW), Ok(80.0));
         assert_eq!(remaining(&quota(0.08, 0.8), "claude", NOW), Err("unknown_pool"));
         let mut q = quota(0.8, 0.8);
         q.quota_groups.as_mut().unwrap()[0].buckets[0].bucket_id = "3p-weekly".into();
@@ -1489,7 +1492,7 @@ mod tests {
     fn commit_revalidates_cancel_source_config_pool_and_process() {
         let mut d = runtime(Mode::Wait);
         let p = advance_pending(&mut d, "A", "B", NOW, ProcessState::Closed);
-        let a = account_fixture("A", 0.08, 0.5);
+        let a = account_fixture("A", 0.08, 0.08);
         let mut b = account_fixture("B", 0.8, 0.8);
         let c = config(Mode::Wait);
         let validate = |d: &RuntimeData, b: &Account, current, process| {
@@ -1508,7 +1511,7 @@ mod tests {
             validate(&d, &b, Some("A"), ProcessState::Unknown),
             Err("process_unknown")
         );
-        b.quota = Some(quota(0.2, 0.9));
+        b.quota = Some(quota(0.9, 0.2));
         assert_eq!(
             validate(&d, &b, Some("A"), ProcessState::Closed),
             Err("no_candidate")
@@ -1536,7 +1539,7 @@ mod tests {
     fn expired_quota_or_recovered_source_cannot_commit() {
         let mut d = runtime(Mode::Wait);
         let p = advance_pending(&mut d, "A", "B", NOW, ProcessState::Closed);
-        let mut a = account_fixture("A", 0.08, 0.5);
+        let mut a = account_fixture("A", 0.08, 0.08);
         let b = account_fixture("B", 0.8, 0.8);
         assert_eq!(
             commit_guard(
@@ -1571,7 +1574,7 @@ mod tests {
         for mode in [Mode::Wait, Mode::Stop] {
             let home = tempfile::tempdir().unwrap();
             let session = home.path().join("native-session");
-            let a = account_fixture("A", 0.08, 0.5);
+            let a = account_fixture("A", 0.08, 0.08);
             let b = account_fixture("B", 0.8, 0.8);
             cli_credentials::write_session(&session, &cli_credentials::payload(&a.token).unwrap())
                 .unwrap();
@@ -1735,7 +1738,7 @@ mod tests {
         async fn fetch_quota(&self, a: &mut Account) -> Result<QuotaData, String> {
             let mut q = if a.id == "B" && self.low_backup.load(std::sync::atomic::Ordering::SeqCst)
             {
-                quota(0.01, 0.9)
+                quota(0.9, 0.01)
             } else {
                 a.quota.clone().unwrap()
             };
@@ -1790,7 +1793,7 @@ mod tests {
     }
     fn fixture_setup(mode: Mode) -> Runtime {
         let root = account::get_data_dir().unwrap();
-        let a = account_fixture("A", 0.08, 0.5);
+        let a = account_fixture("A", 0.08, 0.08);
         let b = account_fixture("B", 0.8, 0.8);
         account::save_account(&a).unwrap();
         account::save_account(&b).unwrap();
@@ -1919,7 +1922,7 @@ mod tests {
                 .unwrap();
             }
             account::set_current_account_id("B").unwrap();
-            account::update_account_quota("B", quota(0.08, 0.8)).unwrap();
+            account::update_account_quota("B", quota(0.8, 0.08)).unwrap();
             let b = account::load_account("B").unwrap();
             cli_credentials::write_session(
                 &account::get_data_dir().unwrap().join("fixture-native.json"),
