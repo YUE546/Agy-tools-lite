@@ -1,9 +1,9 @@
 # Generated from a release archive; do not replace SHA-256 with :no_check.
 cask "antigravity-tools-lite" do
-  version "4.7.9"
-  sha256 "e7bec8cbb1656682cb4876d1bc61948c55d97c7e9264955cb2da4a2b2a8745a9"
+  version "4.8.0"
+  sha256 "f77dadc3fb004d8f284a6d4134fb004c68ddf5c9dbde9694c808c53364544f53"
 
-  url "https://github.com/anglee0323/antigravity-tools-lite/releases/download/v4.7.9/Antigravity-Tools-Lite-4.7.9-macos-arm64.zip"
+  url "https://github.com/anglee0323/antigravity-tools-lite/releases/download/v4.8.0/Antigravity-Tools-Lite-4.8.0-macos-arm64.zip"
   name "Antigravity Tools Lite"
   desc "Antigravity account manager, local usage dashboard and agy-switch CLI"
   homepage "https://github.com/anglee0323/antigravity-tools-lite"
