@@ -59,26 +59,28 @@ Mac 菜单栏改为 `NSMenu`，按照 CodexBar 的系统字体、细进度条和
 
 ## origin 分支清单
 
-共 16 个远程分支（不含符号 HEAD）。关联已合并 PR 的分支共 13 个；建议当前草稿合并并确认无需回查后清理，但本次未删除任何分支。
+清理前共 16 个远程分支（不含符号 HEAD）。2026-10-05 按用户明确要求，已删除其中对应已合并 PR 的 13 个远程分支；清理后仅保留主线、当前工作分支和关闭未合并的 PR #2 分支。
+
+删除前逐个核验分支 head 与已合并 PR 的 head 一致，且其 merge commit 已进入 main；删除使用原子推送及精确提交号检查，避免误删核验期间发生新增提交的分支。删除后通过 GitHub API 再次确认剩余分支列表。本地主线、工作分支、代码、Release、Issue 和 PR 历史均未删除，三个外部 PR 仍开放。
 
 | 分支 | 关联状态 | 建议 |
 | --- | --- | --- |
 | `main` | 主线 | 保留 |
 | `feat/settings-category-sidebar` | PR #22，当前工作 | 保留；更新描述，等新 CI |
 | `build/reproducible-cloud-linux` | PR #2，关闭未合并 | 保留待确认；有独立历史提交 |
-| `codex/unify-native-agy-sync` | PR #3，已合并 | 可清理 |
-| `feat/app-localization-opt-in` | PR #4，已合并，功能已撤除 | 可清理 |
-| `codex/cli-homebrew` | PR #5，已合并 | 可清理 |
-| `feat/menu-bar-dashboard` | PR #6，已合并 | 可清理 |
-| `feat/safe-quota-switch` | PR #7，已合并 | 可清理 |
-| `codex/windows-release-cli-validation` | PR #8，已合并 | 可清理 |
-| `test/native-gui-acceptance` | PR #9，已合并 | 可清理 |
-| `codex/release-4.7.7-preparation` | PR #10，已合并 | 可清理 |
-| `codex/homebrew-4.7.7` | PR #13，已合并 | 可清理 |
-| `fix/macos-bundle-signature` | PR #16，已合并 | 可清理 |
-| `release/4.7.8-preparation` | PR #19，已合并 | 可清理 |
-| `chore/homebrew-4.7.8` | PR #20，已合并 | 可清理 |
-| `fix/account-dashboard-data-contract` | PR #21，已合并 | 可清理 |
+| `codex/unify-native-agy-sync` | PR #3，已合并 | 已清理远程分支 |
+| `feat/app-localization-opt-in` | PR #4，已合并，功能已撤除 | 已清理远程分支 |
+| `codex/cli-homebrew` | PR #5，已合并 | 已清理远程分支 |
+| `feat/menu-bar-dashboard` | PR #6，已合并 | 已清理远程分支 |
+| `feat/safe-quota-switch` | PR #7，已合并 | 已清理远程分支 |
+| `codex/windows-release-cli-validation` | PR #8，已合并 | 已清理远程分支 |
+| `test/native-gui-acceptance` | PR #9，已合并 | 已清理远程分支 |
+| `codex/release-4.7.7-preparation` | PR #10，已合并 | 已清理远程分支 |
+| `codex/homebrew-4.7.7` | PR #13，已合并 | 已清理远程分支 |
+| `fix/macos-bundle-signature` | PR #16，已合并 | 已清理远程分支 |
+| `release/4.7.8-preparation` | PR #19，已合并 | 已清理远程分支 |
+| `chore/homebrew-4.7.8` | PR #20，已合并 | 已清理远程分支 |
+| `fix/account-dashboard-data-contract` | PR #21，已合并 | 已清理远程分支 |
 
 最近几个修复分支经过 squash 合并，旧 head 不是 main 祖先不代表功能漏合并。三个外部 PR 来自贡献者分支，并不在这 16 个 origin 分支中。
 
