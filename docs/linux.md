@@ -1,68 +1,83 @@
-# Linux support
+# Linux delivery
 
-Linux builds use Tauri 2, GTK 3 and WebKitGTK 4.1. The first supported package is a native x86-64 `.deb`, built on Ubuntu 22.04. Other architectures and distributions need separate validation.
+Linux has two entry points: a desktop app for account management and a terminal dashboard for interactive or scripted use. The supported package baseline is x86-64 Ubuntu 22.04, with GTK3 and WebKitGTK 4.1. Both entry points share the same account store.
 
-## Install
+## Desktop installation
 
-Download or copy the `.deb` onto the target machine, then run:
-
-```bash
-sudo apt install ./Antigravity-Tools-Lite-4.7.6-linux-amd64.deb
+```sh
+sudo apt install ./Antigravity-Tools-Lite-<version>-linux-amd64.deb
+antigravity-tools-lite
 ```
 
-Open **Antigravity Tools Lite** from the application menu, or run `antigravity-tools-lite`. The Linux binary and icon names are distinct from the upstream full manager. A working desktop Secret Service is needed for Antigravity desktop account switching (GNOME Keyring or a compatible KWallet setup). CLI-only installations with an initialized agy session do not require Secret Service.
+The deb installs `antigravity-tools-lite`, its application-menu entry/icon, and `/usr/bin/agy-switch`. A desktop display and D-Bus session are needed for the GUI. Modern Antigravity APP credential switching needs an unlocked Secret Service such as GNOME Keyring. A compatible KWallet service has not been separately validated.
 
-## Build
+The main app exposes the same account, quota, usage, switching strategy, update and appearance settings as Mac. A supported tray offers Quick Dashboard; environments without a usable tray retain the main window, and closing it exits rather than hiding an inaccessible application.
 
-Docker can build without installing a Rust toolchain or development libraries on the host:
+## Terminal-only installation
 
-```bash
-./scripts/build-linux-deb.sh --docker
+Extract `agy-switch-<version>-linux-amd64.tar.gz` and install its executable into a user directory:
+
+```sh
+mkdir -p ~/.local/bin
+install -m 755 ./agy-switch ~/.local/bin/agy-switch
+~/.local/bin/agy-switch
+~/.local/bin/agy-switch accounts list --json
 ```
 
-Native Ubuntu/Debian builds need Node.js 22, stable Rust (at least 1.87), and development libraries:
+Add `~/.local/bin` to PATH if your shell does not already include it. No root access is needed for this executable installation. The desktop deb already provides the command globally.
 
-```bash
-sudo apt install build-essential git pkg-config cmake clang libclang-dev libssl-dev \
-  libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
-./scripts/build-linux-deb.sh --native
+The CLI does not initialize GTK, open a window or need DISPLAY/Wayland for cached reads and terminal interaction. It currently links the desktop runtime libraries, however. On the Ubuntu 22.04 baseline, install them through APT when absent:
+
+```sh
+sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0 libayatana-appindicator3-1
 ```
 
-Packages are written to `src-tauri/target/release/bundle/deb/`. The Docker build uses Ubuntu 22.04 so a newer host's glibc does not become an accidental requirement.
+This is a glibc binary, not a static/musl binary; package names and ABI compatibility differ on other distributions. Headless reads do not require a keyring. Authorization/refresh needs network access; browser authorization additionally needs a browser/callback route. Masked refresh-token entry is available in the terminal dashboard.
 
-## Accounts and locations
+Default `switch --target app` requires a discoverable Antigravity APP and its credential backend. It can close/relaunch that application, so it is not advertised as a server-only agy switch. A file-only session write cannot establish the active identity when clients share a credential store; the CLI intentionally rejects that fallback. The GUI retains its existing initialized-agy fallback when no APP is installed. The smart-switch background scheduler runs in the desktop app, not in a terminal command.
 
-- The desktop credential payload keeps the `service=gemini`, `username=antigravity` attributes used by Antigravity. The login collection and default collection, when distinct, are both updated and verified. Existing credentials are restored if an update fails; incomplete recovery is reported.
-- The initialized agy session at `~/.gemini/antigravity-cli/antigravity-oauth-token` is synchronized separately. Session synchronization uses an existing session directory and does not depend on the GUI process's PATH. Automatic CLI-only fallback additionally requires a discovered agy executable. Explicit CLI-only switches require an initialized session and do not touch Secret Service. The application does not create a new CLI installation or create, change or delete generic Gemini CLI OAuth files on any platform.
-- When Antigravity desktop is not installed but an initialized agy installation is found, the normal account switch updates agy without trying to restart a missing desktop application.
-- IDE configuration respects an absolute `XDG_CONFIG_HOME`, otherwise `~/.config`. Portable data and explicit `--user-data-dir` settings retain priority.
-- Executables are discovered from running processes, configured paths, absolute `PATH` entries, user-local bins and common system directories. Symlinks are resolved. Custom executables can be selected under **Settings → Application locations**.
-- Local account files and CLI session replacements use atomic writes with `0600` permissions on Unix. Existing account files are protected when next saved; this does not encrypt the app's local JSON account store.
+## Accounts and paths
+
+Tools data defaults to `~/.antigravity_tools`; `ABV_DATA_DIR` overrides it. Native agy initialization is discovered under `~/.gemini/antigravity-cli`. Generic Gemini CLI OAuth files are not changed. Absolute `XDG_CONFIG_HOME` is respected by native application discovery. Account import and native client locations are separate from the Tools data override.
+
+Quotas are cached observations. Missing windows, stale records and disabled accounts are not fabricated as 100% available. Cost estimates use known model prices; they do not measure requests that Antigravity failed to record locally.
 
 ## Desktop compatibility
 
-Linux uses an opaque window. Existing graphics overrides remain available:
+Windows are opaque. GNOME/KDE tray presentation depends on the desktop’s AppIndicator/StatusNotifier support; merely having a library installed does not prove a visible tray. Wayland restricts absolute placement and activation, so tray positioning needs validation on each compositor. A desktop without a tray is still usable through the main window.
 
-```bash
-ANTIGRAVITY_DISABLE_TRAY=1 antigravity-tools-lite
-ANTIGRAVITY_FORCE_WAYLAND=1 antigravity-tools-lite
-WEBKIT_DISABLE_DMABUF_RENDERER=1 antigravity-tools-lite
+Existing overrides remain available:
+
+- `ANTIGRAVITY_DISABLE_TRAY=1`: use the main window without a tray.
+- `ANTIGRAVITY_FORCE_TRAY=1`: explicitly request tray creation on Wayland.
+- `ANTIGRAVITY_FORCE_X11=1` / `ANTIGRAVITY_FORCE_WAYLAND=1`: select the intended backend where available.
+- `WEBKIT_DISABLE_DMABUF_RENDERER=1`: opt into the WebKit rendering workaround where required.
+
+The existing graphics policy avoids known GNOME/KDE Wayland issues when X11 is available and keeps native Wayland on wlroots-family desktops. These switches are troubleshooting controls, not a claim that every GPU/compositor has been tested.
+
+## Build
+
+```sh
+sudo apt install build-essential curl pkg-config libwebkit2gtk-4.1-dev \
+  libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
+  libssl-dev git cmake clang libclang-dev xdg-utils
+./scripts/build-linux-deb.sh --native
 ```
 
-When the tray is disabled, closing the window exits the app. A native Wayland compositor may restrict window positioning and always-on-top behavior.
+Node.js 22+ and Rust stable are also required. To keep the Ubuntu 22.04 baseline on a newer Linux host:
 
-## Validation
-
-Run the backend tests with:
-
-```bash
-cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+```sh
+./scripts/build-linux-deb.sh --docker
 ```
 
-The real Secret Service test is intentionally ignored by default. Install `dbus-x11` and `gnome-keyring`, then use the helper below. It creates a disposable HOME and a separate D-Bus session:
+The Docker helper uses the caller’s UID/GID and workspace/cache mounts; it does not publish a release or install the resulting package. Do not distribute a package built on a newer glibc as if it had the older baseline. Other architectures/distributions require their own native builds and acceptance.
 
-```bash
+## Verification
+
+CI runs headless reads, real PTY interaction, deb payload checks, GTK/WebKitGTK native window tests under Xvfb, and isolated Secret Service tests. These use synthetic accounts. Run the keyring fixture only through its isolated helper:
+
+```sh
 ./scripts/test-linux-credentials.sh
 ```
 
-The helper uses artificial tokens and two disposable keyrings. It also checks credential restoration after a simulated CLI write failure. Do not invoke the ignored tests directly against your normal desktop D-Bus session. Package installation, visible rendering and authenticated account switching are separate checks; the results for the delivered local package are recorded in [linux-validation.md](linux-validation.md).
+It creates a disposable HOME and independent D-Bus session; never run ignored credential tests directly on your normal desktop bus. Real login, authenticated switching, Wayland/KDE tray behavior and ARM remain separate acceptance tasks. [Native acceptance](native-gui-acceptance.md) · [Historical Linux checks](linux-validation.md)

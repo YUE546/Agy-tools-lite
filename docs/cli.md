@@ -1,59 +1,28 @@
 # Tools Lite CLI (`agy-switch`)
 
-`agy-switch` manages the accounts saved by **Antigravity Tools Lite**. It is separate from Google's `agy` executable: it does not replace `agy` or start an AI session. On macOS and Linux, its interactive menu also supports adding accounts through browser authorization or masked refresh-token input.
+`agy-switch` manages accounts saved by Antigravity Tools Lite. It is separate from Google's `agy`: it does not run an AI session. The same interactive workflow works on macOS, Windows and Linux, including masked refresh-token entry.
 
-## Run it
+## Install and run
 
-With a CLI-enabled macOS app installed, the bundled executable accepts the same commands:
+- **macOS:** the [Homebrew cask](homebrew.md) installs `agy-switch`. A manual app installation also exposes commands through `/Applications/Antigravity Tools Lite.app/Contents/MacOS/antigravity-tools`.
+- **Windows:** the installer includes console `agy-switch.exe` beside the desktop executable; the release also offers a standalone console ZIP. Open PowerShell in that directory and run `.\agy-switch.exe`. The console executable preserves normal shell waiting, stdout/stderr and `$LASTEXITCODE`; use it instead of scripting the GUI-subsystem executable. [Windows guide](windows.md)
+- **Linux:** the deb installs `/usr/bin/agy-switch`; a console tarball is also available. Cached reads and terminal interaction do not require a display, but the executable still needs GTK/WebKitGTK runtime libraries. [Linux guide](linux.md)
 
-```sh
-"/Applications/Antigravity Tools Lite.app/Contents/MacOS/antigravity-tools" --help
-"/Applications/Antigravity Tools Lite.app/Contents/MacOS/antigravity-tools" accounts list --json
-```
-
-The 4.7.9 [Homebrew cask](homebrew.md) installs the `agy-switch` command to this executable. See the linked installation guide for the public tap command.
-
-For a local Rust build:
+For a local build:
 
 ```sh
 npm ci
 npm run build
-cargo build --locked --manifest-path src-tauri/Cargo.toml
-./src-tauri/target/debug/antigravity-tools accounts list
+cargo build --locked --manifest-path src-tauri/Cargo.toml --bin agy-switch
+./src-tauri/target/debug/agy-switch
 ```
 
-On Linux, the installed `antigravity-tools-lite` executable accepts these arguments too. CLI mode starts before Tauri/GTK initialization, so read-only commands do not need a display. This is the same executable as the desktop app and still depends on its installed platform libraries; it is not a standalone server binary.
-
-### Windows shell invocation
-
-The Windows release `antigravity-tools.exe` keeps the GUI subsystem so normal app startup does not open a console. CLI mode attaches to the parent's console, but a shell can return its prompt before a GUI executable exits. Use explicit waiting when completion and exit codes matter. For read-only commands in PowerShell:
-
-```powershell
-$exe = (Resolve-Path .\antigravity-tools.exe).Path
-$process = Start-Process -FilePath $exe -ArgumentList 'accounts list' -NoNewWindow -Wait -PassThru
-$process.ExitCode
-```
-
-Read the returned process's `ExitCode`, not `$LASTEXITCODE` from `Start-Process`. For JSON capture, pass `-RedirectStandardOutput` and `-RedirectStandardError` as well; they must name different files:
-
-```powershell
-$out = [IO.Path]::GetTempFileName()
-$err = [IO.Path]::GetTempFileName()
-try {
-    $process = Start-Process -FilePath $exe -ArgumentList 'accounts list --json' -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
-    if ($process.ExitCode -eq 0) { Get-Content -Raw $out | ConvertFrom-Json }
-    else { Get-Content -Raw $err; Write-Error "agy-switch exited with code $($process.ExitCode)" }
-} finally { Remove-Item $out, $err }
-```
-
-These calls use PowerShell's documented [waiting, process-result and redirection options](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/start-process). Programmatic callers should likewise wait for the child process and capture stdout and stderr separately.
-
-For `switch`, omit `Start-Process`'s `-Wait`: that option waits for descendants too and may keep waiting until the relaunched Antigravity app closes. Instead keep `-PassThru`, call `$process.WaitForExit()`, then inspect `$process.ExitCode`. [.NET's `WaitForExit()`](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.process.waitforexit) waits for the CLI process itself. The usual account-switching precautions below still apply.
+Use ↑/↓ to select, Enter/→ to enter and Esc/← to return. Number shortcuts, j/k and q remain supported. Terminal input is restored on exit. Secret entry refuses to proceed if the terminal cannot disable echo. In a pipe, bare `agy-switch` prints help. Launching the original desktop executable without arguments preserves GUI startup.
 
 ## Commands
 
 ```sh
-agy-switch                      # interactive menu on macOS / Linux
+agy-switch                      # interactive dashboard on all three platforms
 agy-switch stats                # local usage and cached-price estimates
 agy-switch stats --json
 agy-switch refresh              # refresh all saved accounts over the network
@@ -67,7 +36,7 @@ agy-switch switch user@example.com --target app --json
 agy-switch switch ACCOUNT_ID --target ide
 ```
 
-`accounts current`, `accounts quota` and `accounts switch` are also accepted. Selectors are exact account IDs or case-insensitive exact emails; duplicate emails require an ID. There is no fuzzy selection. In a macOS or Linux terminal, bare `agy-switch` opens the interactive dashboard. In a pipe it prints help. Launching the original app executable without arguments preserves the GUI. Windows currently supports the one-line commands; the interactive terminal flow still needs Windows acceptance.
+`accounts current`, `accounts quota` and `accounts switch` are also accepted. Selectors are exact account IDs or case-insensitive exact emails; duplicate emails require an ID. There is no fuzzy selection. Bare `agy-switch` opens the dashboard in an interactive terminal on all three platforms.
 
 - `accounts list`, `current`, and `quota` only read local files. They do not initialize the GUI, refresh tokens, query Google, create directories/logs, or repair corrupt indexes
 - `current` is Tools Lite's recorded selection, not a live check of the APP keyring or `agy` session. Changes made outside Tools Lite can make it stale
@@ -86,7 +55,7 @@ When the CLI relaunches an APP or IDE, child stdin/stdout/stderr are detached so
 
 Save work in Antigravity before switching. Start a new `agy` invocation afterward; a running invocation may retain the previous token. A failure can follow a partial external credential change, so inspect both clients before retrying. CLI errors intentionally omit raw server details; use the GUI for detailed troubleshooting.
 
-GUI and CLI switches in this version share an OS-level lock (`account-switch.lock` inside the data directory). A competing switch fails with exit code 5; the OS releases the lock when the owning process exits. Do not remove the lock file while a switch is running. Older Tools Lite versions do not honor the lock, so quit them before using the CLI. GUI quota refresh/add/delete operations are not coordinated by this switch-only lock; avoid editing or deleting accounts while a CLI switch is in progress. A CLI switch does not directly refresh an already-open GUI's tray; reopen the account page to read the saved state.
+GUI and CLI switches in this version share an OS-level lock (`account-switch.lock` inside the data directory). A competing switch fails with exit code 5; the OS releases the lock when the owning process exits. Do not remove the lock file while a switch is running. GUI quota refresh/add/delete operations are not coordinated by this switch-only lock; avoid editing or deleting accounts while a CLI switch is in progress. A CLI switch does not directly refresh an already-open GUI's tray; reopen the account page to read the saved state.
 
 Exit codes:
 
@@ -104,7 +73,8 @@ Exit codes:
 ```sh
 cargo test --locked --manifest-path src-tauri/Cargo.toml --lib cli::
 cargo build --locked --manifest-path src-tauri/Cargo.toml
-node scripts/test-cli.mjs ./src-tauri/target/debug/antigravity-tools
+node scripts/test-cli.mjs ./src-tauri/target/debug/agy-switch
+node scripts/test-cli-terminal.mjs ./src-tauri/target/debug/agy-switch
 node scripts/test-cli-launch.mjs
 node --test scripts/test-homebrew-generator.mjs
 ```
@@ -122,3 +92,7 @@ The main menu groups Accounts & Quotas, Statistics, Refresh, Add Account, and St
 Cost estimates use the same exact model matching as the native menu and the cached public price table. Unknown prices display `Unpriced`; partial estimates are labelled. Missing quota windows are unknown, never inferred as 100%. API-equivalent costs are estimates, not the subscription bill.
 
 A future CLI expansion should expose account management, configuration, candidate ordering and update checks as stable commands, sharing the existing backend. Visual theme settings, menu layout and interactive charts belong in the GUI. The terminal menu and one-line commands should share the same operations rather than duplicate their implementations.
+
+## CLI scope
+
+Account management, cached quotas, refresh, switching and local usage are terminal workflows. Appearance, desktop startup, update notices and the background smart-switch scheduler remain desktop features. Linux terminal-only users can inspect/add/refresh accounts without a display; APP switching still requires an installed APP and its credential backend. No file-only agy switch or background CLI daemon is provided.

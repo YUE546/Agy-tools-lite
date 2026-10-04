@@ -1,154 +1,123 @@
 # Antigravity Tools Lite
 
-[English](./README.md)
+[English](README.md) · [下载](https://github.com/anglee0323/antigravity-tools-lite/releases/latest) · [命令行指南](docs/cli.md)
 
-面向 [Antigravity](https://antigravity.google) 的本地桌面应用。用于管理 Antigravity 应用与其 `agy` CLI 所使用的 Google 账号，查看各模型配额与重置倒计时，并基于本机记录统计 Token 用量与预估 API 费用。账号与用量记录保存在本机，用量汇总在本地完成。Google 授权、令牌刷新和配额查询需要联网并使用相应凭据；价格同步也需要联网
+在桌面应用或终端中管理 Antigravity 账号、查看剩余额度和本机用量。授权与额度查询直接连接 Google，账号数据和用量记录保存在本机。
 
-![仪表盘 — Linux 原生 WebKitGTK](docs/screenshots/4.7.9/linux-dashboard-light.png)
+## 选择使用方式
 
-Linux 真实 Tauri/WebKitGTK 视口，CI 调试构建 `5be961d3`，英文界面与合成示例数据，不含系统窗框。[截图来源与平台边界](docs/screenshots/4.7.9/README.md)
+| 平台 | 桌面应用 | 快捷入口 | 命令行 |
+| --- | --- | --- | --- |
+| macOS · Apple Silicon | 应用程序包 | 原生菜单栏 | Homebrew 安装自带 `agy-switch` |
+| Windows · x64 | 按用户安装 | 托盘看板 | 安装程序自带 `agy-switch.exe`，也可单独下载 |
+| Linux · x64 | Debian 安装包，以 Ubuntu 22.04 为构建基线 | 桌面支持托盘时可用 | deb 自带 `agy-switch`，也可单独下载 |
 
-## 功能概览
+桌面应用和命令行共用账号数据。Linux 同时提供桌面应用和无需显示环境的终端操作；目前 Linux 命令行仍依赖 GTK3/WebKitGTK 运行库，并非静态服务器程序。暂不提供 Intel Mac、Windows ARM 和 Linux ARM 安装包。
 
-- **账号管理** —— 导入本机已有账号、切换 Antigravity 使用的账号、为账号添加备注、删除账号
-- **配额总览** —— 按模型查看配额与重置时间，并按 PRO / ULTRA / FREE 分组，支持表格与卡片两种视图
-- **用量仪表盘** —— 今天、昨天、近 3 天、近 7 天或近 30 天的 Token 用量，按模型拆分，并给出预估 API 费用
-- **快速仪表盘** —— 在菜单栏或托盘查看配额，使用独立按钮执行账号切换
-- **智能切换** —— 支持按优先顺序或循环轮换选择备用账号，可设置阈值并检测活动状态，不迁移运行中的任务
-- **一个动作覆盖两个客户端** —— 一次切换同步 Antigravity 应用与已初始化的 `agy` CLI 所需的凭据
-- **本地存储** —— 没有本项目运营的代理或凭据中转服务；账号与用量保存在本机，授权和配额请求直接访问 Google
-- **中英双语界面** —— 简体中文与英文，浅色与深色主题，托盘菜单
+## 安装
 
-## 下载安装
+从 **[GitHub Releases](https://github.com/anglee0323/antigravity-tools-lite/releases/latest)** 下载对应平台的文件。每个下载包都有 SHA-256 校验文件，`release-manifest.json` 记录对应源码提交。
 
-**[最新版本](https://github.com/anglee0323/antigravity-tools-lite/releases/latest)**
-
-| 平台 | 安装包 | 安装方式 |
-| --- | --- | --- |
-| macOS（Apple Silicon） | `Antigravity-Tools-Lite-<版本>-macos-arm64.zip` | 解压后把 `Antigravity Tools Lite.app` 移入「应用程序」 |
-| Windows（x64） | `Antigravity-Tools-Lite-<版本>-windows-x64-setup.exe` | NSIS 安装程序，按用户安装 |
-| Linux（x64） | `Antigravity-Tools-Lite-<版本>-linux-amd64.deb` | `sudo apt install ./安装包.deb` |
-
-当前发布流程没有配置 Developer ID 签名/公证或 Windows Authenticode 签名，系统可能提示或阻止运行下载的安装包。请先核对发布来源和校验值，再通过系统正常的审核流程自行决定是否信任。参见 [Apple 官方说明](https://support.apple.com/en-gb/102445)和 [Microsoft 应用信誉说明](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)。Homebrew 安装不会取消这些系统检查
-
-**macOS 分发状态：** 完整的临时签名修复了包完整性，但不等于通过 Apple 信任检查。v4.7.9 已在 Apple Silicon Mac 上通过 Homebrew 实际升级并保留账号文件，应用仍被系统信任检查拒绝，Brew 命令启动超时。正式可信分发仍需开发者签名和公证。
-
-## 账号管理
-
-点击 **+** 按钮添加账号，提供三种方式
-
-- **OAuth 授权** —— 打开浏览器完成 Google 授权后即可添加
-- **Refresh Token** —— 可粘贴单个 Token，也可粘贴 JSON 数组一次导入多个账号
-- **从本机导入** —— 扫描系统凭据存储、Antigravity 数据库、已安装插件、原生 agy 会话以及旧版 CLI 数据目录（`~/.antigravity-agent`），导入找到的全部账号
-
-![账号管理 — Linux 原生 WebKitGTK，合成示例数据](docs/screenshots/4.7.9/linux-accounts-light.png)
-
-每一行提供四个操作，均带悬浮说明
-
-| 操作 | 效果 |
-| --- | --- |
-| **切换到此账号** | 将所选账号写入 Antigravity 的凭据存储（2.0 以前的老版本写入 `state.vscdb`），并同步已初始化的原生 agy 会话。手动换号可能关闭并重启 Antigravity，请先保存工作。重新打开后核对账号；若提示部分更新失败，请检查两个客户端后再试 |
-| **刷新此账号配额** | 重新读取该账号各模型的配额与重置时间 |
-| **编辑备注** | 保存最多 15 个字符的短标签，用于区分账号 |
-| **删除此账号** | 从本应用中移除该账号 |
-
-列表支持按配额重置时间或最后使用时间排序、拖拽调整顺序、在表格与卡片视图之间切换。勾选多行可批量刷新或批量删除，筛选行可将列表收窄为全部、PRO、ULTRA 或 FREE
-
-### 切换时为何会关闭应用
-
-一次切换会同步 Antigravity 应用与已初始化的 `agy` CLI 所需的凭据位置。切换过程中关闭应用是必要的：正在运行的实例会在内存中保留旧 Token，并在刷新时写回凭据，使切换结果被静默覆盖。切换后请新开一条 CLI 命令；已运行的 CLI 命令可能仍持有旧 Token
-
-对于 2.0 以前的 Antigravity 版本，没有凭据项可写，应用会自动改为把 Token 注入该版本本地的 `state.vscdb` 数据库，同时同步已初始化的原生 agy 会话。单独针对 IDE 的切换仍只处理该 IDE 的数据库
-
-三个平台的原生 agy 会话路径均为 `~/.gemini/antigravity-cli/antigravity-oauth-token`。仅使用已有的 `antigravity-cli` 目录，正常 APP 同步可在需要时创建其中的首个 Token 文件。APP 与 agy 可能共享系统凭据，因此只更新会话文件不能确定新 agy 进程实际使用的账号。请使用正常 APP 同步，并在客户端确认当前身份。通用 Google Gemini CLI 的 `~/.gemini/oauth_creds.json` 和 `~/.gemini/google_accounts.json` 均不会被创建、修改或删除
-
-会话采用原子替换与写后校验，Unix 文件权限为 `0600`。Linux 新版 APP 使用系统凭据切换时，若会话同步失败，会恢复之前的系统凭据。旧版 APP 的数据库更新不会回滚，会话失败时会报告部分更新。macOS/Windows 在系统凭据已更新后若会话同步失败，会明确报告部分更新，请确认两个客户端的状态后再重试
-
-## 用量仪表盘
-
-仪表盘读取 Antigravity 本地的对话数据库（`conversation.db`、`token_usage_archive.db`）及其归档目录，在本机汇总已记录的用量。Tools Lite 不上传对话内容，也不推算未被记录的请求
-
-- **统计范围** —— 今天、昨天、近 3 天、近 7 天或近 30 天；单日范围包含按小时的柱状图
-- **图表详情** —— 指向柱状条即显示该时段的输入、输出、缓存 Token 数、请求次数与预估费用
-- **汇总卡片** —— 总 Token、输入 Token、输出 Token、缓存命中率与预估 API 费用
-- **模型用量与模型明细** —— 按模型查看 Token 和预估费用明细，支持用量与费用分布图
-
-费用依据 Google 公开的 Gemini 价格页估算，每天同步一次并缓存，同时内置兜底价格表。缺少价格的模型会标记为未计价，而不是按 0 计算
-
-## 快速仪表盘
-
-Mac 原生菜单分为三块：本机今日用量与预估费用、剩余额度、逐账号配额和切换按钮。设置中可选择 Gemini、Claude/GPT 或两类模型，调整账号名称、不可用账号的显示方式，以及重置倒计时的悬浮、常显或隐藏模式。汇总百分比按账号等权平均，不是 Token 总量。菜单先显示本地缓存，再在后台更新。
-
-切换可能关闭并重启 Antigravity，请先保存工作。Mac 独立应用正在运行时，会核验其账号；主窗口所选账号和命令行 `current` 仍是本地记录。本机用量不归属到某一个账号。
-
-Windows/Linux 保留共享的网页视图面板，Linux 从托盘菜单的快速仪表盘入口打开，没有托盘时仍可使用主窗口。Mac 登录启动、多显示器和 Windows 图形界面仍需单独验收。详见[面板行为与平台边界](docs/menu-bar-dashboard.md)。
-
-## 设置
-
-![设置 — Linux 原生 WebKitGTK，浅色主题](docs/screenshots/4.7.9/linux-settings-light.png)
-
-<details>
-<summary>深色主题 — Linux 原生视口</summary>
-
-![设置 — Linux 原生 WebKitGTK，深色主题](docs/screenshots/4.7.9/linux-settings-dark.png)
-
-</details>
-
-以上为使用合成数据的 Linux 原生视口；设置页下方内容需要滚动查看，不是全页截图。
-
-- **外观与语言** —— 跟随系统，或选择浅色与深色；简体中文或英文
-- **后台任务** —— 账号配额的自动刷新频率，以及从本地 Antigravity 数据重新读取当前账号的频率
-- **本地数据** —— 应用数据位置（`~/.antigravity_tools/`），并提供打开目录的按钮
-- **启动与菜单栏** —— 登录启动、登录时后台运行和隐藏 Dock 图标均默认关闭；隐藏 Dock 仅限 macOS
-- **检查更新** —— 可选启动检查，也可在设置中手动检查；新版提示打开本仓库正式发布页，暂不自动下载或安装
-
-## 数据处理
-
-| | |
-| --- | --- |
-| 读取 | Antigravity 本地的对话数据库与归档，其中包含 Token 数、模型名称与时间戳 |
-| 写入 | `~/.antigravity_tools/` 用于保存账号、配置与价格缓存；切换账号时写入操作系统凭据存储及已初始化的原生 agy 会话 |
-| 联网 | Google 授权、令牌刷新和配额查询使用必要凭据；价格同步也需要联网 |
-| 服务边界 | Tools Lite 不提供凭据中转服务，不上传对话内容 |
-
-## 从源码构建
-
-Linux 构建与兼容性说明见 [Linux 支持](docs/linux.md)。
-
-需要 Node.js 22 及以上版本、stable Rust 工具链，以及 Tauri 2 对应的平台构建工具
-
-```bash
-npm ci
-npm run tauri dev       # 开发模式
-npm run build           # 仅构建前端
-npm run tauri build     # macOS .app 或 Windows 安装包
-```
-
-构建产物位于 `src-tauri/target/release/bundle/`。推送 `v*` tag 会触发发布工作流，构建 macOS、Windows 和 Linux deb 并挂载到 GitHub Release
-
-## 智能切换
-
-此功能默认关闭，根据真实配额选择已允许的备用账号，支持优先顺序、循环轮换，以及拖动或键盘排序。等待活动停止模式根据近期活动记录决定何时关闭相关客户端；达到阈值即切换模式可能中断运行中的工作。活动检测不能证明所有任务均已结束。写入凭据前会重新检查身份、最新配额和待执行请求；运行中的生成不会自动迁移，继续工作前请核对客户端账号。详见[设置方式、边界与验证](docs/low-quota-switching.md)。
-
-## 与上游项目的关系
-
-本项目是 [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager) 的精简分支。上游提供完整工具箱，包含反向代理、HTTP API、Cloudflared 隧道、IP 管理与 Docker 镜像。本分支保留账号管理与本地用量仪表盘，移除代码库中的代理与 Web 模式部分，并加入自己的仪表盘、双语界面、主题支持与发布流程。两者为独立项目，若需要代理功能请使用上游
-
-## 许可
-
-基于 [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager) 定制，沿用 [CC BY-NC-SA 4.0](./LICENSE) 许可证。任何使用、修改或再分发行为均需遵守该许可证及原项目的署名要求
-
-## 命令行与 Homebrew
-
-Tools Lite 自带管理命令 `agy-switch`，支持账号管理、缓存配额、本机统计和显式切换。Mac 和 Linux 的交互菜单还支持备注、启用或禁用、确认删除，以及通过浏览器授权或隐藏输入的令牌添加账号。它与 Google 的 `agy` 命令不同；`current` 是本地记录，`quota` 不会刷新实时数据，详见 [CLI 使用说明](docs/cli.md)。
-
-[v4.7.9](https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.7.9) 仅提供 `agy-switch` 管理命令。Apple Silicon Mac 可使用本仓库的 cask 安装 APP，并将包内管理命令链接为 `agy-switch`：
+### macOS
 
 ```sh
 brew tap anglee0323/antigravity-tools-lite https://github.com/anglee0323/antigravity-tools-lite.git
-brew install --cask anglee0323/antigravity-tools-lite/antigravity-tools-lite
-agy-switch --version
-agy-switch --help
+brew install --cask antigravity-tools-lite
 ```
 
-配方固定了正式 ZIP 已核验的 SHA-256；v4.7.9 已在真实 Mac 上使用自定义应用目录完成 Homebrew 升级并保留账号文件，仅链接 `agy-switch`。公开 ZIP 通过了 14 项隔离命令行检查，但带下载隔离标记的 Brew 命令启动超时，应用被系统信任检查拒绝；启动和卸载另行验收。已有手动安装时请先保留 APP 备份，自行处理应用目录冲突，不要删除账号数据。此 cask 不会安装 Google 的 `agy`，详见 [Homebrew 验证范围与限制](docs/homebrew.md)。
+这会同时安装应用和 `agy-switch`。手动安装时，解压 `Antigravity-Tools-Lite-<版本>-macos-arm64.zip`，将应用移入 Applications。升级和验证结果见 [Homebrew 指南](docs/homebrew.md)。
+
+### Windows
+
+运行 `Antigravity-Tools-Lite-<版本>-windows-x64-setup.exe`。安装程序提供中文和英文，安装到当前用户目录，并在桌面程序旁附带命令行程序。
+
+只使用终端时，解压 `agy-switch-<版本>-windows-x64.zip`，在该目录打开 PowerShell：
+
+```powershell
+.\agy-switch.exe
+.\agy-switch.exe accounts list --json
+```
+
+PowerShell 会等待这个控制台程序执行，并保留退出码。安装位置、运行环境和故障排查见 [Windows 指南](docs/windows.md)。
+
+### Linux
+
+```sh
+sudo apt install ./Antigravity-Tools-Lite-<版本>-linux-amd64.deb
+antigravity-tools-lite   # 桌面应用
+agy-switch              # 终端看板
+```
+
+只使用终端时，可以下载 `agy-switch-<版本>-linux-amd64.tar.gz`。[Linux 指南](docs/linux.md)介绍运行库、无显示环境的安装、系统凭据服务及桌面兼容性。
+
+**安装包信任：** 当前 Mac 安装包尚无 Developer ID 签名和公证，Windows 安装包尚无 Authenticode 签名，系统信任检查可能阻止运行。Homebrew 不会绕过这些检查。现有 Mac 分发限制见[公开安装包验收记录](docs/release-notes/4.7.9-public-acceptance.md)；文件完整性验证和系统信任验证是两项独立检查。
+
+## 开始使用
+
+1. 打开应用，通过 Google 授权、刷新令牌或本机导入添加账号。终端看板也支持授权和遮罩输入令牌。
+2. 刷新额度，再选择要使用的账号。切换可能关闭并重新打开 Antigravity，请先保存工作，并在客户端确认账号。
+3. 在首页或菜单栏、托盘中查看用量。如果需要自动选择备用账号，可在设置中启用智能切换。
+
+`agy-switch` 是 Tools Lite 的管理命令，Google 的 `agy` 用来执行 Antigravity 任务。切换账号会同步已初始化的原生 `agy` 会话；已经运行的任务可能仍保留之前的凭据。
+
+## 功能
+
+| 板块 | 功能 |
+| --- | --- |
+| 账号 | 额度与重置时间、列表和卡片视图、备注、启用或禁用、排序及批量操作 |
+| 用量 | 每日和近期用量、输入输出与缓存构成、各模型费用估算及分布图 |
+| 快捷看板 | 今日用量、整体剩余额度、各账号额度及明确的切换按钮 |
+| 智能切换 | 优先级或轮询、拖动候选账号排序、额度阈值及活动检查，默认关闭 |
+| 更新 | 启动或手动检查版本、更新提示及官方发布页入口 |
+| 外观 | 简体中文和英文、浅色和深色主题、模型选择及快捷看板偏好 |
+
+三端快捷看板采用相同的三个信息区块。Mac 使用系统原生菜单，Windows 和 Linux 使用不透明的紧凑窗口。在设置中选择显示 Gemini、Claude/GPT 或两组系列，并调整账号名称、不可用账号的显示方式，以及重置时间的悬浮显示、始终显示或隐藏。额度条默认在大于 60% 时为绿色、20% 至 60% 时为黄色、低于 20% 时为红色；百分比使用正常文字颜色。
+
+整体额度是有效账号数据的等权平均值，并显示可用账号数，不代表可相加的总令牌量。缺失或过期的额度会显示为未知。费用来自已知模型价格的估算，不是 Antigravity 账单；无法计价的模型会明确标识。智能切换不会迁移正在运行的任务，也不能保证所有任务已经结束。[切换机制](docs/low-quota-switching.md) · [看板数据说明](docs/menu-bar-dashboard.md)
+
+## 终端工作流
+
+```sh
+agy-switch                       # 交互看板
+agy-switch accounts list
+agy-switch quota                 # 缓存额度
+agy-switch stats                 # 本机用量和费用估算
+agy-switch refresh               # 联网刷新额度
+agy-switch switch user@example.com
+agy-switch current --json         # Tools Lite 保存的选择
+```
+
+上下方向键选择，回车或右方向键进入，Esc 或左方向键返回；数字快捷键也可使用。交互式账号管理支持备注、启用或禁用、确认删除及添加账号。脚本命令支持 JSON 和明确的退出码，只读命令使用本机缓存，不会启动桌面应用。
+
+桌面偏好、更新弹窗和后台智能切换调度器保留在桌面应用中，命令行围绕账号管理工作流提供操作。[命令、切换边界及退出码](docs/cli.md)
+
+## 截图与验证
+
+![用量看板](docs/screenshots/4.7.9/linux-dashboard-light.png)
+
+![账号管理](docs/screenshots/4.7.9/linux-accounts-light.png)
+
+以上是真实 Linux Tauri/WebKitGTK 视口，来自记录完整的 v4.7.9 CI 构建，使用合成示例账号，不含系统窗框。[截图来源](docs/screenshots/4.7.9/README.md)
+
+原生窗口、终端和安装包分别验证。构建成功不等于已经验证真实授权切换、登录启动、所有显示器上的托盘定位，或所有 Linux 桌面环境。[各平台验收](docs/native-gui-acceptance.md)
+
+## 数据与隐私
+
+账号和偏好默认保存在 `~/.antigravity_tools`，可用 `ABV_DATA_DIR` 指定其他目录。导入的凭据属于敏感本地文件。用量来自 Antigravity 本机数据库和归档，应用不会上传对话内容。Google 授权、刷新令牌和额度查询需要联网；价格同步和可选的版本检查也会联网。
+
+本项目不提供凭据中转或代理服务。切换会修改目标客户端使用的凭据位置，也可能报告部分更新；失败后请先确认客户端状态，再重试。[命令行行为及共享切换锁](docs/cli.md)
+
+## 构建与贡献
+
+使用 Node.js 22+、Rust stable，并安装平台指南中列出的依赖。
+
+```sh
+npm ci
+npm run tauri dev
+cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+npx playwright test
+```
+
+Mac 使用 `npm run tauri build` 构建；Windows 使用 `./scripts/build-windows.ps1`；Linux 使用 `./scripts/build-linux-deb.sh --native` 或 `--docker`。发布流程生成桌面安装包和命令行下载包，验证校验值，只发布已打标签的 main 分支源码。[发布检查清单](docs/release-checklist.md)
+
+基于 [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager) 衍生。本分支聚焦本机账号、额度和用量，提供独立的命令行、设置和快捷看板。采用 [CC BY-NC-SA 4.0](LICENSE) 许可。
