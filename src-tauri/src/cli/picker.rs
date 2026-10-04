@@ -560,8 +560,8 @@ impl RawTerminal {
             let mut raw = orig;
             libc::cfmakeraw(&mut raw);
             raw.c_oflag |= libc::OPOST | libc::ONLCR;
-            raw.c_cc[libc::VMIN] = 0;
-            raw.c_cc[libc::VTIME] = 1; // 100ms
+            raw.c_cc[libc::VMIN] = 1;
+            raw.c_cc[libc::VTIME] = 0;
             if libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw) != 0 {
                 return None;
             }
@@ -596,12 +596,9 @@ fn read_key_action() -> KeyAction {
     let mut byte = [0u8; 1];
     let mut stdin = io::stdin();
 
-    loop {
-        match stdin.read(&mut byte) {
-            Ok(1) => break,
-            Ok(0) => return KeyAction::Cancel,
-            _ => return KeyAction::Cancel,
-        }
+    match stdin.read(&mut byte) {
+        Ok(1) => {}
+        _ => return KeyAction::Cancel,
     }
 
     match byte[0] {
@@ -612,18 +609,25 @@ fn read_key_action() -> KeyAction {
         b'0' => KeyAction::Char('0'),
         b'1'..=b'9' => KeyAction::SelectIndex((byte[0] - b'1') as usize),
         b'\x1b' => {
-            let mut seq = [0u8; 2];
-            match stdin.read(&mut seq[0..1]) {
-                Ok(1) if seq[0] == b'[' => match stdin.read(&mut seq[1..2]) {
-                    Ok(1) => match seq[1] {
-                        b'A' => KeyAction::Up,
-                        b'B' => KeyAction::Down,
-                        _ => KeyAction::None,
-                    },
-                    _ => KeyAction::Cancel,
-                },
-                _ => KeyAction::Cancel,
+            let mut pfd = libc::pollfd {
+                fd: libc::STDIN_FILENO,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let ret = unsafe { libc::poll(&mut pfd, 1, 50) };
+            if ret > 0 && (pfd.revents & libc::POLLIN != 0) {
+                let mut seq = [0u8; 2];
+                if stdin.read_exact(&mut seq[0..1]).is_ok() && seq[0] == b'[' {
+                    if stdin.read_exact(&mut seq[1..2]).is_ok() {
+                        return match seq[1] {
+                            b'A' => KeyAction::Up,
+                            b'B' => KeyAction::Down,
+                            _ => KeyAction::None,
+                        };
+                    }
+                }
             }
+            KeyAction::Cancel
         }
         b => KeyAction::Char(b as char),
     }
