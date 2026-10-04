@@ -5,8 +5,10 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct AppConfig {
     pub desktop: DesktopPreferences,
+    pub menu_bar: MenuBarPreferences,
     pub language: String,
     pub theme: String,
+    pub check_updates_on_startup: bool,
     pub auto_refresh: bool,
     pub refresh_interval: i32,
     pub auto_sync: bool,
@@ -14,7 +16,6 @@ pub struct AppConfig {
     pub antigravity_executable: Option<String>,
     pub antigravity_ide_executable: Option<String>,
     pub antigravity_args: Option<Vec<String>>,
-    pub app_localization: AppLocalizationConfig,
     pub quota_protection: QuotaProtectionConfig,
     pub pinned_quota_models: PinnedQuotaModelsConfig,
 }
@@ -28,11 +29,71 @@ pub struct DesktopPreferences {
     pub start_minimized: bool,
 }
 
-/// Separate from the dashboard language. Never enabled by migration.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MenuBarQuotaScope {
+    #[default]
+    All,
+    Gemini,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MenuBarLabelStyle { #[default] EmailThenLabel, LabelThenEmail, EmailOnly }
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MenuBarResetTimeDisplay { Hidden, #[default] Hover, Always }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct AppLocalizationConfig {
-    pub enabled: bool,
+pub struct MenuBarPreferences {
+    pub quota_scope: MenuBarQuotaScope,
+    pub display_scope: MenuBarQuotaScope,
+    pub hide_unavailable: bool,
+    pub label_style: MenuBarLabelStyle,
+    pub show_aggregate: bool,
+    pub show_session: bool,
+    pub show_weekly: bool,
+    pub show_icons: bool,
+    pub show_reset_on_hover: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reset_time_display: Option<MenuBarResetTimeDisplay>,
+    pub green_above: u8,
+    pub red_below: u8,
+}
+impl Default for MenuBarPreferences {
+    fn default() -> Self { Self { quota_scope: MenuBarQuotaScope::All, display_scope: MenuBarQuotaScope::All,
+        hide_unavailable: true, label_style: MenuBarLabelStyle::EmailThenLabel,
+        show_aggregate: true, show_session: true, show_weekly: true, show_icons: true, show_reset_on_hover: true, reset_time_display: None, green_above: 60, red_below: 20 } }
+}
+impl MenuBarPreferences {
+    pub fn reset_time_mode(&self) -> MenuBarResetTimeDisplay {
+        self.reset_time_display.unwrap_or(if self.show_reset_on_hover { MenuBarResetTimeDisplay::Hover } else { MenuBarResetTimeDisplay::Hidden })
+    }
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MenuBarPreferencesPatch {
+    pub quota_scope: Option<MenuBarQuotaScope>, pub display_scope: Option<MenuBarQuotaScope>,
+    pub hide_unavailable: Option<bool>, pub label_style: Option<MenuBarLabelStyle>,
+    pub show_aggregate: Option<bool>, pub show_session: Option<bool>, pub show_weekly: Option<bool>, pub show_icons: Option<bool>,
+    pub show_reset_on_hover: Option<bool>,
+    pub reset_time_display: Option<MenuBarResetTimeDisplay>,
+    pub green_above: Option<u8>, pub red_below: Option<u8>,
+}
+impl MenuBarPreferencesPatch {
+    pub fn apply(self, preferences: &mut MenuBarPreferences) -> Result<(), String> {
+        macro_rules! apply { ($($field:ident),*) => { $(if let Some(value) = self.$field { preferences.$field = value; })* }; }
+        apply!(quota_scope, display_scope, hide_unavailable, label_style, show_aggregate, show_session, show_weekly, show_icons, show_reset_on_hover, green_above, red_below);
+        if let Some(mode) = self.reset_time_display { preferences.reset_time_display = Some(mode); }
+        if preferences.red_below >= preferences.green_above || preferences.green_above > 100 {
+            return Err("Choose color thresholds with 0 ≤ red < green ≤ 100.".into());
+        }
+        if !preferences.show_session && !preferences.show_weekly { return Err("Show at least one quota window.".into()); }
+        Ok(())
+    }
 }
 
 /// Quota protection configuration
@@ -109,8 +170,10 @@ impl AppConfig {
     pub fn new() -> Self {
         Self {
             desktop: DesktopPreferences::default(),
+            menu_bar: MenuBarPreferences::default(),
             language: crate::modules::i18n::default_language(),
             theme: "system".to_string(),
+            check_updates_on_startup: true,
             auto_refresh: true,
             refresh_interval: 15,
             auto_sync: false,
@@ -118,7 +181,6 @@ impl AppConfig {
             antigravity_executable: None,
             antigravity_ide_executable: None,
             antigravity_args: None,
-            app_localization: AppLocalizationConfig::default(),
             quota_protection: QuotaProtectionConfig::default(),
             pinned_quota_models: PinnedQuotaModelsConfig::default(),
         }
@@ -157,19 +219,13 @@ mod tests {
     }
 
     #[test]
-    fn client_localization_is_off_for_new_and_legacy_config() {
-        assert!(!AppConfig::new().app_localization.enabled);
-        let old: AppConfig = serde_json::from_str(r#"{"language":"zh"}"#).unwrap();
-        assert!(!old.app_localization.enabled);
-    }
-
-    #[test]
-    fn client_localization_does_not_follow_dashboard_language() {
+    fn removed_localization_preference_is_ignored_in_legacy_config() {
         let saved: AppConfig =
-            serde_json::from_str(r#"{"language":"en","app_localization":{"enabled":true}}"#)
+            serde_json::from_str(r#"{"language":"en","app_localization":{"enabled":true},"desktop":{"launch_at_login":true}}"#)
                 .unwrap();
-        assert!(saved.app_localization.enabled);
         assert_eq!(saved.language, "en");
+        assert!(saved.desktop.launch_at_login);
+        assert!(serde_json::to_value(saved).unwrap().get("app_localization").is_none());
     }
 
     #[test]

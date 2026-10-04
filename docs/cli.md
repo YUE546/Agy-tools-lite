@@ -1,6 +1,6 @@
-# Tools Lite CLI (`agy-lite`)
+# Tools Lite CLI (`agy-switch`)
 
-`agy-lite` manages the accounts saved by **Antigravity Tools Lite**. It is separate from Google's `agy` executable: it does not replace `agy`, start an AI session, or implement Google login. Add accounts in the Tools Lite GUI first.
+`agy-switch` manages the accounts saved by **Antigravity Tools Lite**. It is separate from Google's `agy` executable: it does not replace `agy` or start an AI session. On macOS and Linux, its interactive menu also supports adding accounts through browser authorization or masked refresh-token input.
 
 ## Run it
 
@@ -11,7 +11,7 @@ With a CLI-enabled macOS app installed, the bundled executable accepts the same 
 "/Applications/Antigravity Tools Lite.app/Contents/MacOS/antigravity-tools" accounts list --json
 ```
 
-The [Homebrew cask](homebrew.md) installs an `agy-lite` symlink to this executable. Until a cask-enabled release is published, the cask is a packaging recipe, not an available public tap.
+The 4.7.9 [Homebrew cask](homebrew.md) installs the `agy-switch` command to this executable. See the linked installation guide for the public tap command.
 
 For a local Rust build:
 
@@ -42,7 +42,7 @@ $err = [IO.Path]::GetTempFileName()
 try {
     $process = Start-Process -FilePath $exe -ArgumentList 'accounts list --json' -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
     if ($process.ExitCode -eq 0) { Get-Content -Raw $out | ConvertFrom-Json }
-    else { Get-Content -Raw $err; Write-Error "agy-lite exited with code $($process.ExitCode)" }
+    else { Get-Content -Raw $err; Write-Error "agy-switch exited with code $($process.ExitCode)" }
 } finally { Remove-Item $out, $err }
 ```
 
@@ -53,20 +53,25 @@ For `switch`, omit `Start-Process`'s `-Wait`: that option waits for descendants 
 ## Commands
 
 ```sh
-agy-lite accounts list
-agy-lite current --json
-agy-lite quota                       # current account's cached quota
-agy-lite quota user@example.com --json
-agy-lite switch ACCOUNT_ID
-agy-lite switch user@example.com --target app --json
-agy-lite switch ACCOUNT_ID --target ide
+agy-switch                      # interactive menu on macOS / Linux
+agy-switch stats                # local usage and cached-price estimates
+agy-switch stats --json
+agy-switch refresh              # refresh all saved accounts over the network
+agy-switch refresh user@example.com
+agy-switch accounts list
+agy-switch current --json
+agy-switch quota                       # current account's cached quota
+agy-switch quota user@example.com --json
+agy-switch switch ACCOUNT_ID
+agy-switch switch user@example.com --target app --json
+agy-switch switch ACCOUNT_ID --target ide
 ```
 
-`accounts current`, `accounts quota` and `accounts switch` are also accepted. Selectors are exact account IDs or case-insensitive exact emails; duplicate emails require an ID. There is no fuzzy selection. Bare `agy-lite` prints help, while launching the original app executable without arguments preserves the GUI.
+`accounts current`, `accounts quota` and `accounts switch` are also accepted. Selectors are exact account IDs or case-insensitive exact emails; duplicate emails require an ID. There is no fuzzy selection. In a macOS or Linux terminal, bare `agy-switch` opens the interactive dashboard. In a pipe it prints help. Launching the original app executable without arguments preserves the GUI. Windows currently supports the one-line commands; the interactive terminal flow still needs Windows acceptance.
 
 - `accounts list`, `current`, and `quota` only read local files. They do not initialize the GUI, refresh tokens, query Google, create directories/logs, or repair corrupt indexes
 - `current` is Tools Lite's recorded selection, not a live check of the APP keyring or `agy` session. Changes made outside Tools Lite can make it stale
-- `quota` reports cached data and `last_updated` (Unix seconds). Refresh in the GUI first when fresh quota is needed. A cache can be stale even when the command succeeds
+- `quota` reports cached data and `last_updated` (Unix seconds). Use `agy-switch refresh` when fresh quota is needed. A cache can be stale even when the command succeeds
 - `--json` may appear before or after a command. Success goes to stdout; errors go to stderr. All JSON has `schema_version: 1`
 - Output uses an explicit field allow-list: no access/refresh/ID tokens, raw OAuth responses, validation URLs, or stored error strings. Treat emails, account IDs, names and quota as personal data when sharing output
 - `ABV_DATA_DIR` selects the account-data directory, matching the GUI. If unset, it is `~/.antigravity_tools`. Set it identically for GUI and CLI if you use a custom directory
@@ -109,3 +114,11 @@ The launch regression test compiles the production process-launch functions with
 The separate `Release CLI` workflow builds actual optimized Windows and Linux executables and runs the same synthetic-data smoke test. Windows also runs `scripts/test-windows-cli.ps1`, which checks the GUI PE subsystem, `Start-Process -Wait` and `WaitForExit()` completion/exit codes, and redirected JSON success/errors. Inherited-I/O checks establish completion and exit codes; console text visibility and a real account switch still need interactive acceptance. Debug smoke alone does not establish release shell behavior.
 
 The smoke test uses a temporary data directory and synthetic tokens. It does not call `switch`, log in, contact Google or modify real accounts. Real credential-store switches and Homebrew installation require platform testing before a release is advertised as verified.
+
+## Interactive workflow and coverage
+
+The main menu groups Accounts & Quotas, Statistics, Refresh, Add Account, and Status. Use Up/Down and Enter to navigate, or a displayed number to open a section; Escape returns. Account management supports switching, quota details, labels, enable/disable, and deletion with confirmation. Refresh and authorization use the network; switching can change credentials and restart clients. Read-only JSON commands are suitable for scripts.
+
+Cost estimates use the same exact model matching as the native menu and the cached public price table. Unknown prices display `Unpriced`; partial estimates are labelled. Missing quota windows are unknown, never inferred as 100%. API-equivalent costs are estimates, not the subscription bill.
+
+A future CLI expansion should expose account management, configuration, candidate ordering and update checks as stable commands, sharing the existing backend. Visual theme settings, menu layout and interactive charts belong in the GUI. The terminal menu and one-line commands should share the same operations rather than duplicate their implementations.

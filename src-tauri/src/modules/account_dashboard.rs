@@ -71,6 +71,26 @@ pub struct ReadOnlyBucket {
     pub remaining_fraction: Option<f64>,
     pub reset_time: String,
 }
+/// A live identity supersedes the saved Tools index. Ambiguous and failed
+/// observations never select an arbitrary account; a closed App retains it.
+pub fn apply_running_identity(snapshot: &mut DashboardSnapshot, identity: Result<Option<String>, String>) {
+    match identity {
+        Ok(Some(email)) => {
+            let mut matches = snapshot.accounts.iter().filter(|account|
+                account.read_status == "loaded" && account.email.eq_ignore_ascii_case(&email));
+            let first = matches.next();
+            snapshot.current_account_id = if matches.next().is_none() {
+                first.map(|account| account.id.clone())
+            } else { None };
+            snapshot.current_identity_source = "running_app";
+        }
+        Ok(None) => {}
+        Err(_) => {
+            snapshot.current_account_id = None;
+            snapshot.current_identity_source = "unavailable";
+        }
+    }
+}
 fn observed(value: f64, known: Option<bool>, maximum: f64) -> Option<f64> {
     if known == Some(false)
         || (known.is_none() && value == 0.0)
@@ -240,6 +260,34 @@ mod tests {
     use super::*;
     use crate::models::quota::fraction_is_known;
     use serde_json::json;
+    #[test]
+    fn live_identity_overrides_index_and_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("accounts")).unwrap();
+        let index = json!({"version":"2.0", "current_account_id":"a", "accounts":[
+            {"id":"a","email":"a@example.test","created_at":1,"last_used":1},
+            {"id":"b","email":"b@example.test","created_at":1,"last_used":1}]});
+        fs::write(dir.path().join("accounts.json"), index.to_string()).unwrap();
+        for id in ["a", "b"] {
+            fs::write(dir.path().join(format!("accounts/{id}.json")),
+                json!({"id":id,"email":format!("{id}@example.test")}).to_string()).unwrap();
+        }
+        let mut view = snapshot_in_dir(dir.path()).unwrap();
+        apply_running_identity(&mut view, Ok(None));
+        assert_eq!(view.current_account_id.as_deref(), Some("a"));
+        apply_running_identity(&mut view, Ok(Some("B@example.test".into())));
+        assert_eq!(view.current_account_id.as_deref(), Some("b"));
+        assert_eq!(view.current_identity_source, "running_app");
+        apply_running_identity(&mut view, Ok(Some("unknown@example.test".into())));
+        assert_eq!(view.current_account_id, None);
+        view.accounts[0].email = "b@example.test".into();
+        apply_running_identity(&mut view, Ok(Some("b@example.test".into())));
+        assert_eq!(view.current_account_id, None);
+        apply_running_identity(&mut view, Err("unverified".into()));
+        assert_eq!(view.current_identity_source, "unavailable");
+        assert_eq!(view.current_account_id, None);
+        assert_eq!(fs::read_to_string(dir.path().join("accounts.json")).unwrap(), index.to_string());
+    }
     #[test]
     fn dashboard_unknown_and_real_zero_are_distinct() {
         assert_eq!(observed(0.0, None, 100.0), None);

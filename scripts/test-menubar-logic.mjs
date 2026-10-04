@@ -345,45 +345,7 @@ test("configured threshold is read without enabling automatic switching", () => 
     "healthy",
   );
 });
-test("view selection does not invoke credential activation", () => {
-  const ui = readFileSync(
-    new URL("../src/pages/MenuBarDashboard.tsx", import.meta.url),
-    "utf8",
-  );
-  const handler = ui.slice(
-    ui.indexOf("const viewAccount ="),
-    ui.indexOf("const refresh ="),
-  );
-  assert.doesNotMatch(handler, /request\(|switchAccount\(/);
-  assert.match(ui, /onClick=\{\(\) => viewAccount\(account.id\)\}/);
-  assert.match(ui, /Use this account/);
-});
-test("switch completion identifies its actual target and preserves newer navigation", () => {
-  const ui = readFileSync(
-    new URL("../src/pages/MenuBarDashboard.tsx", import.meta.url),
-    "utf8",
-  );
-  const handler = ui.slice(
-    ui.indexOf("const switchAccount ="),
-    ui.indexOf("const groups ="),
-  );
-  assert.match(handler, /account.custom_label \|\| account.email/);
-  assert.doesNotMatch(
-    handler,
-    /setSelectedAccountId|setAccountPickerOpen|setQuotaPage/,
-  );
-});
-test("recorded-current badges do not claim a live native app session", () => {
-  const ui = readFileSync(
-    new URL("../src/pages/MenuBarDashboard.tsx", import.meta.url),
-    "utf8",
-  );
-  assert.doesNotMatch(
-    ui,
-    /Active in Antigravity App|正在 Antigravity App 中使用|当前使用/,
-  );
-  assert.match(ui, /Current account recorded by Tools/);
-});
+// Account inspection and live/saved identity badges are exercised by the UI suite.
 test("reopening a window cannot replay stale Dock preferences", () => {
   const desktop = readFileSync(new URL("../src-tauri/src/modules/desktop.rs", import.meta.url), "utf8");
   const show = desktop.slice(desktop.indexOf("pub fn show_main("), desktop.indexOf("pub fn open_app_page("));

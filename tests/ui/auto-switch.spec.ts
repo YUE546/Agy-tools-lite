@@ -40,23 +40,23 @@ test.beforeEach(async ({ page }) => {
         localStorage.setItem('i18nextLng', 'zh');
     });
     await page.goto('/settings');
-    await expect(page.getByRole('heading', { name: '低额度换号' })).toBeVisible();
+    await page.getByRole('tab', { name: '智能切换策略', exact: true }).click();
+    await expect(page.getByRole('tabpanel', { name: '智能切换策略', exact: true })).toBeVisible();
 });
 
 async function enable(page: any, stop = false) {
-    if (!await page.getByLabel('启用低额度换号（保存后生效）').isChecked()) await page.getByText('启用低额度换号（保存后生效）', { exact: true }).click();
-    await page.getByLabel('监测模型', { exact: true }).selectOption('gemini-test');
+    if (!await page.getByLabel('启用智能切换策略').isChecked()) await page.getByText('启用智能切换策略', { exact: true }).click();
+    await expect(page.getByText('已自动保存', { exact: true })).toBeVisible();
+    await page.getByLabel('监测模型', { exact: true }).selectOption('gemini');
     await page.getByLabel('backup@example.invalid', { exact: true }).check();
     if (stop) await page.getByRole('radio').nth(1).check();
-    await page.getByRole('button', { name: '保存设置', exact: true }).click();
-    await expect(page.getByText('已保存', { exact: true })).toBeVisible();
-    await expect(page.getByText('客户端仍未退出，等待安全换号').first()).toBeVisible();
+    await expect(page.getByText('已自动保存', { exact: true })).toBeVisible();
+    await expect(page.getByText('客户端运行中，等待关闭').first()).toBeVisible();
 }
 
 test('default off, explicit configuration, real command contract, cancellation', async ({ page }, testInfo) => {
-    await expect(page.getByLabel('启用低额度换号（保存后生效）')).not.toBeChecked();
-    if (!await page.getByLabel('启用低额度换号（保存后生效）').isChecked()) await page.getByText('启用低额度换号（保存后生效）', { exact: true }).click();
-    await expect(page.getByRole('button', { name: '保存设置', exact: true })).toBeDisabled();
+    await expect(page.getByLabel('启用智能切换策略')).not.toBeChecked();
+    await expect(page.getByRole('button', { name: '保存设置', exact: true })).toHaveCount(0);
     await enable(page);
     await expect(page.getByText('当前账号剩余 8%').first()).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('waiting.png'), fullPage: true });
@@ -69,9 +69,9 @@ test('default off, explicit configuration, real command contract, cancellation',
 
 test('stop mode gives truthful native instructions, keyboard dismissal and no stop call', async ({ page }, testInfo) => {
     await enable(page, true);
-    await page.getByRole('button', { name: '查看停止步骤', exact: true }).first().click();
+    await page.getByRole('button', { name: '查看步骤', exact: true }).first().click();
     const dialog = page.getByRole('dialog'); await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(/本按钮只显示指引，没有发出停止命令/)).toBeVisible();
+    await expect(dialog.getByRole('button', { name: '知道了', exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('stop-guidance.png') });
     await page.keyboard.press('Escape'); await expect(dialog).not.toBeVisible();
     const calls = await page.evaluate(() => (window as any).__fixture.calls);
@@ -81,10 +81,10 @@ test('stop mode gives truthful native instructions, keyboard dismissal and no st
 test('unknown blocks, completion says next launch, narrow layout has no horizontal overflow', async ({ page }, testInfo) => {
     await enable(page);
     await page.evaluate(() => (window as any).__fixture.setStatus({ phase: 'blocked', reason: 'process_unknown', process_state: 'unknown' }));
-    await expect(page.getByText('无法确认客户端是否已退出，暂不换号').first()).toBeVisible();
+    await expect(page.getByText('无法确认客户端状态，暂不换号').first()).toBeVisible();
     await page.evaluate(() => (window as any).__fixture.setStatus({ phase: 'completed', reason: 'credentials_updated', process_state: 'closed', pending_id: null }));
-    await expect(page.getByText('账号已准备，下次打开生效').first()).toBeVisible();
-    await expect(page.getByText(/不会自动重启、恢复会话或重跑工具/).first()).toBeVisible();
+    await expect(page.getByText('账号凭据已安全写入').first()).toBeVisible();
+    await expect(page.getByText(/请在客户端确认账号/).first()).toBeVisible();
     await page.setViewportSize({ width: 760, height: 1000 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('completed-narrow.png'), fullPage: true });

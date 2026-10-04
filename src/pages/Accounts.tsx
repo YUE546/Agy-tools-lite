@@ -32,6 +32,7 @@ function Accounts() {
     accounts,
     currentAccount,
     fetchAccounts,
+    fetchCurrentAccount,
     addAccount,
     deleteAccounts,
     switchAccount,
@@ -141,7 +142,8 @@ function Accounts() {
 
   useEffect(() => {
     fetchAccounts();
-  }, []);
+    fetchCurrentAccount();
+  }, [fetchAccounts, fetchCurrentAccount]);
 
   // Reset pagination when view mode changes to avoid empty pages or confusion
   useEffect(() => {
@@ -428,7 +430,7 @@ function Accounts() {
       {/* 顶部工具栏:搜索、过滤和操作按钮 */}
       <div className="flex-none flex items-center gap-2">
         {/* 搜索框 - 响应式:大屏显示输入框,小屏显示图标 */}
-        <div className="hidden lg:block flex-none w-40 relative transition-all focus-within:w-48">
+        <div className="hidden lg:block flex-none w-48 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
@@ -702,6 +704,7 @@ function Accounts() {
               onRefresh={handleRefresh}
               onEditLabel={handleEditLabel}
               onDelete={handleDelete}
+              onReorder={reorderAccounts}
               quotaWindow={quotaWindow}
             />
           </div>
@@ -803,6 +806,8 @@ function Accounts() {
           </div>
         </div>
       </ModalDialog>
+
+
 
     </div>
   );

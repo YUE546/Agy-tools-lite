@@ -2,10 +2,11 @@
 import { Clock, Lock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../utils/cn';
-import { getQuotaColor, formatTimeRemaining, getTimeRemainingColor } from '../../utils/format';
+import { getQuotaColor, formatTimeRemaining } from '../../utils/format';
 
 interface QuotaItemProps {
-    label: string;
+    label: React.ReactNode;
+    title?: string;
     percentage: number;
     resetTime?: string;
     isProtected?: boolean;
@@ -13,7 +14,7 @@ interface QuotaItemProps {
     Icon?: React.ComponentType<{ size?: number; className?: string }>;
 }
 
-export function QuotaItem({ label, percentage, resetTime, isProtected, className, Icon }: QuotaItemProps) {
+export function QuotaItem({ label, title, percentage, resetTime, isProtected, className, Icon }: QuotaItemProps) {
     const { t } = useTranslation();
     const getBgColorClass = (p: number) => {
         const color = getQuotaColor(p);
@@ -35,22 +36,12 @@ export function QuotaItem({ label, percentage, resetTime, isProtected, className
         }
     };
 
-    const getTimeColorClass = (time?: string) => {
-        if (!time) return 'text-gray-300 dark:text-gray-600';
-        const color = getTimeRemainingColor(time);
-        switch (color) {
-            case 'success': return 'text-emerald-600 dark:text-emerald-400';
-            case 'warning': return 'text-amber-600 dark:text-amber-400';
-            default: return 'text-blue-600 dark:text-blue-400';
-        }
-    };
-
     return (
         <div className={cn(
             "relative h-[22px] flex items-center px-1.5 rounded-md overflow-hidden border border-gray-100/50 dark:border-white/5 bg-gray-50/30 dark:bg-white/5 group/quota",
             className
         )}
-            title={label}
+            title={title || (typeof label === 'string' ? label : undefined)}
         >
             {/* Background Progress Bar */}
             <div
@@ -66,7 +57,7 @@ export function QuotaItem({ label, percentage, resetTime, isProtected, className
                 {/* Model Name */}
                 <span className={cn(
                     "flex-1 min-w-0 text-gray-500 dark:text-gray-400 font-bold truncate text-left flex items-center gap-1"
-                )} title={label}>
+                )} title={title || (typeof label === 'string' ? label : undefined)}>
                     {Icon && <Icon size={12} className="shrink-0" />}
                     {label}
                 </span>
@@ -74,7 +65,7 @@ export function QuotaItem({ label, percentage, resetTime, isProtected, className
                 {/* Reset Time */}
                 <div className="w-[58px] flex justify-start shrink-0">
                     {resetTime ? (
-                        <span className={cn("flex items-center gap-0.5 font-medium transition-colors truncate", getTimeColorClass(resetTime))}>
+                        <span className="flex items-center gap-0.5 font-medium text-amber-600 dark:text-amber-400 truncate">
                             <Clock className="w-2.5 h-2.5 shrink-0" />
                             {formatTimeRemaining(resetTime)}
                         </span>

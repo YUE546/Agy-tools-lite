@@ -3,7 +3,9 @@
 use crate::{models::config::DesktopPreferences, modules};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager};
+#[cfg(not(target_os = "macos"))]
+use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_autostart::ManagerExt;
 
 pub const DASHBOARD_LABEL: &str = "menubar";
@@ -13,6 +15,7 @@ pub struct DesktopRuntime {
     tray_available: AtomicBool,
     preferences_lock: tokio::sync::Mutex<()>,
     dock_error: std::sync::Mutex<Option<String>>,
+    #[cfg(not(target_os = "macos"))]
     panel_transition: std::sync::Mutex<()>,
     #[cfg(target_os = "macos")]
     appearance_lock: std::sync::Mutex<()>,
@@ -38,10 +41,38 @@ pub struct MenuBarAppearance {
     native_material: bool,
     reduced_transparency: bool,
     high_contrast: bool,
+    material_kind: &'static str,
 }
 
 fn use_native_material(macos: bool, reduced_transparency: bool, high_contrast: bool) -> bool {
     macos && !reduced_transparency && !high_contrast
+}
+
+/// Keyboard access to the same tray-anchored overview, including for users who
+/// cannot target a small status icon with a pointer.
+#[cfg(target_os = "macos")]
+pub fn install_dashboard_shortcut(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::{Listener, menu::{Menu, MenuItem, PredefinedMenuItem, WINDOW_SUBMENU_ID}};
+    let menu = match app.menu() { Some(menu) => menu, None => Menu::default(app)? };
+    let label = || if modules::load_app_config().unwrap_or_default().language.starts_with("zh") { "额度总览" } else { "Quota Overview" };
+    let item = MenuItem::with_id(app, "menubar-overview", label(), true, Some("CmdOrCtrl+Shift+M"))?;
+    if let Some(submenu) = menu.get(WINDOW_SUBMENU_ID).and_then(|entry| entry.as_submenu().cloned()) {
+        submenu.append(&PredefinedMenuItem::separator(app)?)?;
+        submenu.append(&item)?;
+    }
+    app.set_menu(menu)?;
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() == "menubar-overview" {
+            let app = app.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Err(error) = toggle_dashboard(&app, None) {
+                    modules::logger::log_warn(&format!("Overview unavailable: {error}"));
+                }
+            });
+        }
+    });
+    app.listen("config://updated", move |_| { let _ = item.set_text(label()); });
+    Ok(())
 }
 
 /// Read accessibility preferences without changing any system setting. Recheck
@@ -72,11 +103,14 @@ fn apply_menu_bar_appearance(app: &tauri::AppHandle) -> Result<MenuBarAppearance
         high_contrast,
     );
     #[cfg(target_os = "macos")]
-    let native_material = {
+    let (native_material, material_kind) = {
         let state = app.state::<DesktopRuntime>();
         let _guard = state.appearance_lock.lock().map_err(|e| e.to_string())?;
         if let Some(window) = app.get_webview_window(DASHBOARD_LABEL) {
             let applied = state.material_applied.load(Ordering::Relaxed);
+            // Use AppKit's menu/popover material through Tauri. Preserve its
+            // managed root view; replacing it with NSGlassEffectView can abort
+            // during native focus/termination events.
             if native_material && !applied {
                 use tauri::window::{Effect, EffectState, EffectsBuilder};
                 let success = window
@@ -84,32 +118,35 @@ fn apply_menu_bar_appearance(app: &tauri::AppHandle) -> Result<MenuBarAppearance
                         EffectsBuilder::new()
                             .effect(Effect::Popover)
                             .state(EffectState::Active)
-                            .radius(10.0)
+                            .radius(22.0)
                             .build(),
                     )
                     .is_ok();
                 state.material_applied.store(success, Ordering::Relaxed);
-                success
+                (success, if success { "vibrancy" } else { "opaque" })
             } else if !native_material {
                 if applied {
                     let _ = window.set_effects(None);
                 }
                 state.material_applied.store(false, Ordering::Relaxed);
-                false
+                (false, "opaque")
             } else {
-                true
+                (true, "vibrancy")
             }
         } else {
-            false
+            (false, "opaque")
         }
     };
     #[cfg(not(target_os = "macos"))]
     let _ = app;
+    #[cfg(not(target_os = "macos"))]
+    let material_kind = "opaque";
     Ok(MenuBarAppearance {
         platform: std::env::consts::OS,
         native_material,
         reduced_transparency,
         high_contrast,
+        material_kind,
     })
 }
 
@@ -305,7 +342,7 @@ pub fn initialize(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 fn start_hidden(autostart: bool, minimized: bool, available: bool) -> bool {
-    autostart && minimized && available
+    (autostart || minimized) && available
 }
 
 pub fn show_main(app: &tauri::AppHandle) -> Result<(), String> {
@@ -349,6 +386,7 @@ pub fn quit_app(app: tauri::AppHandle) {
 }
 
 /// Clamp in physical pixels; negative monitor origins and mixed DPI are valid.
+#[cfg(any(not(target_os = "macos"), test))]
 fn panel_bounds(
     anchor: (f64, f64, f64, f64),
     area: (f64, f64, f64, f64),
@@ -357,25 +395,33 @@ fn panel_bounds(
     let (ax, ay, aw, ah) = anchor;
     let (x, y, w, h) = area;
     let margin = 8.0 * scale;
-    let width = (380.0 * scale).min((w - margin * 2.0).max(1.0));
-    let height = (480.0 * scale).min((h - margin * 2.0).max(1.0));
+    let width = (424.0 * scale).min((w - margin * 2.0).max(1.0));
+    let height = (680.0 * scale).min((h - margin * 2.0).max(1.0));
     let px =
         (ax + aw / 2.0 - width / 2.0).clamp(x + margin, (x + w - width - margin).max(x + margin));
-    let below = ay + ah + margin;
+    let below = if ah > 0.0 { ay + ah + 2.0 * scale } else { (ay + ah).max(y) };
     let py = if below + height <= y + h - margin {
         below
     } else {
-        ay - height - margin
+        ay - height
     };
     (
         px,
-        py.clamp(y + margin, (y + h - height - margin).max(y + margin)),
+        py.clamp(y, (y + h - height).max(y)),
         width,
         height,
     )
 }
 
 pub fn toggle_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    return modules::native_menu::toggle(app, rect);
+    #[cfg(not(target_os = "macos"))]
+    toggle_web_dashboard(app, rect)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn toggle_web_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Result<(), String> {
     let runtime = app.state::<DesktopRuntime>();
     let _transition = runtime.panel_transition.lock().map_err(|e| e.to_string())?;
     if let Some(window) = app.get_webview_window(DASHBOARD_LABEL) {
@@ -389,7 +435,7 @@ pub fn toggle_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Re
             let builder =
                 WebviewWindowBuilder::new(app, DASHBOARD_LABEL, WebviewUrl::App("menubar".into()))
                     .title("Antigravity · Quick Dashboard")
-                    .inner_size(380.0, 480.0)
+                    .inner_size(424.0, 680.0)
                     .resizable(false)
                     .decorations(false)
                     .visible(false)
@@ -448,6 +494,7 @@ pub fn toggle_dashboard(app: &tauri::AppHandle, rect: Option<tauri::Rect>) -> Re
         window.center().map_err(|e| e.to_string())?;
     }
     let appearance = apply_menu_bar_appearance(app)?;
+    tracing::debug!(material = appearance.material_kind, "Menu bar appearance applied");
     let _ = window.emit("menubar://appearance", &appearance);
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
@@ -611,7 +658,7 @@ mod tests {
                 for tray in [false, true] {
                     assert_eq!(
                         start_hidden(autostart, minimized, tray),
-                        autostart && minimized && tray
+                        (autostart || minimized) && tray
                     );
                 }
             }
@@ -625,7 +672,7 @@ mod tests {
             1.0,
         );
         assert!(x >= -792.0 && x + w <= -8.0);
-        assert!(y >= -2.0 && y + h <= 522.0);
+        assert!(y >= -10.0 && y + h <= 530.0);
     }
     #[test]
     fn popover_scales_and_opens_above_bottom_tray() {
@@ -634,8 +681,8 @@ mod tests {
             (0.0, 0.0, 2880.0, 1760.0),
             2.0,
         );
-        assert_eq!(w, 760.0);
-        assert_eq!(h, 960.0);
-        assert!(x + w <= 2864.0 && y + h < 1760.0);
+        assert_eq!(w, 848.0);
+        assert_eq!(h, 1360.0);
+        assert!(x + w <= 2864.0 && y + h <= 1760.0);
     }
 }

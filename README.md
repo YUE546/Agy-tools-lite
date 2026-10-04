@@ -31,7 +31,7 @@ Native Linux Tauri/WebKitGTK viewport, CI debug build `6896ce61`, English UI and
 
 The release workflow does not configure Developer ID signing/notarization or Windows Authenticode signing. macOS or Windows may therefore warn about or block a downloaded package. Check its release source and checksum, and make any required trust decision yourself through the operating system's normal review flow. See [Apple's guidance](https://support.apple.com/en-gb/102445) and [Microsoft's app-reputation guidance](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation). Homebrew does not remove these platform checks
 
-**macOS 4.7.7 repair:** If the 4.7.7 download is reported as damaged, use the corrected 4.7.8 release when available and keep your previous app and account data. 4.7.8 repairs the bundle signature and direct-distribution entitlements; its complete ad-hoc signature is not Developer ID signing or Apple notarization. Gatekeeper and native GUI acceptance remain incomplete. The Homebrew cask needs a separate update to the verified new release asset.
+**macOS distribution:** Complete ad-hoc signing fixes bundle integrity, but does not establish Apple trust. Actual Homebrew installation of v4.7.8 succeeded on Apple Silicon; Gatekeeper rejected that public app. Developer ID signing and notarization are still required for normal trusted distribution.
 
 ## Account management
 
@@ -71,7 +71,7 @@ The dashboard reads Antigravity's local conversation databases (`conversation.db
 - **Date range** — today, yesterday, the last 3, 7 or 30 days; single-day ranges include an hourly chart
 - **Chart details** — pointing at a bar shows that hour's input, output and cached tokens, request count and estimated cost
 - **Summary cards** — total tokens, input tokens, output tokens, cache hit rate and estimated API cost
-- **Model usage and model details** — which models consume the quota, with a per-model breakdown table
+- **Model usage and model details** — per-model token and estimated-cost breakdown, with a token/cost distribution chart
 
 Cost is estimated from Google's public Gemini pricing pages, which are fetched once a day and cached, with a built-in fallback table. Models without a known price are reported as unpriced instead of being counted as free
 
@@ -104,8 +104,6 @@ These are native Linux viewports with synthetic data; Settings content below the
 - **Background tasks** — how often account quotas refresh, and how often the active account is re-read from local Antigravity data
 - **Local data** — location of the application data (`~/.antigravity_tools/`), with a button to open the folder
 - **Startup and menu bar** — launch at login, background launch at login and hiding the Dock icon are all off by default; hiding the Dock icon is macOS-only
-
-**App Settings navigation in Chinese (experimental)** is off by default and supports nine fixed entry/navigation labels in official Antigravity App 2.19.1 on macOS only. Tools Lite's own display language is separate; chat, code, account/project names, paths and input values are excluded. Temporary translation/restoration passed for those nine labels; the final Tools package's enable, reload, reconnect and disable/restore flows still need native acceptance. See [scope and acceptance](docs/app-localization.md).
 
 ## Data handling
 
@@ -145,15 +143,15 @@ Based on [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Mana
 
 ## Command-line and Homebrew
 
-Tools Lite includes a local management CLI named `agy-lite`: list accounts, read the recorded current account and cached quota, and explicitly switch accounts using the same safe path as the GUI. It is separate from Google’s `agy`; `current` is a local record and `quota` does not refresh live data. See [CLI usage](docs/cli.md).
+Tools Lite includes `agy-switch` for account management, cached quotas, local statistics and explicit switching. On macOS and Linux, the terminal menu also supports account labels, enable/disable, confirmed deletion and account addition through browser authorization or masked token entry. It is separate from Google’s `agy`; `current` is a local record and `quota` does not refresh live data. See [CLI usage](docs/cli.md).
 
-[v4.7.7](https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.7.7) includes this CLI; older v4.7.6 packages do not. On Apple Silicon macOS, the cask in this repository installs the app and links its bundled command as `agy-lite`:
+[v4.7.7](https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.7.7) includes this CLI; older v4.7.6 packages do not. On Apple Silicon macOS, the cask in this repository installs the app and links its bundled command as `agy-switch`:
 
 ```sh
 brew tap anglee0323/antigravity-tools-lite https://github.com/anglee0323/antigravity-tools-lite.git
 brew install --cask anglee0323/antigravity-tools-lite/antigravity-tools-lite
-agy-lite --version
-agy-lite --help
+agy-switch --version
+agy-switch --help
 ```
 
-The recipe pins the published ZIP's verified SHA-256. Native Homebrew installation, upgrade and uninstall acceptance is still pending; this is not a claim that the unsigned app has passed macOS trust checks. Keep a backup of an existing manually installed app and resolve any app-folder conflict yourself without deleting account data. Homebrew does not install Google's `agy`. See [Homebrew verification and limitations](docs/homebrew.md).
+The recipe pins the published ZIP's verified SHA-256. Actual Homebrew installation of v4.7.8 with a custom app directory succeeded, but Gatekeeper rejected the public app. Upgrade and uninstall acceptance are tracked separately. Keep a backup of an existing manually installed app and resolve any app-folder conflict yourself without deleting account data. Homebrew does not install Google's `agy`. See [Homebrew verification and limitations](docs/homebrew.md).

@@ -29,6 +29,13 @@ const DEFAULT_MODEL_LABELS: Record<string, string> = {
     'gemini-3-pro-low': 'Gemini 3.1 Pro Low',
     'gemini-2.5-pro': 'Gemini 2.5 Pro',
     'gemini-3-flash-agent': 'Gemini 3.5 Flash (High)',
+    'gemini-3.8-flash-high': 'Gemini 3.8 Flash (High)',
+    'gemini-3.8-flash-medium': 'Gemini 3.8 Flash (Medium)',
+    'gemini-3.8-flash-low': 'Gemini 3.8 Flash (Low)',
+    'gemini-3.7-flash-high': 'Gemini 3.7 Flash (High)',
+    'gemini-3.7-flash': 'Gemini 3.7 Flash',
+    'gemini-3.7-flash-tiered': 'Gemini 3.7 Flash Tiered',
+    'gemini-3.6-flash-high': 'Gemini 3.6 Flash (High)',
     'gemini-3.5-flash': 'Gemini 3.5 Flash',
     'gemini-3-flash': 'Gemini 3 Flash',
     'gemini-2.5-flash': 'Gemini 2.5 Flash',
@@ -51,6 +58,137 @@ export function getModelDisplayName(
         }
     }
     return fallback ?? '';
+}
+
+/**
+ * 标准化/折叠模型ID到统一主模型 Key（消除 High/Medium/Low 等多档位割裂）
+ * 例如：
+ * gemini-3.8-flash-high / medium / low -> gemini-3.8-flash
+ * gemini-pro-agent / gemini-3.1-pro-high / low -> gemini-3.1-pro
+ * gemini-3.5-flash-high / extra-low -> gemini-3.5-flash
+ * claude-sonnet-4-6 / thinking -> claude-sonnet-4-6
+ */
+export function getCanonicalModelKey(rawId: string): string {
+    const id = (rawId || '').toLowerCase().trim();
+    if (!id) return '';
+
+    // 1. 已知固定前缀/别名映射
+    if (id === 'gemini-pro-agent' || id.startsWith('gemini-3.1-pro') || id.startsWith('gemini-3-pro')) {
+        return 'gemini-3.1-pro';
+    }
+    if (id.startsWith('gemini-3.8-flash')) {
+        return 'gemini-3.8-flash';
+    }
+    if (id.startsWith('gemini-3.7-flash')) {
+        return 'gemini-3.7-flash';
+    }
+    if (id.startsWith('gemini-3.6-flash')) {
+        return 'gemini-3.6-flash';
+    }
+    if (id.startsWith('gemini-3.5-flash') || id === 'gemini-3-flash-agent') {
+        return 'gemini-3.5-flash';
+    }
+    if (id === 'gemini-3-flash') {
+        return 'gemini-3-flash';
+    }
+    if (id.includes('flash-image') || id.includes('pro-image') || id.startsWith('imagen')) {
+        return 'gemini-3.1-flash-image';
+    }
+    if (id.startsWith('gemini-3.1-flash-lite')) {
+        return 'gemini-3.1-flash-lite';
+    }
+    if (id.startsWith('gemini-2.5-pro')) {
+        return 'gemini-2.5-pro';
+    }
+    if (id.startsWith('gemini-2.5-flash')) {
+        return 'gemini-2.5-flash';
+    }
+    if (id.includes('claude') && id.includes('opus')) {
+        return 'claude-opus-4-6-thinking';
+    }
+    if (id.includes('claude') && id.includes('sonnet')) {
+        return 'claude-sonnet-4-6';
+    }
+    if (id.includes('gpt-oss')) {
+        return 'gpt-oss-120b';
+    }
+
+    // 2. 动态剥离任何后缀：-high, -medium, -low, -extra-low, -tiered, -thinking
+    const stripped = id.replace(/-(high|medium|low|extra-low|tiered|thinking)$/i, '').trim();
+    return stripped || id;
+}
+
+/**
+ * 获取主模型的规范友好显示名
+ */
+export function getCanonicalModelDisplayName(keyOrRawId: string): string {
+    const canon = getCanonicalModelKey(keyOrRawId);
+    const knownLabels: Record<string, string> = {
+        'gemini-3.8-flash': 'Gemini 3.8 Flash',
+        'gemini-3.1-pro': 'Gemini 3.1 Pro',
+        'gemini-3.7-flash': 'Gemini 3.7 Flash',
+        'gemini-3.6-flash': 'Gemini 3.6 Flash',
+        'gemini-3.5-flash': 'Gemini 3.5 Flash',
+        'gemini-3-flash': 'Gemini 3 Flash',
+        'gemini-3.1-flash-lite': 'Gemini 3.1 Flash Lite',
+        'gemini-2.5-pro': 'Gemini 2.5 Pro',
+        'gemini-2.5-flash': 'Gemini 2.5 Flash',
+        'gemini-3.1-flash-image': 'Gemini 3.1 Flash Image',
+        'claude-sonnet-4-6': 'Claude Sonnet 4.6 (Thinking)',
+        'claude-opus-4-6-thinking': 'Claude Opus 4.6 (Thinking)',
+        'gpt-oss-120b': 'GPT-OSS 120B',
+    };
+
+    if (knownLabels[canon]) return knownLabels[canon];
+
+    // 动态自适应格式化（针对未来未知的 Google / 其他模型）
+    return canon
+        .split('-')
+        .map(part => {
+            const p = part.toLowerCase();
+            if (p === 'gpt') return 'GPT';
+            if (p === 'oss') return 'OSS';
+            if (p === 'pro') return 'Pro';
+            if (p === 'flash') return 'Flash';
+            if (p === 'lite') return 'Lite';
+            if (p === 'image') return 'Image';
+            return part.charAt(0).toUpperCase() + part.slice(1);
+        })
+        .join(' ');
+}
+
+/**
+ * 获取主模型的档位归并提示（说明其包含哪些共享池档位）
+ */
+export function getCanonicalModelSublabel(keyOrRawId: string, format: (tiers: string) => string = tiers => `Shared quota pool: ${tiers}`): string | undefined {
+    const canon = getCanonicalModelKey(keyOrRawId);
+    switch (canon) {
+        case 'gemini-3.8-flash':
+            return format('High / Medium / Low');
+        case 'gemini-3.1-pro':
+            return format('Pro Agent / High / Low');
+        case 'gemini-3.5-flash':
+            return format('High / Low');
+        case 'gemini-2.5-flash':
+            return format('Flash / Lite / Think');
+        default:
+            return undefined;
+    }
+}
+
+/**
+ * 获取主模型的标签
+ */
+export function getCanonicalModelTag(keyOrRawId: string): string | undefined {
+    const canon = getCanonicalModelKey(keyOrRawId);
+    if (canon.includes('pro')) return 'PRO';
+    if (canon.includes('image')) return 'IMAGE';
+    if (canon.includes('lite')) return 'LITE';
+    if (canon.includes('flash')) return 'FLASH';
+    if (canon.includes('opus')) return 'OPUS';
+    if (canon.includes('sonnet')) return 'SONNET';
+    if (canon.includes('gpt')) return 'OPENAI';
+    return undefined;
 }
 
 /**

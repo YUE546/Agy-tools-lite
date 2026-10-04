@@ -111,7 +111,7 @@ jobs:
           PAYLOAD="$RUNNER_TEMP/release-deb-payload"
           dpkg-deb -x "$PACKAGE" "$PAYLOAD"
           node scripts/test-cli.mjs "$PAYLOAD/usr/bin/antigravity-tools-lite"
-          [[ "$("$PAYLOAD/usr/bin/antigravity-tools-lite" --version)" == "agy-lite $VERSION" ]]
+          [[ "$("$PAYLOAD/usr/bin/antigravity-tools-lite" --version)" == "agy-switch $VERSION" ]]
           node scripts/release-assets.mjs checksum "$PACKAGE"
       - uses: actions/upload-artifact@v4
         with:
@@ -165,7 +165,7 @@ jobs:
           if ([BitConverter]::ToUInt16($bytes, $peOffset + 4) -ne 0x8664) { throw 'Expected x64 APP payload' }
           node scripts/test-cli.mjs src-tauri/target/release/antigravity-tools.exe
           if ($LASTEXITCODE -ne 0) { throw 'CLI smoke failed' }
-          node --input-type=module -e 'import assert from "node:assert/strict"; import { execFileSync } from "node:child_process"; assert.equal(execFileSync("src-tauri/target/release/antigravity-tools.exe", ["--version"], { encoding: "utf8" }).trim(), "agy-lite " + process.env.VERSION);'
+          node --input-type=module -e 'import assert from "node:assert/strict"; import { execFileSync } from "node:child_process"; assert.equal(execFileSync("src-tauri/target/release/antigravity-tools.exe", ["--version"], { encoding: "utf8" }).trim(), "agy-switch " + process.env.VERSION);'
           if ($LASTEXITCODE -ne 0) { throw 'CLI version mismatch' }
           ./scripts/test-windows-cli.ps1 -Binary ./src-tauri/target/release/antigravity-tools.exe
       - name: Stage Windows package
@@ -229,7 +229,7 @@ jobs:
           [[ -x "$APP/Contents/MacOS/$EXECUTABLE" ]]
           [[ "$(lipo -archs "$APP/Contents/MacOS/antigravity-tools")" == "arm64" ]]
           node scripts/verify-macos-bundle.mjs "$APP" "$VERSION"
-          [[ "$("$APP/Contents/MacOS/antigravity-tools" --version)" == "agy-lite $VERSION" ]]
+          [[ "$("$APP/Contents/MacOS/antigravity-tools" --version)" == "agy-switch $VERSION" ]]
           node scripts/test-cli.mjs "$APP/Contents/MacOS/antigravity-tools"
           mkdir -p artifacts/release
           NAME="Antigravity-Tools-Lite-${VERSION}-macos-arm64.zip"

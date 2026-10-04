@@ -1,4 +1,10 @@
 import { Bot, BrainCircuit, Sparkles } from 'lucide-react';
+import type { ModelQuota } from '../types/account';
+import {
+    getModelProtectionKey,
+    getCanonicalModelKey,
+    getCanonicalModelDisplayName,
+} from '../utils/modelCategory';
 
 const Gemini = { Color: Sparkles };
 const Claude = { Color: BrainCircuit };
@@ -78,6 +84,46 @@ export const MODEL_CONFIG: Record<string, ModelConfig> = {
         group: 'Gemini 3',
         tags: ['flash'],
     },
+    'gemini-3.8-flash-high': {
+        label: 'Gemini 3.8 Flash (High)',
+        shortLabel: 'G3.8 Flash',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'high'],
+    },
+    'gemini-3.8-flash-medium': {
+        label: 'Gemini 3.8 Flash (Medium)',
+        shortLabel: 'G3.8 Flash',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'medium'],
+    },
+    'gemini-3.8-flash-low': {
+        label: 'Gemini 3.8 Flash (Low)',
+        shortLabel: 'G3.8 Flash',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'low'],
+    },
+    'gemini-3.7-flash-high': {
+        label: 'Gemini 3.7 Flash (High)',
+        shortLabel: 'G3.7 Flash',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'high'],
+    },
+    'gemini-3.6-flash-high': {
+        label: 'Gemini 3.6 Flash (High)',
+        shortLabel: 'G3.6 Flash',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'high'],
+    },
     'gemini-3.7-flash': {
         label: 'Gemini 3.7 Flash',
         shortLabel: 'G3.7 Flash',
@@ -85,6 +131,14 @@ export const MODEL_CONFIG: Record<string, ModelConfig> = {
         Icon: Gemini.Color,
         group: 'Gemini 3',
         tags: ['flash'],
+    },
+    'gemini-3.7-flash-tiered': {
+        label: 'Gemini 3.7 Flash Tiered',
+        shortLabel: 'G3.7 Tiered',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'tiered'],
     },
     'gemini-3.1-flash-lite': {
         label: 'Gemini 3.1 Flash Lite',
@@ -228,74 +282,44 @@ export const getModelConfig = (modelId: string): ModelConfig | undefined => {
 };
 
 /**
- * 模型排序权重配置
- * 数字越小，优先级越高
+ * 获取模型的排序权重（动态识别版本号，确保未来新模型自动优先排序）
  */
-const MODEL_SORT_WEIGHTS = {
-    // 系列权重 (第一优先级)
-    series: {
-        'gemini-3': 100,
-        'gemini-2.5': 200,
-        'gemini-2': 300,
-        'claude': 400,
-    },
-    // 性能级别权重 (第二优先级)
-    tier: {
-        'pro': 10,
-        'flash': 20,
-        'lite': 30,
-        'opus': 5,
-        'sonnet': 10,
-    },
-    // 特殊后缀权重 (第三优先级)
-    suffix: {
-        'thinking': 1,
-        'image': 2,
-        'high': 0,
-        'low': 3,
-    }
-};
-
-/**
- * 获取模型的排序权重
- */
-function getModelSortWeight(modelId: string): number {
+export function getModelSortWeight(modelId: string): number {
     const id = modelId.toLowerCase();
     let weight = 0;
 
-    // 1. 系列权重 (x1000)
-    if (id.startsWith('gemini-3')) {
-        weight += MODEL_SORT_WEIGHTS.series['gemini-3'] * 1000;
-    } else if (id.startsWith('gemini-2.5')) {
-        weight += MODEL_SORT_WEIGHTS.series['gemini-2.5'] * 1000;
-    } else if (id.startsWith('gemini-2')) {
-        weight += MODEL_SORT_WEIGHTS.series['gemini-2'] * 1000;
-    } else if (id.startsWith('claude')) {
-        weight += MODEL_SORT_WEIGHTS.series['claude'] * 1000;
+    // 1. 系列权重 (动态匹配 Gemini 版本，新版本自动优先)
+    const geminiVer = id.match(/^gemini-(\d+(\.\d+)?)/);
+    if (geminiVer) {
+        const v = parseFloat(geminiVer[1]);
+        // 动态计算：版本越高权重数字越小，如 4.0 -> 50000, 3.8 -> 54000, 3.1 -> 68000, 2.5 -> 80000
+        weight += Math.max(10000, Math.round(130000 - v * 20000));
+    } else if (id.includes('claude')) {
+        weight += 200000;
+    } else {
+        weight += 300000;
     }
 
-    // 2. 性能级别权重 (x100)
-    if (id.includes('pro')) {
-        weight += MODEL_SORT_WEIGHTS.tier['pro'] * 100;
+    // 2. 性能级别权重
+    if (id.includes('opus')) {
+        weight += 500;
+    } else if (id.includes('pro') || id.includes('sonnet')) {
+        weight += 1000;
     } else if (id.includes('flash')) {
-        weight += MODEL_SORT_WEIGHTS.tier['flash'] * 100;
+        weight += 2000;
     } else if (id.includes('lite')) {
-        weight += MODEL_SORT_WEIGHTS.tier['lite'] * 100;
-    } else if (id.includes('opus')) {
-        weight += MODEL_SORT_WEIGHTS.tier['opus'] * 100;
-    } else if (id.includes('sonnet')) {
-        weight += MODEL_SORT_WEIGHTS.tier['sonnet'] * 100;
+        weight += 3000;
     }
 
-    // 3. 特殊后缀权重 (x10)
-    if (id.includes('thinking')) {
-        weight += MODEL_SORT_WEIGHTS.suffix['thinking'] * 10;
+    // 3. 特殊后缀权重
+    if (id.includes('high')) {
+        weight += 0;
+    } else if (id.includes('thinking')) {
+        weight += 10;
     } else if (id.includes('image')) {
-        weight += MODEL_SORT_WEIGHTS.suffix['image'] * 10;
-    } else if (id.includes('high')) {
-        weight += MODEL_SORT_WEIGHTS.suffix['high'] * 10;
+        weight += 20;
     } else if (id.includes('low')) {
-        weight += MODEL_SORT_WEIGHTS.suffix['low'] * 10;
+        weight += 30;
     }
 
     return weight;
@@ -327,6 +351,10 @@ export {
     categorizeModel,
     getModelProtectionKey,
     getModelDisplayName,
+    getCanonicalModelKey,
+    getCanonicalModelDisplayName,
+    getCanonicalModelSublabel,
+    getCanonicalModelTag,
     findQuotaModel,
     findImageQuotaModel,
     ensurePinnedImageSelector,
@@ -335,3 +363,82 @@ export {
     type ModelCategory,
     type QuotaModelSelection,
 } from '../utils/modelCategory';
+
+export const DEFAULT_PINNED_MODELS: string[] = [
+    'gemini-3.1-pro',
+    'gemini-3.8-flash',
+    'claude-sonnet-4-6',
+];
+
+export interface DisplayQuotaModelItem {
+    id: string;
+    label: string;
+    protectedKey: string;
+    Icon: any;
+    data?: ModelQuota;
+}
+
+/**
+ * 获取卡片与表格统一展示的模型列表
+ * 智能折叠同模型的不同档位（如 High/Medium/Low），同系列合并展示，确保前台越简洁越好且不遗漏
+ */
+export function getDisplayQuotaModels(
+    accountModels: ModelQuota[] | undefined,
+    pinnedConfigIds: string[] | undefined
+): DisplayQuotaModelItem[] {
+    const rawPinned = (pinnedConfigIds && pinnedConfigIds.length > 0)
+        ? pinnedConfigIds
+        : DEFAULT_PINNED_MODELS;
+
+    // 1. 归一化并去重用户勾选的主模型 Key 列表
+    const pinnedKeys: string[] = [];
+    for (const selectorId of rawPinned) {
+        const canon = getCanonicalModelKey(selectorId);
+        if (canon && !pinnedKeys.includes(canon)) {
+            pinnedKeys.push(canon);
+        }
+    }
+
+    // 2. 将账号的实际模型按主模型 Key 汇聚（若存在多个档位，择优选取 High 或有效项）
+    const accountCanonMap = new Map<string, ModelQuota>();
+    for (const m of (accountModels || [])) {
+        if (!m.name) continue;
+        const canon = getCanonicalModelKey(m.name);
+        const existing = accountCanonMap.get(canon);
+        if (!existing) {
+            accountCanonMap.set(canon, m);
+        } else {
+            const mLower = m.name.toLowerCase();
+            const exLower = existing.name.toLowerCase();
+            if (mLower.includes('high') && !exLower.includes('high')) {
+                accountCanonMap.set(canon, m);
+            }
+        }
+    }
+
+    const results: DisplayQuotaModelItem[] = [];
+
+    for (const canonKey of pinnedKeys) {
+        const rawModel = accountCanonMap.get(canonKey);
+        const label = getCanonicalModelDisplayName(canonKey);
+        const protectedKey = getModelProtectionKey(canonKey) || canonKey;
+
+        let Icon = Gemini.Color;
+        if (canonKey.includes('claude')) {
+            Icon = Claude.Color;
+        } else if (canonKey.includes('gpt') || canonKey.includes('oss')) {
+            Icon = OpenAI.Avatar;
+        }
+
+        results.push({
+            id: canonKey,
+            label,
+            protectedKey,
+            Icon,
+            data: rawModel || ({ name: canonKey, percentage: 0 } as ModelQuota),
+        });
+    }
+
+    return results;
+}
+

@@ -44,14 +44,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev git cmake clang libclang-dev pkg-config
 
-      - name: Test scoped localization runtime
-        run: npm run test:app-localization
-
       - name: Build frontend
         run: npm run build
 
       - name: Test menu-bar quota presentation
-        run: node scripts/test-menubar-logic.mjs && node scripts/test-account-dashboard.mjs
+        run: node scripts/test-menubar-logic.mjs && node scripts/test-menubar-overview.mjs && node scripts/test-account-dashboard.mjs && node scripts/test-model-pricing.mjs
+
+      - name: Test settings category component contracts
+        run: node scripts/test-settings-layout.mjs
 
       - name: Test desktop preference UI races
         run: node scripts/test-desktop-settings.mjs
@@ -91,10 +91,13 @@ jobs:
       - name: Test read-only account dashboard contract
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib account_dashboard::tests
 
-      - name: Test localization guards and transport
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib localization_
+      - name: Test App identity and metadata guards
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib app_
 
-      - name: Test serialized localization preferences
+      - name: Test public release metadata guards
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib modules::updater::tests
+
+      - name: Test serialized desktop preferences
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib modules::config::tests
 
       - name: Test Tools Lite CLI on every platform

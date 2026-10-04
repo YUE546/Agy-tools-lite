@@ -5,6 +5,7 @@ import { request } from "../../utils/request";
 import { isTauri } from "../../utils/env";
 import { useConfigStore } from "../../stores/useConfigStore";
 import { getMenuBarMessages } from "../menubar/messages";
+import MenuBarPreferencesSettings from "./MenuBarPreferencesSettings";
 
 interface DesktopStatus {
   platform: string;
@@ -61,8 +62,11 @@ export default function DesktopSettings() {
     setBusy(key);
     setError("");
     try {
+      const patch = key === "hide_dock_icon"
+        ? { hide_dock_icon: value, start_minimized: value }
+        : { [key]: value };
       const next = await request<DesktopStatus>("set_desktop_preferences", {
-        patch: { [key]: value },
+        patch,
       });
       if (live.current && generation.current === requestId) {
         setStatus(next);
@@ -84,6 +88,7 @@ export default function DesktopSettings() {
       if (live.current && generation.current === requestId) setBusy(null);
     }
   };
+  const isMac = !status || status.platform === "macos";
   const rows: {
     key: Preference;
     title: string;
@@ -99,30 +104,23 @@ export default function DesktopSettings() {
       note: status && !status.autostart_supported ? t.releaseOnly : undefined,
     },
     {
-      key: "start_minimized",
-      title: t.background,
-      hint: t.backgroundHint,
-      disabled: !status?.tray_available || !status.launch_at_login,
-    },
-    {
-      key: "hide_dock_icon",
-      title: t.dock,
-      hint: t.dockHint,
-      disabled: status?.platform !== "macos" || !status.tray_available,
-      note: status && status.platform !== "macos" ? t.macOnly : undefined,
+      key: isMac ? "hide_dock_icon" : "start_minimized",
+      title: isMac ? t.dock : t.background,
+      hint: isMac ? t.dockHint : t.backgroundHint,
+      disabled: !status?.tray_available,
     },
   ];
   return (
-    <section className="rounded-2xl border border-gray-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
+    <section className="rounded-2xl border border-gray-200/80 bg-white p-5 sm:p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900/80">
       <div className="mb-5 flex items-start gap-3">
-        <span className="rounded-xl bg-violet-50 p-2.5 text-violet-600 dark:bg-violet-500/10 dark:text-violet-300">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600 dark:bg-violet-400/10 dark:text-violet-300">
           <PanelTop className="h-5 w-5" />
         </span>
         <div>
-          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {t.desktopTitle}
-          </h2>
-          <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+          </h3>
+          <p className="mt-0.5 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
             {t.desktopHint}
           </p>
         </div>
@@ -131,18 +129,18 @@ export default function DesktopSettings() {
         {rows.map((row) => (
           <div
             key={row.key}
-            className="flex items-start justify-between gap-4 py-4 first:pt-0"
+            className="flex items-start justify-between gap-4 py-3.5 first:pt-0"
           >
             <div>
               <label
                 htmlFor={`desktop-${row.key}`}
-                className="text-sm font-medium text-gray-800 dark:text-gray-200"
+                className="text-xs font-semibold text-gray-800 dark:text-gray-200"
               >
                 {row.title}
               </label>
               <p
                 id={`desktop-${row.key}-hint`}
-                className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400"
+                className="mt-0.5 text-xs leading-relaxed text-gray-500 dark:text-gray-400"
               >
                 {row.note || row.hint}
               </p>
@@ -156,20 +154,21 @@ export default function DesktopSettings() {
               aria-label={row.title}
               disabled={!status || Boolean(busy) || row.disabled}
               onClick={() => void update(row.key, !status?.[row.key])}
-              className={`relative mt-0.5 flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-40 ${status?.[row.key] ? "bg-violet-600" : "bg-gray-200 dark:bg-slate-600"}`}
+              className={`relative mt-0.5 flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 disabled:cursor-not-allowed disabled:opacity-40 ${status?.[row.key] ? "bg-blue-600" : "bg-gray-300 dark:bg-slate-600"}`}
             >
               <span
-                className={`flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-sm transition-transform ${status?.[row.key] ? "translate-x-6" : "translate-x-1"}`}
+                className={`flex h-5 w-5 items-center justify-center rounded-full bg-white shadow-sm transition-transform ${status?.[row.key] ? "translate-x-[22px]" : "translate-x-0.5"}`}
               >
                 {busy === row.key && (
-                  <Loader2 className="h-3 w-3 animate-spin text-violet-600" />
+                  <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
                 )}
               </span>
             </button>
           </div>
         ))}
       </div>
-      <p className="mt-3 rounded-xl bg-gray-50 px-3 py-2.5 text-xs leading-relaxed text-gray-500 dark:bg-slate-800 dark:text-gray-400">
+      <MenuBarPreferencesSettings />
+      <p className="mt-3.5 rounded-xl border border-gray-200/70 bg-gray-50/60 p-3 text-xs leading-relaxed text-gray-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-gray-400">
         {!isTauri()
           ? t.nativeOnly
           : status && !status.tray_available

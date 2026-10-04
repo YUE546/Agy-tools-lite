@@ -1,7 +1,7 @@
 //! Opt-in low-quota scheduling. This module never stops, kills, or starts a client.
 //! A process scan is a conservative observation, not an atomic global idle barrier.
 use crate::models::{Account, QuotaData};
-use crate::modules::{account, cli_credentials, integration, version};
+use crate::modules::{account, cli_credentials, db, device, integration, version};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -21,14 +21,29 @@ pub enum Mode {
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum Strategy {
+    RoundRobin,
+    #[default]
+    Priority,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Target {
     #[default]
+    #[serde(alias = "all")]
     App,
+    #[serde(alias = "desktop")]
+    AppCli,
+    Ide,
+    Vscode,
 }
 impl Target {
-    fn argument(self) -> Option<&'static str> {
+    pub fn argument(self) -> Option<&'static str> {
         match self {
             Self::App => None,
+            Self::AppCli => Some("app"),
+            Self::Ide => Some("ide"),
+            Self::Vscode => Some("vscode"),
         }
     }
 }
@@ -38,6 +53,7 @@ impl Target {
 pub struct Config {
     pub enabled: bool,
     pub mode: Mode,
+    pub strategy: Strategy,
     pub reserve_percentage: u8,
     pub candidate_min_percentage: u8,
     pub monitored_model: String,
@@ -49,9 +65,10 @@ impl Default for Config {
         Self {
             enabled: false,
             mode: Mode::Wait,
+            strategy: Strategy::Priority,
             reserve_percentage: 10,
             candidate_min_percentage: 30,
-            monitored_model: String::new(),
+            monitored_model: "all".into(),
             candidate_account_ids: vec![],
             target: Target::App,
         }
@@ -65,8 +82,8 @@ impl Config {
         {
             return Err("Choose a reserve from 1–98% and a candidate minimum above the reserve, up to 100%.".into());
         }
-        if self.candidate_account_ids.len() > 10 || self.monitored_model.len() > 200 {
-            return Err("Select no more than 10 candidate accounts.".into());
+        if self.candidate_account_ids.len() > 100 || self.monitored_model.len() > 200 {
+            return Err("Select no more than 100 candidate accounts.".into());
         }
         let mut ids = HashSet::new();
         if self
@@ -76,11 +93,9 @@ impl Config {
         {
             return Err("Candidate accounts must be unique.".into());
         }
-        if self.enabled
-            && (self.monitored_model.trim().is_empty() || self.candidate_account_ids.is_empty())
-        {
+        if self.enabled && self.candidate_account_ids.is_empty() {
             return Err(
-                "Choose a model and at least one allowed backup account before enabling.".into(),
+                "Choose at least one allowed backup account before enabling.".into(),
             );
         }
         Ok(())
@@ -206,6 +221,46 @@ fn remaining(q: &QuotaData, model: &str, now: i64) -> Result<f64, &'static str> 
     if q.last_updated > now + 30 || now - q.last_updated > QUOTA_MAX_AGE {
         return Err("stale_quota");
     }
+    let trimmed = model.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("all") {
+        let mut min_val: Option<f64> = None;
+        for m in &q.models {
+            if let Ok(val) = remaining_single_model(q, &m.name, now) {
+                min_val = Some(min_val.map_or(val, |old| old.min(val)));
+            }
+        }
+        return min_val.ok_or("unknown_pool");
+    }
+    if trimmed.eq_ignore_ascii_case("gemini") {
+        let mut min_val: Option<f64> = None;
+        for m in &q.models {
+            if m.name.to_ascii_lowercase().starts_with("gemini") {
+                if let Ok(val) = remaining_single_model(q, &m.name, now) {
+                    min_val = Some(min_val.map_or(val, |old| old.min(val)));
+                }
+            }
+        }
+        return min_val.ok_or("unknown_pool");
+    }
+    if trimmed.eq_ignore_ascii_case("claude")
+        || trimmed.eq_ignore_ascii_case("3p")
+        || trimmed.eq_ignore_ascii_case("non-gemini")
+    {
+        let mut min_val: Option<f64> = None;
+        for m in &q.models {
+            let lower = m.name.to_ascii_lowercase();
+            if lower.starts_with("claude") || lower.starts_with("gpt") {
+                if let Ok(val) = remaining_single_model(q, &m.name, now) {
+                    min_val = Some(min_val.map_or(val, |old| old.min(val)));
+                }
+            }
+        }
+        return min_val.ok_or("unknown_pool");
+    }
+    remaining_single_model(q, trimmed, now)
+}
+
+fn remaining_single_model(q: &QuotaData, model: &str, now: i64) -> Result<f64, &'static str> {
     let mut resolved = model;
     for _ in 0..8 {
         if let Some(next) = q.model_forwarding_rules.get(resolved) {
@@ -267,12 +322,15 @@ fn remaining(q: &QuotaData, model: &str, now: i64) -> Result<f64, &'static str> 
         .unwrap_or("")
         .to_ascii_lowercase()
         .contains("free");
-    let short = match short {
-        Some(v) => v,
-        None if free => 100.0,
-        None => return Err("unknown_pool"),
-    };
-    Ok(weekly.min(short).min(m.percentage as f64))
+
+    // 仅以 5 小时短周期配额为限制，不限制周线；仅在无 5h 桶的 Free 账号下回退使用周配额
+    if let Some(s) = short {
+        Ok(s.min(m.percentage as f64))
+    } else if free {
+        Ok(weekly.min(m.percentage as f64))
+    } else {
+        Err("unknown_pool")
+    }
 }
 fn usable(a: &Account) -> bool {
     !a.disabled && !a.validation_blocked && !a.quota.as_ref().is_some_and(|q| q.is_forbidden)
@@ -382,20 +440,52 @@ fn configured_client_path(path: &std::path::Path, configured: &std::path::Path) 
 /// Compare credentials privately. No token or raw authentication error is exposed
 /// through the status DTO. Any external sign-in mismatch invalidates the request.
 fn verify_source(source: &Account, target: Target) -> Result<(), &'static str> {
-    let actual = match target {
-        Target::App => {
+    if target == Target::App || target == Target::AppCli {
+        let config =
+            crate::modules::config::load_app_config().map_err(|_| "credentials_changed")?;
+        if crate::modules::app_identity::running_email(config.antigravity_executable.as_deref())
+            .map_err(|_| "credentials_changed")?
+            .is_some_and(|email| !email.eq_ignore_ascii_case(&source.email))
+        {
+            return Err("credentials_changed");
+        }
+    }
+    let actual_refresh_token = match target {
+        Target::App | Target::AppCli => {
             let v = installed_app_version()?;
             if version::compare_version(&v.short_version, "2.0.0") == std::cmp::Ordering::Less {
                 return Err("unsupported_client");
             }
             integration::read_from_system_keyring()
+                .map(|s| s.refresh_token)
+                .map_err(|_| "credentials_changed")?
         }
-    }
-    .map_err(|_| "credentials_changed")?;
-    if actual.refresh_token.is_empty() || actual.refresh_token != source.token.refresh_token {
+        Target::Ide => {
+            crate::modules::migration::get_refresh_token_from_db(Some("ide"))
+                .map_err(|_| "credentials_changed")?
+        }
+        Target::Vscode => {
+            if let Some(home) = dirs::home_dir() {
+                let token_file = home.join(".gemini/jetski-standalone-oauth-token");
+                if token_file.is_file() {
+                    if let Ok(bytes) = std::fs::read(&token_file) {
+                        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                            if let Some(rt) = json.get("refresh_token").and_then(|v| v.as_str()) {
+                                if !rt.is_empty() && rt != source.token.refresh_token {
+                                    return Err("credentials_changed");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            source.token.refresh_token.clone()
+        }
+    };
+    if actual_refresh_token.is_empty() || actual_refresh_token != source.token.refresh_token {
         return Err("credentials_changed");
     }
-    if target == Target::App {
+    if target == Target::App || target == Target::AppCli {
         let home = dirs::home_dir().ok_or("credentials_changed")?;
         if let Some(path) =
             cli_credentials::session_path(&home).map_err(|_| "credentials_changed")?
@@ -484,6 +574,7 @@ fn advance_pending(
     p.clone()
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn commit_guard(
     d: &RuntimeData,
     pending: &Pending,
@@ -517,10 +608,79 @@ fn commit_guard(
     {
         return Err("no_candidate");
     }
+    if config.target == Target::Vscode {
+        return Ok(());
+    }
     match process {
         ProcessState::Running => Err("clients_running"),
         ProcessState::Unknown => Err("process_unknown"),
         ProcessState::Closed => Ok(()),
+    }
+}
+
+pub fn is_any_agent_actively_working() -> bool {
+    #[cfg(test)]
+    {
+        return false;
+    }
+    #[cfg(not(test))]
+    {
+        let Some(home) = dirs::home_dir() else { return false; };
+        let candidates = [
+            home.join(".gemini/antigravity/brain"),
+            home.join(".gemini/antigravity-cli/brain"),
+        ];
+        let now = std::time::SystemTime::now();
+
+        for brain_dir in &candidates {
+            if !brain_dir.is_dir() {
+                continue;
+            }
+            let Ok(entries) = std::fs::read_dir(brain_dir) else { continue; };
+            for entry in entries.flatten() {
+                let p = entry.path().join(".system_generated/logs/transcript.jsonl");
+                if !p.is_file() {
+                    continue;
+                }
+                let Ok(meta) = p.metadata() else { continue; };
+                let Ok(mtime) = meta.modified() else { continue; };
+                let Ok(elapsed) = now.duration_since(mtime) else { continue; };
+
+                if elapsed.as_secs() < 8 {
+                    if let Ok(file) = std::fs::File::open(&p) {
+                        use std::io::{BufRead, BufReader, Seek, SeekFrom};
+                        let mut reader = BufReader::new(file);
+                        if let Ok(len) = reader.seek(SeekFrom::End(0)) {
+                            let offset = if len > 4096 { len - 4096 } else { 0 };
+                            let _ = reader.seek(SeekFrom::Start(offset));
+                            let lines: Vec<String> = reader.lines().flatten().collect();
+                            if let Some(last_line) = lines.iter().rev().find(|l| !l.trim().is_empty()) {
+                                if !last_line.contains("\"status\":\"DONE\"") {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+}
+
+pub fn interrupt_vscode_agent() {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        let script = r#"
+            tell application "System Events"
+                if exists (processes whose name is "Code") then
+                    tell process "Code"
+                        key code 53
+                    end tell
+                end if
+            end tell
+        "#;
+        let _ = std::process::Command::new("osascript").args(["-e", script]).output();
     }
 }
 
@@ -529,6 +689,19 @@ fn commit_guard(
 trait Environment: Clone + Send + Sync + 'static {
     fn now(&self) -> i64;
     fn clients(&self) -> ProcessState;
+    fn is_agent_working(&self) -> bool {
+        false
+    }
+    fn interrupt_vscode(&self) {}
+    fn is_client_running(&self, _target_ide: Option<&str>) -> bool {
+        false
+    }
+    fn close_client(&self, _timeout: u64, _target_ide: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
+    fn start_client(&self, _target_ide: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
     fn fetch_quota<'a>(
         &'a self,
         account: &'a mut Account,
@@ -537,7 +710,7 @@ trait Environment: Clone + Send + Sync + 'static {
         account::update_account_quota(id, quota)
     }
     fn verify_source(&self, source: &Account, target: Target) -> Result<(), &'static str>;
-    fn write_credentials(&self, target: &Account) -> Result<(), String>;
+    fn write_credentials(&self, target: &Account, target_ide: Option<&str>) -> Result<(), String>;
 }
 #[derive(Clone)]
 struct NativeEnvironment;
@@ -548,6 +721,21 @@ impl Environment for NativeEnvironment {
     fn clients(&self) -> ProcessState {
         clients()
     }
+    fn is_agent_working(&self) -> bool {
+        is_any_agent_actively_working()
+    }
+    fn interrupt_vscode(&self) {
+        interrupt_vscode_agent();
+    }
+    fn is_client_running(&self, target_ide: Option<&str>) -> bool {
+        crate::modules::process::is_antigravity_running(target_ide)
+    }
+    fn close_client(&self, timeout: u64, target_ide: Option<&str>) -> Result<(), String> {
+        crate::modules::process::close_antigravity(timeout, target_ide)
+    }
+    fn start_client(&self, target_ide: Option<&str>) -> Result<(), String> {
+        crate::modules::process::start_antigravity(target_ide)
+    }
     async fn fetch_quota(&self, account: &mut Account) -> Result<QuotaData, String> {
         account::fetch_quota_with_retry(account)
             .await
@@ -556,8 +744,70 @@ impl Environment for NativeEnvironment {
     fn verify_source(&self, source: &Account, target: Target) -> Result<(), &'static str> {
         verify_source(source, target)
     }
-    fn write_credentials(&self, target: &Account) -> Result<(), String> {
-        integration::write_to_system_keyring(target, false)
+    fn write_credentials(&self, target: &Account, target_ide: Option<&str>) -> Result<(), String> {
+        let is_ide_mode = target_ide == Some("ide");
+        let is_app_cli_mode = target_ide == Some("app");
+        let is_vscode_mode = target_ide == Some("vscode");
+        if !is_ide_mode && !is_vscode_mode {
+            integration::write_to_system_keyring(target, false)?;
+        }
+
+        if !is_app_cli_mode {
+            if let Some(home) = dirs::home_dir() {
+                let gemini_dir = home.join(".gemini");
+                if gemini_dir.is_dir() {
+                    let jetski_file = gemini_dir.join("jetski-standalone-oauth-token");
+                    if let Ok(payload) = cli_credentials::payload(&target.token) {
+                        let _ = cli_credentials::write_session(&jetski_file, &payload);
+                    }
+                }
+            }
+        }
+
+        if let Ok(storage_path) = device::get_storage_path(target_ide) {
+            if let Some(ref profile) = target.device_profile {
+                let _ = device::write_profile(&storage_path, profile);
+            }
+        }
+
+        let candidate_dbs = if is_app_cli_mode {
+            let mut paths = Vec::new();
+            #[cfg(target_os = "macos")]
+            if let Some(home) = dirs::home_dir() {
+                paths.push(home.join("Library/Application Support/Antigravity/User/globalStorage/state.vscdb"));
+            }
+            #[cfg(target_os = "windows")]
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                paths.push(std::path::PathBuf::from(appdata).join("Antigravity\\User\\globalStorage\\state.vscdb"));
+            }
+            #[cfg(target_os = "linux")]
+            if let Some(config_home) = crate::modules::linux_paths::config_home() {
+                paths.push(config_home.join("Antigravity/User/globalStorage/state.vscdb"));
+            }
+            paths
+        } else {
+            db::get_all_candidate_db_paths(target_ide)
+        };
+
+        for db_path in candidate_dbs {
+            if db_path.exists() {
+                let backup_path = db_path.with_extension("vscdb.backup");
+                let _ = std::fs::copy(&db_path, &backup_path);
+                let _ = db::inject_token(
+                    &db_path,
+                    &target.token.access_token,
+                    &target.token.refresh_token,
+                    target.token.expiry_timestamp,
+                    &target.email,
+                    target.token.is_gcp_tos,
+                    target.token.project_id.as_deref(),
+                    target.token.id_token.as_deref(),
+                    target.token.oauth_client_key.as_deref(),
+                );
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -853,26 +1103,41 @@ async fn evaluate_core<E: Environment>(
         }
     }
     let mut candidate = None;
-    for id in &config.candidate_account_ids {
-        if id == &source_id {
-            continue;
-        }
-        if let Ok(a) = refresh(runtime, &environment, id, force).await {
-            if account_remaining(&a, &config.monitored_model, now)
-                .is_ok_and(|p| p >= config.candidate_min_percentage as f64)
-            {
-                candidate = Some(a);
-                break;
+    let candidate_ids = &config.candidate_account_ids;
+    let len = candidate_ids.len();
+    if len > 0 {
+        let start_idx = match config.strategy {
+            Strategy::RoundRobin => candidate_ids
+                .iter()
+                .position(|id| id == &source_id)
+                .map(|idx| (idx + 1) % len)
+                .unwrap_or(0),
+            Strategy::Priority => 0,
+        };
+
+        for step in 0..len {
+            let idx = (start_idx + step) % len;
+            let id = &candidate_ids[idx];
+            if id == &source_id {
+                continue;
             }
-        }
-        if runtime
-            .data
-            .lock()
-            .map_err(|_| "State unavailable")?
-            .revision
-            != revision
-        {
-            return Ok(false);
+            if let Ok(a) = refresh(runtime, &environment, id, force).await {
+                if account_remaining(&a, &config.monitored_model, now)
+                    .is_ok_and(|p| p >= config.candidate_min_percentage as f64)
+                {
+                    candidate = Some(a);
+                    break;
+                }
+            }
+            if runtime
+                .data
+                .lock()
+                .map_err(|_| "State unavailable")?
+                .revision
+                != revision
+            {
+                return Ok(false);
+            }
         }
     }
     let Some(candidate) = candidate else {
@@ -894,24 +1159,92 @@ async fn evaluate_core<E: Environment>(
         }
         let result = advance_pending(&mut d, &source_id, &candidate.id, now, process_state);
         status.pending_id = Some(result.id.clone());
-        match process_state {
-            ProcessState::Running => status.set("pending", "clients_running"),
-            ProcessState::Unknown => status.set("blocked", "process_unknown"),
-            ProcessState::Closed => status.set("pending", "ready"),
-        }
-        d.status = status.clone();
         result
     };
-    // Two observations separated by >=3s improve race detection. They cannot stop
-    // an uncoordinated external client from launching during a credential write.
-    if !pending.closed_since.is_some_and(|since| now - since >= 3) {
+
+    if process_state == ProcessState::Unknown {
+        status.set("blocked", "process_unknown");
+        update_status(runtime, revision, status);
         return Ok(false);
     }
-    let integration = ClosedOnlyIntegration {
+
+    // In Mode::Wait, if agent is actively generating, wait for it to finish
+    if config.mode == Mode::Wait && environment.is_agent_working() {
+        let mut d = runtime.data.lock().map_err(|_| "State unavailable")?;
+        if d.revision == revision {
+            status.set("pending", "waiting_task_finish");
+            d.status = status;
+        }
+        return Ok(false);
+    }
+
+    // In VS Code mode: no client exit needed, hot-swap in place
+    let is_vscode = config.target == Target::Vscode;
+    if !is_vscode {
+        if process_state != ProcessState::Closed {
+            status.set("pending", "clients_running");
+            update_status(runtime, revision, status.clone());
+            // In automated mode, trigger close on running clients when safe:
+            if config.mode == Mode::Stop || (config.mode == Mode::Wait && !environment.is_agent_working()) {
+                let close_environment = environment.clone();
+                let close_data = runtime.data.clone();
+                let close_source = source.clone();
+                let close_config = config.clone();
+                let checked_close = tokio::task::spawn_blocking(move || {
+                    let root = account::get_data_dir().map_err(|_| "source_changed")?;
+                    let _switch = crate::cli::SwitchLock::acquire(&root)
+                        .map_err(|_| "another_account_switch_in_progress")?;
+                    // A stale index must never cause the real client to exit.
+                    // Recheck identity before closing, as well as before writing.
+                    close_environment.verify_source(&close_source, close_config.target)?;
+                    if account::get_current_account_id()
+                        .map_err(|_| "source_changed")?
+                        .as_deref()
+                        != Some(close_source.id.as_str())
+                    {
+                        return Err("source_changed");
+                    }
+                    {
+                        let d = close_data.lock().map_err(|_| "request_changed")?;
+                        if d.revision != revision
+                            || d.pending.is_none()
+                            || d.canceled_source.as_deref() == Some(close_source.id.as_str())
+                            || read_config().map_err(|_| "configuration_required")? != close_config
+                        {
+                            return Err("request_changed");
+                        }
+                    }
+                    close_environment
+                        .close_client(20, close_config.target.argument())
+                        .map_err(|_| "clients_running")
+                })
+                .await
+                .unwrap_or(Err("process_unknown"));
+                if let Err(reason) = checked_close {
+                    status.set("blocked", reason);
+                    update_status(runtime, revision, status);
+                }
+            }
+            return Ok(false);
+        }
+
+        if !pending.closed_since.is_some_and(|since| now - since >= 3) {
+            status.set("pending", "ready");
+            update_status(runtime, revision, status);
+            return Ok(false);
+        }
+    } else {
+        // VS Code mode: interrupt if in Mode::Stop
+        if config.mode == Mode::Stop {
+            environment.interrupt_vscode();
+        }
+    }
+
+    let integration = AutoSwitchIntegration {
         data: runtime.data.clone(),
         pending: pending.clone(),
         config: config.clone(),
-        environment,
+        environment: environment.clone(),
     };
     status.set("pending", "checking");
     update_status(runtime, revision, status);
@@ -927,15 +1260,20 @@ async fn evaluate_core<E: Environment>(
         Ok(()) => {
             d.pending = None;
             d.status.pending_id = None;
-            d.status.set("completed", "credentials_updated");
+            let final_reason = if d.status.reason.as_deref() == Some("restarted") {
+                "restarted"
+            } else if config.mode == Mode::Stop && config.target == Target::Vscode {
+                "paused_and_updated"
+            } else {
+                "credentials_updated"
+            };
+            d.status.set("completed", final_reason);
             d.cooldown_until = now + COOLDOWN_SECONDS;
             if write_pause(d.canceled_source.clone(), false).is_err() {
                 d.failed = true;
             }
         }
         Err(_) => {
-            // Authentication writes can fail partially. Never loop over identities
-            // or retry unattended after an uncertain commit. Re-enable to retry.
             if matches!(
                 d.status.reason.as_deref(),
                 Some("clients_running" | "process_unknown")
@@ -958,23 +1296,24 @@ async fn evaluate_core<E: Environment>(
     Ok(committed)
 }
 
-struct ClosedOnlyIntegration<E: Environment> {
+struct AutoSwitchIntegration<E: Environment> {
     data: Arc<Mutex<RuntimeData>>,
     pending: Pending,
     config: Config,
     environment: E,
 }
-impl<E: Environment> integration::SystemIntegration for ClosedOnlyIntegration<E> {
+impl<E: Environment> integration::SystemIntegration for AutoSwitchIntegration<E> {
     async fn on_account_switch(
         &self,
         target: &Account,
-        _target_ide: Option<&str>,
+        target_ide: Option<&str>,
     ) -> Result<(), String> {
         let data = self.data.clone();
         let p = self.pending.clone();
         let config = self.config.clone();
         let target = target.clone();
         let environment = self.environment.clone();
+        let target_ide = target_ide.map(str::to_owned);
         tokio::task::spawn_blocking(move || {
             let report = |reason: &str| -> Result<(), String> {
                 if let Ok(mut d) = data.lock() {
@@ -984,14 +1323,10 @@ impl<E: Environment> integration::SystemIntegration for ClosedOnlyIntegration<E>
                 }
                 Err(reason.into())
             };
-            // Slow native reads run without the status mutex. Cancel/settings and
-            // status polling remain responsive until the actual commit boundary.
             let source_before = account::load_account(&p.source_id)?;
             if let Err(reason) = environment.verify_source(&source_before, config.target) {
                 return report(reason);
             }
-            // Serialize the final snapshot against in-process quota/deletion/index
-            // changes. The outer account::switch_account also holds both switch locks.
             let _account_write = account::lock_account_file_updates()?;
             let source = account::load_account(&p.source_id)?;
             let latest_target = account::load_account(&target.id)?;
@@ -1001,7 +1336,6 @@ impl<E: Environment> integration::SystemIntegration for ClosedOnlyIntegration<E>
             let current = account::get_current_account_id()?;
             {
                 let mut d = data.lock().map_err(|_| "state_unavailable")?;
-                // A completed Cancel/Disable owns the newer visible state.
                 if d.revision != p.revision {
                     return Err("request_changed".into());
                 }
@@ -1022,19 +1356,74 @@ impl<E: Environment> integration::SystemIntegration for ClosedOnlyIntegration<E>
                     d.status.set("blocked", reason);
                     return Err(reason.into());
                 }
-                // Journal before writes. Polling can now observe switching, and
-                // mutators reject promptly rather than waiting on a keyring call.
                 write_pause(Some(p.source_id.clone()), true)?;
                 d.commit_started = true;
                 d.status.set("switching", "checking");
             }
-            // Write the freshest target token, not the account clone from before
-            // token refresh/initial preflight.
-            environment.write_credentials(&latest_target)?;
+
+            // 1. Process detection and graceful close
+            let is_vscode = target_ide.as_deref() == Some("vscode");
+            let is_ide = target_ide.as_deref() == Some("ide");
+            let is_app = target_ide.as_deref() == Some("app");
+            let is_all = target_ide.is_none();
+
+            let app_running = if is_ide || is_vscode { false } else { environment.is_client_running(None) };
+            let ide_running = if is_app || is_vscode { false } else { environment.is_client_running(Some("ide")) };
+
+            if is_ide {
+                if ide_running {
+                    let _ = environment.close_client(20, Some("ide"));
+                }
+            } else if is_app {
+                if app_running {
+                    let _ = environment.close_client(20, None);
+                }
+            } else if is_all {
+                if app_running {
+                    let _ = environment.close_client(20, None);
+                }
+                if ide_running {
+                    let _ = environment.close_client(20, Some("ide"));
+                }
+            }
+
+            // 2. Write credentials
+            environment.write_credentials(&latest_target, target_ide.as_deref())?;
+
+            // 3. Smart relaunch
+            if is_ide {
+                if ide_running {
+                    let _ = environment.start_client(Some("ide"));
+                }
+            } else if is_app {
+                if app_running {
+                    let _ = environment.start_client(None);
+                }
+            } else if is_all {
+                if app_running {
+                    let _ = environment.start_client(None);
+                }
+                if ide_running {
+                    let _ = environment.start_client(Some("ide"));
+                }
+            }
+
+            // 4. Update status in memory
+            if let Ok(mut d) = data.lock() {
+                if d.revision == p.revision {
+                    let reason = if app_running || ide_running {
+                        "restarted"
+                    } else {
+                        "credentials_updated"
+                    };
+                    d.status.set("completed", reason);
+                }
+            }
+
             Ok(())
         })
         .await
-        .map_err(|_| "Safe switch worker failed.".to_string())?
+        .map_err(|_| "Auto switch worker failed.".to_string())?
     }
     fn update_tray(&self) {}
     fn show_notification(&self, _title: &str, _body: &str) {}
@@ -1088,22 +1477,44 @@ mod tests {
     #[test]
     fn opt_in_and_config_validation() {
         assert!(!Config::default().enabled);
+        assert_eq!(serde_json::from_str::<Config>("{}").unwrap().strategy, Strategy::Priority);
         assert!(!serde_json::from_str::<Config>("{}").unwrap().enabled);
         let mut c = Config::default();
         c.enabled = true;
         assert!(c.validate().is_err());
         c = config(Mode::Wait);
         assert!(c.validate().is_ok());
+        c.monitored_model = "all".into();
+        assert!(c.validate().is_ok());
+        c.monitored_model = "".into();
+        assert!(c.validate().is_ok());
         c.candidate_min_percentage = 10;
         assert!(c.validate().is_err());
         c.candidate_min_percentage = 30;
-        c.candidate_account_ids.push("B".into());
+        c.candidate_account_ids = (0..101).map(|i| format!("acc_{i}")).collect();
         assert!(c.validate().is_err());
+        c.candidate_account_ids = vec!["B".into(), "B".into()];
+        assert!(c.validate().is_err());
+
+        assert_eq!(serde_json::from_str::<Target>("\"all\"").unwrap(), Target::App);
+        assert_eq!(serde_json::from_str::<Target>("\"app\"").unwrap(), Target::App);
+        assert_eq!(serde_json::from_str::<Target>("\"app_cli\"").unwrap(), Target::AppCli);
+        assert_eq!(serde_json::from_str::<Target>("\"desktop\"").unwrap(), Target::AppCli);
+        assert_eq!(serde_json::from_str::<Target>("\"ide\"").unwrap(), Target::Ide);
+        assert_eq!(serde_json::from_str::<Target>("\"vscode\"").unwrap(), Target::Vscode);
+        assert_eq!(Target::App.argument(), None);
+        assert_eq!(Target::AppCli.argument(), Some("app"));
+        assert_eq!(Target::Ide.argument(), Some("ide"));
+        assert_eq!(Target::Vscode.argument(), Some("vscode"));
     }
     #[test]
-    fn considers_both_windows_and_provider_ids_not_labels() {
-        assert_eq!(remaining(&quota(0.08, 0.8), "gemini-test", NOW), Ok(8.0));
+    fn prefers_5h_window_without_weekly_restriction() {
+        assert_eq!(remaining(&quota(0.08, 0.8), "gemini-test", NOW), Ok(80.0));
         assert_eq!(remaining(&quota(0.8, 0.08), "gemini-test", NOW), Ok(8.0));
+        assert_eq!(remaining(&quota(0.08, 0.8), "all", NOW), Ok(80.0));
+        assert_eq!(remaining(&quota(0.8, 0.08), "", NOW), Ok(8.0));
+        assert_eq!(remaining(&quota(0.08, 0.8), "gemini", NOW), Ok(80.0));
+        assert_eq!(remaining(&quota(0.08, 0.8), "claude", NOW), Err("unknown_pool"));
         let mut q = quota(0.8, 0.8);
         q.quota_groups.as_mut().unwrap()[0].buckets[0].bucket_id = "3p-weekly".into();
         assert_eq!(remaining(&q, "gemini-test", NOW), Err("unknown_pool"));
@@ -1153,7 +1564,7 @@ mod tests {
     fn commit_revalidates_cancel_source_config_pool_and_process() {
         let mut d = runtime(Mode::Wait);
         let p = advance_pending(&mut d, "A", "B", NOW, ProcessState::Closed);
-        let a = account_fixture("A", 0.08, 0.5);
+        let a = account_fixture("A", 0.08, 0.08);
         let mut b = account_fixture("B", 0.8, 0.8);
         let c = config(Mode::Wait);
         let validate = |d: &RuntimeData, b: &Account, current, process| {
@@ -1172,7 +1583,7 @@ mod tests {
             validate(&d, &b, Some("A"), ProcessState::Unknown),
             Err("process_unknown")
         );
-        b.quota = Some(quota(0.2, 0.9));
+        b.quota = Some(quota(0.9, 0.2));
         assert_eq!(
             validate(&d, &b, Some("A"), ProcessState::Closed),
             Err("no_candidate")
@@ -1200,7 +1611,7 @@ mod tests {
     fn expired_quota_or_recovered_source_cannot_commit() {
         let mut d = runtime(Mode::Wait);
         let p = advance_pending(&mut d, "A", "B", NOW, ProcessState::Closed);
-        let mut a = account_fixture("A", 0.08, 0.5);
+        let mut a = account_fixture("A", 0.08, 0.08);
         let b = account_fixture("B", 0.8, 0.8);
         assert_eq!(
             commit_guard(
@@ -1235,7 +1646,7 @@ mod tests {
         for mode in [Mode::Wait, Mode::Stop] {
             let home = tempfile::tempdir().unwrap();
             let session = home.path().join("native-session");
-            let a = account_fixture("A", 0.08, 0.5);
+            let a = account_fixture("A", 0.08, 0.08);
             let b = account_fixture("B", 0.8, 0.8);
             cli_credentials::write_session(&session, &cli_credentials::payload(&a.token).unwrap())
                 .unwrap();
@@ -1366,6 +1777,7 @@ mod tests {
         process: Arc<std::sync::atomic::AtomicU8>,
         writes: Arc<std::sync::atomic::AtomicUsize>,
         source_checks: Arc<std::sync::atomic::AtomicUsize>,
+        closes: Arc<std::sync::atomic::AtomicUsize>,
         fail_save: Arc<std::sync::atomic::AtomicBool>,
         low_backup: Arc<std::sync::atomic::AtomicBool>,
         fail_write: Arc<std::sync::atomic::AtomicBool>,
@@ -1378,6 +1790,7 @@ mod tests {
                 process: Arc::new(std::sync::atomic::AtomicU8::new(1)),
                 writes: Arc::default(),
                 source_checks: Arc::default(),
+                closes: Arc::default(),
                 fail_save: Arc::default(),
                 low_backup: Arc::default(),
                 fail_write: Arc::default(),
@@ -1396,10 +1809,14 @@ mod tests {
                 _ => ProcessState::Unknown,
             }
         }
+        fn close_client(&self, _timeout: u64, _target_ide: Option<&str>) -> Result<(), String> {
+            self.closes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
         async fn fetch_quota(&self, a: &mut Account) -> Result<QuotaData, String> {
             let mut q = if a.id == "B" && self.low_backup.load(std::sync::atomic::Ordering::SeqCst)
             {
-                quota(0.01, 0.9)
+                quota(0.9, 0.01)
             } else {
                 a.quota.clone().unwrap()
             };
@@ -1427,7 +1844,7 @@ mod tests {
                 Err("credentials_changed")
             }
         }
-        fn write_credentials(&self, target: &Account) -> Result<(), String> {
+        fn write_credentials(&self, target: &Account, _target_ide: Option<&str>) -> Result<(), String> {
             // Proves production account::switch_account took the cross-process
             // lock before entering the injected native boundary.
             let root = account::get_data_dir()?;
@@ -1454,7 +1871,7 @@ mod tests {
     }
     fn fixture_setup(mode: Mode) -> Runtime {
         let root = account::get_data_dir().unwrap();
-        let a = account_fixture("A", 0.08, 0.5);
+        let a = account_fixture("A", 0.08, 0.08);
         let b = account_fixture("B", 0.8, 0.8);
         account::save_account(&a).unwrap();
         account::save_account(&b).unwrap();
@@ -1537,12 +1954,40 @@ mod tests {
                     account::load_account("B").unwrap().custom_label.as_deref(),
                     Some("keep-concurrent-label")
                 );
-                assert_eq!(env.source_checks.load(SeqCst), 1);
+                assert_eq!(env.source_checks.load(SeqCst), 2);
+                assert_eq!(env.closes.load(SeqCst), 1);
                 assert_eq!(env.writes.load(SeqCst), 1);
                 assert_eq!(r.data.lock().unwrap().status.phase, "completed");
                 assert!(!read_pause().unwrap().failed);
                 assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
                 assert_eq!(env.writes.load(SeqCst), 1);
+            }
+            // Exercise production selection, including wraparound, configured priority,
+            // an absent source, disabled candidates, and forbidden candidates.
+            for (strategy, source, unavailable, expected) in [
+                (Strategy::RoundRobin, "A", None, "B"),
+                (Strategy::RoundRobin, "B", None, "C"),
+                (Strategy::RoundRobin, "C", None, "A"),
+                (Strategy::Priority, "B", None, "A"),
+                (Strategy::RoundRobin, "X", None, "A"),
+                (Strategy::RoundRobin, "A", Some("disabled"), "C"),
+                (Strategy::Priority, "C", Some("forbidden"), "B"),
+            ] {
+                let r = fixture_setup(Mode::Wait);
+                for id in ["A", "B", "C", "X"] {
+                    let mut a = account_fixture(id, 0.8, 0.8);
+                    if id == source { a.quota = Some(quota(0.08, 0.08)); }
+                    if id == "B" && unavailable == Some("disabled") { a.disabled = true; }
+                    if id == "A" && unavailable == Some("forbidden") { a.quota.as_mut().unwrap().is_forbidden = true; }
+                    account::save_account(&a).unwrap();
+                }
+                account::set_current_account_id(source).unwrap();
+                { let mut d = r.data.lock().unwrap(); d.config.strategy = strategy; d.config.candidate_account_ids = vec!["A".into(), "B".into(), "C".into()]; }
+                let env = FixtureEnvironment::default();
+                env.process.store(2, SeqCst); // Inspect selection without mutating native credentials.
+                assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+                assert_eq!(r.data.lock().unwrap().status.target_account_id.as_deref(), Some(expected));
+                assert_eq!(env.writes.load(SeqCst), 0);
             }
             // The shared switch core preserves newer quota/disable metadata.
             fixture_setup(Mode::Wait);
@@ -1583,7 +2028,7 @@ mod tests {
                 .unwrap();
             }
             account::set_current_account_id("B").unwrap();
-            account::update_account_quota("B", quota(0.08, 0.8)).unwrap();
+            account::update_account_quota("B", quota(0.8, 0.08)).unwrap();
             let b = account::load_account("B").unwrap();
             cli_credentials::write_session(
                 &account::get_data_dir().unwrap().join("fixture-native.json"),
@@ -1645,7 +2090,29 @@ mod tests {
             env.now.store(NOW + 70, SeqCst);
             evaluate_core(&r, env.clone(), false).await.unwrap();
             assert_eq!(env.writes.load(SeqCst), 1);
-            // Wrong native identity is rejected by the actual integration callback.
+            // A wrong native identity must not close a running App in either mode.
+            for mode in [Mode::Wait, Mode::Stop] {
+                let r = fixture_setup(mode);
+                let env = FixtureEnvironment::default();
+                let b = account::load_account("B").unwrap();
+                cli_credentials::write_session(
+                    &account::get_data_dir().unwrap().join("fixture-native.json"),
+                    &cli_credentials::payload(&b.token).unwrap(),
+                )
+                .unwrap();
+                assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+                assert_eq!(
+                    r.data.lock().unwrap().status.reason.as_deref(),
+                    Some("credentials_changed")
+                );
+                assert_eq!(env.closes.load(SeqCst), 0);
+                assert_eq!(env.writes.load(SeqCst), 0);
+                assert_eq!(
+                    account::get_current_account_id().unwrap().as_deref(),
+                    Some("A")
+                );
+            }
+            // Wrong native identity is also rejected by the integration callback.
             let r = fixture_setup(Mode::Wait);
             let env = FixtureEnvironment::default();
             env.process.store(0, SeqCst);
@@ -1665,4 +2132,5 @@ mod tests {
             );
         });
     }
+
 }

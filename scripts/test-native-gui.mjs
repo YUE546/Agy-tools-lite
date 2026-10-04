@@ -112,7 +112,7 @@ async function until(check, label, timeout = 30000) {
     throw new Error(`Timed out: ${label}${last ? ': ' + last.message : ''}`);
 }
 async function click(selector) {
-    const element = await execute(`return [...document.querySelectorAll(arguments[0])].find(e => e.getClientRects().length && !e.disabled)`, [selector]);
+    const element = await until(() => execute(`return [...document.querySelectorAll(arguments[0])].find(e => e.getClientRects().length && !e.disabled)`, [selector]), `visible element: ${selector}`);
     assert.ok(element, `Visible element: ${selector}`);
     await command('POST', `/element/${element['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
 }
@@ -220,8 +220,9 @@ try {
         await until(() => execute("return document.body.innerText.includes('example-1@example.invalid') && document.body.innerText.includes('example-2@example.invalid')"), 'synthetic accounts from Rust');
         await screenshot('accounts-light');
         await click('a[href="/settings"]');
-        await until(() => execute("return !!document.querySelector('select[aria-label=\"Model to monitor\"]')"), 'native settings form');
-        assert.equal(await execute("return document.querySelector('main input[type=checkbox]').checked"), false);
+        await click('#settings-tab-autoSwitch');
+        await until(() => execute("return !!document.querySelector('#auto-switch-model')"), 'native settings form');
+        assert.equal(await execute("return document.querySelector('#settings-panel-autoSwitch input[type=checkbox]').checked"), false);
         assert.equal(await execute("return document.querySelectorAll('input[name=auto-switch-mode]').length"), 2);
         await screenshot('settings-light');
         await click('nav button[title="Switch to Dark Mode"]');

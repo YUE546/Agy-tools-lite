@@ -38,9 +38,15 @@ export const useAccountStore = create<AccountState>((set, get) => ({
     fetchAccounts: async () => {
         set({ loading: true, error: null });
         try {
-            console.log('[Store] Fetching accounts...');
-            const accounts = await accountService.listAccounts();
-            set({ accounts, loading: false });
+            console.log('[Store] Fetching accounts & current account...');
+            const [accounts, currentAccount] = await Promise.all([
+                accountService.listAccounts(),
+                accountService.getCurrentAccount().catch(err => {
+                    console.warn('[Store] Failed to fetch current account:', err);
+                    return null;
+                })
+            ]);
+            set({ accounts, currentAccount, loading: false });
         } catch (error) {
             console.error('[Store] Fetch accounts failed:', error);
             set({ error: String(error), loading: false });

@@ -1,6 +1,6 @@
 [package]
 name = "antigravity-tools"
-version = "4.7.8"
+version = "4.7.9"
 description = "Antigravity Tools"
 authors = ["you"]
 license = "CC-BY-NC-SA-4.0"
@@ -41,7 +41,6 @@ image = { version = "0.25.9", default-features = false, features = ["png", "webp
 thiserror = "2.0.17"
 
 futures = "0.3"
-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 rand = "0.8"
 regex = "1.12.2"
 once_cell = "1.19"
@@ -55,7 +54,9 @@ rquest = { version = "5.1.0", features = ["json"] }
 rquest-util = "2.2.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSAccessibility"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSGeometry", "NSTimer", "NSRunLoop"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSAccessibility", "NSMenu", "NSMenuItem", "NSView", "NSResponder", "NSControl", "NSButton", "NSAlert", "NSImage", "NSImageView", "NSCell", "NSText", "NSTextField", "NSFont", "NSColor", "NSBezierPath", "NSGraphics", "NSStatusItem", "NSStatusBarButton", "NSApplication", "NSEvent", "NSAppearance", "NSTrackingArea", "objc2-core-foundation"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 secret-service = { version = "5.2", features = ["rt-tokio-crypto-rust"] }

@@ -8,7 +8,7 @@ use crate::models::AppConfig;
 
 const CONFIG_FILE: &str = "gui_config.json";
 // All in-process configuration reads and writes share one lock. In particular,
-// a stale whole-settings snapshot cannot race the dedicated localization toggle.
+// stale whole-settings snapshots preserve OS-backed desktop preferences.
 static CONFIG_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock_config() -> Result<MutexGuard<'static, ()>, String> {
@@ -51,20 +51,12 @@ fn load_config_at(path: &Path) -> Result<AppConfig, String> {
 fn save_config_at(path: &Path, config: &AppConfig) -> Result<(), String> {
     let _guard = lock_config()?;
     let mut next = config.clone();
-    // Only dedicated setters may change these preferences. Ordinary settings
-    // saves preserve current disk values even if their UI snapshot is stale.
-    // New/legacy configurations always start with both opt-ins disabled.
+    // Only the dedicated setter may change desktop preferences. Ordinary
+    // settings saves preserve current disk values if their UI snapshot is stale.
     let current = read_config_unlocked(path)?.unwrap_or_default();
-    next.app_localization = current.app_localization;
     next.desktop = current.desktop;
+    next.menu_bar = current.menu_bar;
     write_config_unlocked(path, &next)
-}
-
-fn set_localization_enabled_at(path: &Path, enabled: bool) -> Result<(), String> {
-    let _guard = lock_config()?;
-    let mut config = read_config_unlocked(path)?.unwrap_or_default();
-    config.app_localization.enabled = enabled;
-    write_config_unlocked(path, &config)
 }
 
 fn set_desktop_preferences_at(path: &Path, preferences: &DesktopPreferences) -> Result<(), String> {
@@ -80,83 +72,108 @@ pub fn load_app_config() -> Result<AppConfig, String> {
 }
 
 /// Save ordinary application settings atomically, preserving the separately
-/// managed localization and desktop preferences from current disk configuration.
+/// managed desktop preferences from current disk configuration.
 pub fn save_app_config(config: &AppConfig) -> Result<(), String> {
     save_config_at(&get_data_dir()?.join(CONFIG_FILE), config)
 }
 
-/// Atomically change only the App-localization preference under the same lock
-/// used by ordinary configuration writes, preserving all other current settings.
-pub fn set_app_localization_enabled(enabled: bool) -> Result<(), String> {
-    set_localization_enabled_at(&get_data_dir()?.join(CONFIG_FILE), enabled)
-}
-
 /// Persist only the desktop preferences after their OS-backed transaction.
-/// The dedicated writer retains localization and ordinary settings saved by
+/// The dedicated writer retains ordinary settings saved by
 /// another window while the OS operation was in progress.
 pub fn set_saved_desktop_preferences(preferences: &DesktopPreferences) -> Result<(), String> {
     set_desktop_preferences_at(&get_data_dir()?.join(CONFIG_FILE), preferences)
 }
 
+pub fn set_menu_bar_preferences(
+    patch: crate::models::config::MenuBarPreferencesPatch,
+) -> Result<crate::models::config::MenuBarPreferences, String> {
+    patch_menu_bar_preferences_at(&get_data_dir()?.join(CONFIG_FILE), patch)
+}
+
+#[cfg(test)]
+fn set_menu_bar_preferences_at(
+    path: &Path,
+    scope: crate::models::config::MenuBarQuotaScope,
+) -> Result<crate::models::config::MenuBarPreferences, String> {
+    patch_menu_bar_preferences_at(path, crate::models::config::MenuBarPreferencesPatch { quota_scope: Some(scope), ..Default::default() })
+}
+fn patch_menu_bar_preferences_at(path: &Path, patch: crate::models::config::MenuBarPreferencesPatch) -> Result<crate::models::config::MenuBarPreferences, String> {
+    let _guard = lock_config()?;
+    let mut config = read_config_unlocked(path)?.unwrap_or_default();
+    patch.apply(&mut config.menu_bar)?;
+    write_config_unlocked(path, &config)?;
+    Ok(config.menu_bar)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn menu_patches_preserve_other_preferences_and_survive_stale_general_saves() {
+        use crate::models::config::{MenuBarPreferencesPatch, MenuBarQuotaScope, MenuBarResetTimeDisplay};
+        let root = tempfile::tempdir().unwrap(); let path = root.path().join(CONFIG_FILE);
+        let stale = load_config_at(&path).unwrap();
+        patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { display_scope: Some(MenuBarQuotaScope::Other), green_above: Some(75), ..Default::default() }).unwrap();
+        patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { hide_unavailable: Some(false), show_reset_on_hover: Some(false), ..Default::default() }).unwrap();
+        save_config_at(&path, &stale).unwrap();
+        let actual = load_config_at(&path).unwrap().menu_bar;
+        assert_eq!(actual.display_scope, MenuBarQuotaScope::Other); assert_eq!(actual.green_above, 75);
+        assert!(!actual.hide_unavailable && !actual.show_reset_on_hover);
+        assert_eq!(actual.reset_time_mode(), MenuBarResetTimeDisplay::Hidden);
+        patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { reset_time_display: Some(MenuBarResetTimeDisplay::Always), ..Default::default() }).unwrap();
+        save_config_at(&path, &stale).unwrap();
+        assert_eq!(load_config_at(&path).unwrap().menu_bar.reset_time_mode(), MenuBarResetTimeDisplay::Always);
+        let before = fs::read(&path).unwrap();
+        assert!(patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { red_below: Some(80), ..Default::default() }).is_err());
+        assert!(patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { show_session: Some(false), show_weekly: Some(false), ..Default::default() }).is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+    #[test]
+    fn legacy_menu_preferences_receive_new_defaults() {
+        use crate::models::config::{MenuBarPreferences, MenuBarQuotaScope, MenuBarLabelStyle, MenuBarResetTimeDisplay};
+        let actual: MenuBarPreferences = serde_json::from_str(r#"{"quota_scope":"other"}"#).unwrap();
+        assert_eq!(actual.quota_scope, MenuBarQuotaScope::Other); assert_eq!(actual.display_scope, MenuBarQuotaScope::All);
+        assert_eq!(actual.label_style, MenuBarLabelStyle::EmailThenLabel);
+        assert!(actual.hide_unavailable && actual.show_session && actual.show_weekly && actual.show_reset_on_hover);
+        assert_eq!(actual.reset_time_mode(), MenuBarResetTimeDisplay::Hover);
+        let disabled: MenuBarPreferences = serde_json::from_str(r#"{"show_reset_on_hover":false}"#).unwrap();
+        assert_eq!(disabled.reset_time_mode(), MenuBarResetTimeDisplay::Hidden);
+        let always: MenuBarPreferences = serde_json::from_str(r#"{"reset_time_display":"always","show_reset_on_hover":false}"#).unwrap();
+        assert_eq!(always.reset_time_mode(), MenuBarResetTimeDisplay::Always);
+        assert!(serde_json::from_str::<MenuBarPreferences>(r#"{"reset_time_display":"invalid"}"#).is_err());
+        assert_eq!((actual.red_below, actual.green_above), (20, 60));
+    }
 
     #[test]
-    fn new_configuration_persists_localization_off_without_recursive_locking() {
+    fn menu_bar_scope_survives_stale_settings_and_preserves_desktop_preferences() {
+        use crate::models::config::MenuBarQuotaScope;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(CONFIG_FILE);
+        let mut stale = load_config_at(&path).unwrap();
+        assert_eq!(stale.menu_bar.quota_scope, MenuBarQuotaScope::All);
+        set_desktop_preferences_at(&path, &DesktopPreferences {
+            launch_at_login: true, hide_dock_icon: true, start_minimized: true,
+        }).unwrap();
+        set_menu_bar_preferences_at(&path, MenuBarQuotaScope::Gemini).unwrap();
+        stale.language = "en".into();
+        save_config_at(&path, &stale).unwrap();
+        let saved = load_config_at(&path).unwrap();
+        assert_eq!(saved.menu_bar.quota_scope, MenuBarQuotaScope::Gemini);
+        assert!(saved.desktop.launch_at_login);
+        assert_eq!(saved.language, "en");
+        set_menu_bar_preferences_at(&path, MenuBarQuotaScope::Other).unwrap();
+        set_desktop_preferences_at(&path, &DesktopPreferences::default()).unwrap();
+        assert_eq!(load_config_at(&path).unwrap().menu_bar.quota_scope, MenuBarQuotaScope::Other);
+    }
+
+    #[test]
+    fn new_configuration_persists_defaults_without_recursive_locking() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join(CONFIG_FILE);
         let config = load_config_at(&path).unwrap();
-        assert!(!config.app_localization.enabled);
+        assert!(!config.desktop.launch_at_login);
         assert!(path.is_file());
-        assert!(!load_config_at(&path).unwrap().app_localization.enabled);
-    }
-
-    #[test]
-    fn ordinary_first_save_cannot_enable_localization() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join(CONFIG_FILE);
-        let mut proposed = AppConfig::new();
-        proposed.app_localization.enabled = true;
-        proposed.theme = "dark".into();
-        save_config_at(&path, &proposed).unwrap();
-        let actual = load_config_at(&path).unwrap();
-        assert!(!actual.app_localization.enabled);
-        assert_eq!(actual.theme, "dark");
-    }
-
-    #[test]
-    fn stale_theme_save_cannot_undo_a_dedicated_disable() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join(CONFIG_FILE);
-        set_localization_enabled_at(&path, true).unwrap();
-        let mut stale = load_config_at(&path).unwrap();
-        set_localization_enabled_at(&path, false).unwrap();
-        stale.theme = "dark".into();
-        save_config_at(&path, &stale).unwrap();
-        let actual = load_config_at(&path).unwrap();
-        assert!(!actual.app_localization.enabled);
-        assert_eq!(actual.theme, "dark");
-    }
-
-    #[test]
-    fn stale_language_save_cannot_undo_a_dedicated_enable() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join(CONFIG_FILE);
-        let mut stale = load_config_at(&path).unwrap();
-        set_localization_enabled_at(&path, true).unwrap();
-        stale.language = "en".into();
-        stale.refresh_interval = 60;
-        save_config_at(&path, &stale).unwrap();
-        let actual = load_config_at(&path).unwrap();
-        assert!(actual.app_localization.enabled);
-        assert_eq!(actual.language, "en");
-        assert_eq!(actual.refresh_interval, 60);
-        set_localization_enabled_at(&path, false).unwrap();
-        let actual = load_config_at(&path).unwrap();
-        assert!(!actual.app_localization.enabled);
-        assert_eq!(actual.language, "en");
-        assert_eq!(actual.refresh_interval, 60);
+        assert!(!load_config_at(&path).unwrap().desktop.launch_at_login);
     }
 
     #[test]
@@ -171,7 +188,7 @@ mod tests {
         assert!(save_config_at(&path, &AppConfig::new())
             .unwrap_err()
             .starts_with("failed_to_parse_config_file:"));
-        assert!(set_localization_enabled_at(&path, false)
+        assert!(set_desktop_preferences_at(&path, &DesktopPreferences::default())
             .unwrap_err()
             .starts_with("failed_to_parse_config_file:"));
         assert_eq!(fs::read(&path).unwrap(), original);
@@ -189,39 +206,10 @@ mod tests {
         assert!(save_config_at(&path, &AppConfig::new())
             .unwrap_err()
             .starts_with("failed_to_read_config_file:"));
-        assert!(set_localization_enabled_at(&path, true)
+        assert!(set_desktop_preferences_at(&path, &DesktopPreferences::default())
             .unwrap_err()
             .starts_with("failed_to_read_config_file:"));
         assert_eq!(fs::read(path.join("existing")).unwrap(), b"preserve");
-    }
-
-    #[test]
-    fn concurrent_ordinary_saves_preserve_the_final_dedicated_toggle() {
-        use std::sync::{Arc, Barrier};
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join(CONFIG_FILE);
-        set_localization_enabled_at(&path, true).unwrap();
-        let mut stale = load_config_at(&path).unwrap();
-        stale.theme = "dark".into();
-        let start = Arc::new(Barrier::new(2));
-        std::thread::scope(|scope| {
-            let writer_start = start.clone();
-            let writer_path = path.clone();
-            scope.spawn(move || {
-                writer_start.wait();
-                for _ in 0..16 {
-                    save_config_at(&writer_path, &stale).unwrap();
-                }
-            });
-            start.wait();
-            for _ in 0..16 {
-                set_localization_enabled_at(&path, true).unwrap();
-                set_localization_enabled_at(&path, false).unwrap();
-            }
-        });
-        let actual = load_config_at(&path).unwrap();
-        assert!(!actual.app_localization.enabled);
-        assert_eq!(actual.theme, "dark");
     }
 
     #[test]
@@ -242,11 +230,10 @@ mod tests {
     }
 
     #[test]
-    fn dedicated_preferences_survive_stale_ordinary_and_each_others_writes() {
+    fn desktop_preferences_survive_stale_ordinary_writes() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join(CONFIG_FILE);
         let mut stale = load_config_at(&path).unwrap();
-        set_localization_enabled_at(&path, true).unwrap();
         let desktop = DesktopPreferences {
             launch_at_login: true,
             hide_dock_icon: true,
@@ -256,19 +243,16 @@ mod tests {
         stale.theme = "dark".into();
         save_config_at(&path, &stale).unwrap();
         let actual = load_config_at(&path).unwrap();
-        assert!(actual.app_localization.enabled);
         assert!(actual.desktop.launch_at_login);
         assert!(actual.desktop.hide_dock_icon);
         assert!(actual.desktop.start_minimized);
         assert_eq!(actual.theme, "dark");
 
         let mut stale = actual;
-        set_localization_enabled_at(&path, false).unwrap();
         set_desktop_preferences_at(&path, &DesktopPreferences::default()).unwrap();
         stale.language = "en".into();
         save_config_at(&path, &stale).unwrap();
         let actual = load_config_at(&path).unwrap();
-        assert!(!actual.app_localization.enabled);
         assert!(!actual.desktop.launch_at_login);
         assert!(!actual.desktop.hide_dock_icon);
         assert!(!actual.desktop.start_minimized);
@@ -287,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_desktop_localization_and_ordinary_writers_preserve_final_opt_outs() {
+    fn concurrent_desktop_and_ordinary_writers_preserve_final_opt_outs() {
         use std::sync::{Arc, Barrier};
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join(CONFIG_FILE);
@@ -297,10 +281,9 @@ mod tests {
             start_minimized: true,
         };
         set_desktop_preferences_at(&path, &enabled).unwrap();
-        set_localization_enabled_at(&path, true).unwrap();
         let mut stale = load_config_at(&path).unwrap();
         stale.theme = "dark".into();
-        let start = Arc::new(Barrier::new(3));
+        let start = Arc::new(Barrier::new(2));
         std::thread::scope(|scope| {
             let ordinary_path = path.clone();
             let ordinary_start = start.clone();
@@ -310,15 +293,6 @@ mod tests {
                     save_config_at(&ordinary_path, &stale).unwrap();
                 }
             });
-            let localization_path = path.clone();
-            let localization_start = start.clone();
-            scope.spawn(move || {
-                localization_start.wait();
-                for _ in 0..16 {
-                    set_localization_enabled_at(&localization_path, true).unwrap();
-                    set_localization_enabled_at(&localization_path, false).unwrap();
-                }
-            });
             start.wait();
             for _ in 0..16 {
                 set_desktop_preferences_at(&path, &enabled).unwrap();
@@ -326,7 +300,6 @@ mod tests {
             }
         });
         let actual = load_config_at(&path).unwrap();
-        assert!(!actual.app_localization.enabled);
         assert!(!actual.desktop.launch_at_login);
         assert!(!actual.desktop.hide_dock_icon);
         assert!(!actual.desktop.start_minimized);

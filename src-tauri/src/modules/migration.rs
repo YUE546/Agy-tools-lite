@@ -13,6 +13,45 @@ pub struct ImportedOAuthState {
     pub project_id: Option<String>,
 }
 
+pub(crate) enum CurrentIdentity {
+    AppEmail(String),
+    Credentials(ImportedOAuthState),
+}
+
+impl CurrentIdentity {
+    pub(crate) fn matches(&self, account: &Account) -> bool {
+        match self {
+            Self::AppEmail(email) => account.email.eq_ignore_ascii_case(email),
+            Self::Credentials(state) => account.token.refresh_token == state.refresh_token,
+        }
+    }
+}
+
+fn resolve_current_identity(
+    live_email: impl FnOnce() -> Result<Option<String>, String>,
+    credentials: impl FnOnce() -> Result<ImportedOAuthState, String>,
+) -> Result<CurrentIdentity, String> {
+    match live_email()? {
+        Some(email) => Ok(CurrentIdentity::AppEmail(email)),
+        None => credentials().map(CurrentIdentity::Credentials),
+    }
+}
+
+/// A live App identity takes precedence over shared, possibly stale credentials.
+/// Failure to verify a running App must not turn into a keyring fallback.
+pub(crate) fn get_current_identity(target_ide: Option<&str>) -> Result<CurrentIdentity, String> {
+    if matches!(target_ide, None | Some("app") | Some("app_cli")) {
+        let config = crate::modules::config::load_app_config()?;
+        return resolve_current_identity(
+            || {
+                crate::modules::app_identity::running_email(config.antigravity_executable.as_deref())
+            },
+            || get_oauth_state_from_db(target_ide),
+        );
+    }
+    get_oauth_state_from_db(target_ide).map(CurrentIdentity::Credentials)
+}
+
 /// Scan and import V1 data
 pub async fn import_from_v1() -> Result<Vec<Account>, String> {
     use crate::modules::oauth;
@@ -380,18 +419,33 @@ pub async fn import_all_local_accounts(target_ide: Option<&str>) -> Result<Vec<A
     Ok(imported_accounts)
 }
 
-/// Import current logged-in accounts from all local sources (Keyring, candidate DBs, V1 CLI)
-pub async fn import_from_db(target_ide: Option<&str>) -> Result<Account, String> {
-    let accounts = import_all_local_accounts(target_ide).await?;
-    accounts
+/// Import only the state observed by synchronization, never the first account
+/// returned by a separate all-sources scan.
+pub(crate) async fn import_observed_oauth_state(
+    state: ImportedOAuthState,
+) -> Result<Account, String> {
+    use crate::modules::oauth;
+    let identity = CurrentIdentity::Credentials(state.clone());
+    if let Some(account) = account::list_accounts()?
         .into_iter()
-        .next()
-        .ok_or_else(|| "No accounts found".to_string())
-}
-
-/// Get current Refresh Token from database (common logic)
-pub fn extract_refresh_token_from_file(db_path: &PathBuf) -> Result<String, String> {
-    extract_oauth_state_from_file(db_path).map(|state| state.refresh_token)
+        .find(|account| identity.matches(account))
+    {
+        return Ok(account);
+    }
+    let response = oauth::refresh_access_token(&state.refresh_token, None).await?;
+    let user = oauth::get_user_info(&response.access_token).await?;
+    let token = TokenData::new(
+        response.access_token,
+        state.refresh_token,
+        response.expires_in,
+        Some(user.email.clone()),
+        state.project_id,
+        None,
+        state.is_gcp_tos,
+        response.id_token,
+    )
+    .with_oauth_client_key(response.oauth_client_key);
+    account::upsert_account(user.email, user.name, token)
 }
 
 fn extract_enterprise_project_id_from_conn(
@@ -514,28 +568,77 @@ fn extract_oauth_state_from_file(db_path: &PathBuf) -> Result<ImportedOAuthState
 
 /// Get current Refresh Token from System Keyring or candidate databases
 pub fn get_refresh_token_from_db(target_ide: Option<&str>) -> Result<String, String> {
+    get_oauth_state_from_db(target_ide).map(|state| state.refresh_token)
+}
+
+fn get_oauth_state_from_db(target_ide: Option<&str>) -> Result<ImportedOAuthState, String> {
     if target_ide == Some("agy")
         || (target_ide.is_none()
             && crate::modules::process::get_antigravity_executable_path(target_ide).is_none())
     {
         if let Ok(state) = integration::read_cli_credentials() {
-            return Ok(state.refresh_token);
+            return Ok(state);
         }
     }
     use crate::modules::integration;
 
     if let Ok(oauth_state) = integration::read_from_system_keyring() {
-        return Ok(oauth_state.refresh_token);
+        return Ok(oauth_state);
     }
 
     let candidate_paths = db::get_all_candidate_db_paths(target_ide);
     for db_path in candidate_paths {
         if db_path.exists() {
-            if let Ok(token) = extract_refresh_token_from_file(&db_path) {
-                return Ok(token);
+            if let Ok(state) = extract_oauth_state_from_file(&db_path) {
+                return Ok(state);
             }
         }
     }
 
     Err("Login state data not found in keyring or any database format".to_string())
+}
+
+#[cfg(test)]
+mod current_identity_tests {
+    use super::*;
+
+    fn fixture(id: &str, email: &str) -> Account {
+        Account::new(id.into(), email.into(), TokenData::new(
+            format!("fixture-access-{id}"), format!("fixture-refresh-{id}"), 3600,
+            Some(email.into()), None, None, false, None,
+        ))
+    }
+
+    #[test]
+    fn running_second_account_wins_over_first_stored_account() {
+        let accounts = [fixture("first", "first@example.test"), fixture("second", "second@example.test")];
+        let live = resolve_current_identity(
+            || Ok(Some("SECOND@example.test".into())),
+            || panic!("A running App must not consult the stale keyring"),
+        ).unwrap();
+        assert_eq!(accounts.iter().find(|a| live.matches(a)).unwrap().id, "second");
+        // A shared keyring that still contains account one cannot select it
+        // when the observed identity came from the running App.
+        assert!(!live.matches(&accounts[0]));
+    }
+
+    #[test]
+    fn credential_sync_selects_the_exact_observation_not_scan_order() {
+        let accounts = [fixture("first", "first@example.test"), fixture("second", "second@example.test")];
+        let observed = resolve_current_identity(|| Ok(None), || Ok(ImportedOAuthState {
+            refresh_token: "fixture-refresh-second".into(), is_gcp_tos: false, project_id: None,
+        })).unwrap();
+        assert_eq!(accounts.iter().find(|a| observed.matches(a)).unwrap().id, "second");
+        let unknown = CurrentIdentity::AppEmail("unknown@example.test".into());
+        assert!(accounts.iter().find(|a| unknown.matches(a)).is_none());
+    }
+
+    #[test]
+    fn unverifiable_running_app_never_falls_back_to_shared_credentials() {
+        let result = resolve_current_identity(
+            || Err("running_app_identity_unavailable".into()),
+            || panic!("A failed live read must not overwrite the record from the keyring"),
+        );
+        assert_eq!(result.err().as_deref(), Some("running_app_identity_unavailable"));
+    }
 }

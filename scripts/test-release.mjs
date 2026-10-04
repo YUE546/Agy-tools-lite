@@ -117,8 +117,9 @@ test('reviewed release notes disclose native acceptance limits and cannot be sil
   assert.match(notes, /Linux native Tauri\/WebKitGTK acceptance passed/);
   assert.match(notes, /Windows native GUI acceptance is \*\*blocked\*\*/);
   assert.match(notes, /Final native window.*still need acceptance on a Mac/);
-  assert.match(notes, /experimental and off by default/);
-  assert.match(notes, /final Tools Lite package remain unverified/);
+  assert.match(notes, /off by default/);
+  assert.doesNotMatch(notes, /App localization is experimental/);
+  assert.match(notes, /Build and CLI success must not be interpreted as complete native acceptance/);
   assert.throws(() => releaseNotes({ ...context, tag: 'v999.999.999' }), /ENOENT/);
 });
 

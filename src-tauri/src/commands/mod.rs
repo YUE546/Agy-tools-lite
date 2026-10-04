@@ -19,6 +19,38 @@ pub async fn get_account_dashboard_snapshot(
         .map_err(|_| "dashboard_task_failed".to_string())?
 }
 
+/// Resolve the running App identity without exposing credentials or selecting
+/// the first saved account when identity discovery fails.
+#[tauri::command]
+pub async fn get_menu_bar_snapshot(
+) -> Result<modules::account_dashboard::DashboardSnapshot, String> {
+    tokio::task::spawn_blocking(|| {
+        let mut snapshot = modules::account_dashboard::snapshot()?;
+        #[cfg(target_os = "macos")]
+        {
+            let config = modules::load_app_config()?;
+            modules::account_dashboard::apply_running_identity(&mut snapshot,
+                modules::app_identity::running_email(config.antigravity_executable.as_deref()));
+        }
+        Ok(snapshot)
+    }).await.map_err(|_| "dashboard_task_failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn set_menu_bar_preferences(
+    app: tauri::AppHandle,
+    quota_scope: Option<crate::models::config::MenuBarQuotaScope>,
+    patch: Option<crate::models::config::MenuBarPreferencesPatch>,
+) -> Result<crate::models::config::MenuBarPreferences, String> {
+    let mut patch = patch.unwrap_or_default();
+    if let Some(scope) = quota_scope { patch.quota_scope = Some(scope); }
+    let preferences = tokio::task::spawn_blocking(move || modules::config::set_menu_bar_preferences(patch))
+        .await.map_err(|_| "settings_task_failed".to_string())??;
+    app.emit("menubar://preferences-updated", &preferences).map_err(|e| e.to_string())?;
+    app.emit("config://updated", ()).map_err(|e| e.to_string())?;
+    Ok(preferences)
+}
+
 /// 添加账号
 #[tauri::command]
 pub async fn add_account(
@@ -210,7 +242,7 @@ pub async fn load_config() -> Result<AppConfig, String> {
 /// 保存配置
 #[tauri::command]
 pub async fn save_config(app: tauri::AppHandle, config: AppConfig) -> Result<(), String> {
-    // Ordinary saves preserve dedicated desktop/localization preferences under
+    // Ordinary saves preserve dedicated desktop preferences under
     // the same configuration lock, including stale snapshots from other windows.
     modules::save_app_config(&config)?;
     let _ = app.emit("config://updated", ());
@@ -295,15 +327,23 @@ pub async fn import_from_db(
     app: tauri::AppHandle,
     target_ide: Option<String>,
 ) -> Result<Vec<Account>, String> {
+    let _switch_guard = crate::cli::SwitchLock::acquire(&modules::account::get_data_dir()?)?;
+    let target = target_ide.clone();
+    let identity = tokio::task::spawn_blocking(move || {
+        modules::migration::get_current_identity(target.as_deref())
+    })
+    .await
+    .map_err(|_| "current_identity_task_failed".to_string())?;
     let imported_accounts =
         modules::migration::import_all_local_accounts(target_ide.as_deref()).await?;
 
-    if let Some(first_acc) = imported_accounts.first() {
-        let account_id = first_acc.id.clone();
-        let _ = modules::account::set_current_account_id_with_target(
-            &account_id,
-            target_ide.as_deref(),
-        );
+    if let Ok(identity) = identity {
+        if let Some(active) = imported_accounts.iter().find(|account| identity.matches(account)) {
+            modules::account::set_current_account_id_with_target(
+                &active.id,
+                target_ide.as_deref(),
+            )?;
+        }
     }
 
     for mut account in imported_accounts.clone() {
@@ -335,6 +375,8 @@ pub async fn import_custom_db(app: tauri::AppHandle, path: String) -> Result<Acc
 
 #[tauri::command]
 pub async fn sync_account_from_db(app: tauri::AppHandle) -> Result<Option<Account>, String> {
+    // Serialize the observation and index update with real credential switches.
+    let _switch_guard = crate::cli::SwitchLock::acquire(&modules::account::get_data_dir()?)?;
     // Check if the current target is one we should not sync (like agy CLI)
     let index = modules::account::load_account_index()?;
     let current_target = index.current_target_ide.as_deref();
@@ -343,45 +385,49 @@ pub async fn sync_account_from_db(app: tauri::AppHandle) -> Result<Option<Accoun
         return Ok(None);
     }
 
-    // 1. 获取 DB 中的 Refresh Token
-    let db_refresh_token = match modules::migration::get_refresh_token_from_db(current_target) {
-        Ok(token) => token,
-        Err(e) => {
-            modules::logger::log_info(&format!("自动同步跳过: {}", e));
-            return Ok(None);
+    let target = index.current_target_ide.clone();
+    let identity = tokio::task::spawn_blocking(move || {
+        modules::migration::get_current_identity(target.as_deref())
+    })
+    .await
+    .map_err(|_| "current_identity_task_failed".to_string())??;
+    let current = modules::account::get_current_account()?;
+    if current.as_ref().is_some_and(|account| identity.matches(account)) {
+        return Ok(None);
+    }
+    let from_live_app = matches!(&identity, modules::migration::CurrentIdentity::AppEmail(_));
+    let mut account = match identity {
+        modules::migration::CurrentIdentity::AppEmail(email) => {
+            let mut matches = index
+                .accounts
+                .iter()
+                .filter(|account| account.email.eq_ignore_ascii_case(&email));
+            let active = matches.next().ok_or("running_app_account_not_imported")?;
+            if matches.next().is_some() {
+                return Err("running_app_account_ambiguous".into());
+            }
+            modules::account::load_account(&active.id)?
+        }
+        modules::migration::CurrentIdentity::Credentials(state) => {
+            modules::migration::import_observed_oauth_state(state).await?
         }
     };
-
-    // 2. 获取 Manager 当前账号
-    let curr_account = modules::account::get_current_account()?;
-
-    // 3. 对比：如果 Refresh Token 相同，说明账号没变，无需导入
-    if let Some(acc) = curr_account {
-        if acc.token.refresh_token == db_refresh_token {
-            // 账号未变，由于已经是周期性任务，我们可以选择性刷新一下配额，或者直接返回
-            // 这里为了节省 API 流量，直接返回
-            return Ok(None);
-        }
-        modules::logger::log_info(&format!(
-            "检测到账号切换 ({} -> DB新账号)，正在同步...",
-            acc.email
-        ));
-    } else {
-        modules::logger::log_info("检测到新登录账号，正在自动同步...");
-    }
-
-    // 4. 执行完整导入
-    let mut account = modules::migration::import_from_db(current_target).await?;
 
     // 既然是从数据库导入，自动将其设为 Manager 的当前账号并保留当前 target
     let account_id = account.id.clone();
     modules::account::set_current_account_id_with_target(&account_id, current_target)?;
+    modules::logger::log_info(if from_live_app {
+        "Current account synchronized from running App identity"
+    } else {
+        "Current account synchronized from exact observed credential"
+    });
 
     // 自动触发刷新额度
     let _ = internal_refresh_account_quota(&app, &mut account).await;
 
     // 刷新托盘图标展示
     crate::modules::tray::update_tray_menus(&app);
+    let _ = app.emit("accounts://refreshed", ());
 
     Ok(Some(account))
 }
@@ -506,13 +552,27 @@ pub async fn update_account_label(account_id: String, label: String) -> Result<(
 #[tauri::command]
 pub async fn get_local_token_usage(
 ) -> Result<crate::modules::native_token_stats::LocalTokenUsageSummary, String> {
-    tokio::task::spawn_blocking(crate::modules::native_token_stats::get_local_token_usage)
+    let summary = tokio::task::spawn_blocking(crate::modules::native_token_stats::get_local_token_usage)
         .await
-        .map_err(|error| format!("读取本地 Token 统计任务失败: {}", error))?
+        .map_err(|error| format!("读取本地 Token 统计任务失败: {}", error))??;
+    crate::modules::menu_bar_usage::remember(&summary);
+    Ok(summary)
+}
+
+/// Compact local daily usage for the tray, without a network pricing request.
+#[tauri::command]
+pub async fn get_menu_bar_usage() -> Result<crate::modules::menu_bar_usage::MenuBarUsage, String> {
+    crate::modules::menu_bar_usage::load().await
 }
 
 /// 同步 Google 官方 API 价格，用于本地费用等价估算
 #[tauri::command]
 pub async fn get_api_pricing() -> Result<crate::modules::api_pricing::ApiPricingSnapshot, String> {
     crate::modules::api_pricing::get_api_pricing().await
+}
+
+/// 检查 GitHub Releases 获取最新版本信息
+#[tauri::command]
+pub async fn check_for_updates() -> Result<crate::modules::updater::UpdateInfo, String> {
+    crate::modules::updater::check_for_updates().await
 }
