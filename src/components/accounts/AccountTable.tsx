@@ -213,13 +213,16 @@ function SortableAccountRow({
             style={style as React.CSSProperties}
             className={cn(
                 "group transition-colors border-b border-gray-100 dark:border-base-200",
-                isCurrent && "bg-blue-50/50 dark:bg-blue-900/10",
+                isCurrent && "bg-blue-50/75 dark:bg-blue-950/35",
                 isDragging && "bg-blue-100 dark:bg-blue-900/30 shadow-lg",
-                !isDragging && "hover:bg-gray-50 dark:hover:bg-base-200"
+                !isDragging && (isCurrent ? "hover:bg-blue-100/60 dark:hover:bg-blue-900/40" : "hover:bg-gray-50 dark:hover:bg-base-200")
             )}
         >
             {/* 拖拽手柄 */}
-            <td className="pl-2 py-1 w-8 align-middle">
+            <td className={cn(
+                "pl-2 py-1 w-8 align-middle transition-colors",
+                isCurrent && "border-l-4 border-l-blue-600 dark:border-l-blue-500"
+            )}>
                 <div
                     {...(!isDragDisabled ? attributes : {})}
                     {...(!isDragDisabled ? listeners : {})}
@@ -313,8 +316,8 @@ function AccountRowContent({
             <td className="px-2 py-1 align-middle">
                 <div className="flex flex-col justify-center gap-1">
                     <span className={cn(
-                        "font-medium text-sm break-all transition-colors leading-tight",
-                        isCurrent ? "text-blue-700 dark:text-blue-400" : "text-gray-900 dark:text-base-content"
+                        "text-sm break-all transition-colors leading-tight",
+                        isCurrent ? "font-bold text-blue-800 dark:text-blue-300" : "font-medium text-gray-900 dark:text-base-content"
                     )} title={account.email}>
                         {account.email}
                     </span>
@@ -357,7 +360,8 @@ function AccountRowContent({
 
                         {/* 3. 额外状态标签 (全部后置，不挤占 Pro 对齐位置) */}
                         {isCurrent && (
-                            <span className="px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-[10px] font-bold shadow-sm border border-blue-200/50 dark:border-blue-800/50">
+                            <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-600 dark:bg-blue-500 text-white text-[10px] font-bold shadow-xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                                 {t('accounts.current').toUpperCase()}
                             </span>
                         )}
@@ -461,12 +465,11 @@ function AccountRowContent({
 
             {/* 操作列 */}
             <td className={cn(
-                "px-1 py-1 sticky right-0 z-10 shadow-[-12px_0_12px_-12px_rgba(0,0,0,0.1)] dark:shadow-[-12px_0_12px_-12px_rgba(255,255,255,0.05)] text-center align-middle",
+                "px-1 py-1 sticky right-0 z-10 shadow-[-12px_0_12px_-12px_rgba(0,0,0,0.1)] dark:shadow-[-12px_0_12px_-12px_rgba(255,255,255,0.05)] text-center align-middle transition-colors",
                 // 动态背景色处理
                 isCurrent
-                    ? "bg-[#f1f6ff] dark:bg-[#1e2330]" // 接近 blue-50/50 的实色
-                    : "bg-white dark:bg-base-100",
-                !isCurrent && "group-hover:bg-gray-50 dark:group-hover:bg-base-200"
+                    ? "bg-[#eaf2fc] dark:bg-[#152033] group-hover:bg-[#e0ecfa] dark:group-hover:bg-[#1a2942]"
+                    : "bg-white dark:bg-base-100 group-hover:bg-gray-50 dark:group-hover:bg-base-200"
             )}>
                 <div className="flex items-center justify-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity max-w-[120px] mx-auto">
                     <button
@@ -732,8 +735,14 @@ function AccountTable({
                     activeAccount ? (
                         <table className="w-full bg-white dark:bg-base-100 shadow-2xl rounded-lg border border-blue-200 dark:border-blue-800">
                             <tbody>
-                                <tr className="bg-blue-50 dark:bg-blue-900/30">
-                                    <td className="pl-2 py-1 w-8">
+                                <tr className={cn(
+                                    "border-b border-gray-100 dark:border-base-200",
+                                    activeAccount.id === currentAccountId ? "bg-blue-50/75 dark:bg-blue-950/35" : "bg-blue-50 dark:bg-blue-900/30"
+                                )}>
+                                    <td className={cn(
+                                        "pl-2 py-1 w-8",
+                                        activeAccount.id === currentAccountId && "border-l-4 border-l-blue-600 dark:border-l-blue-500"
+                                    )}>
                                         <div className="flex items-center justify-center w-6 h-6 text-blue-500">
                                             <GripVertical className="w-4 h-4" />
                                         </div>

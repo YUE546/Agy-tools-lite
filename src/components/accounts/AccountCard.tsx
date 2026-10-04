@@ -88,7 +88,7 @@ function AccountCard({
         <div className={cn(
             "h-full w-full flex flex-col p-3 rounded-xl border transition-all hover:shadow-md",
             isCurrent
-                ? "bg-blue-50/30 border-blue-200 dark:bg-blue-900/10 dark:border-blue-900/30"
+                ? "bg-blue-50/80 border-blue-400/90 shadow-xs ring-1 ring-blue-500/30 dark:bg-blue-950/40 dark:border-blue-500/60 dark:ring-blue-400/25"
                 : "bg-white dark:bg-base-100 border-gray-200 dark:border-base-300",
             (isRefreshing || isDisabled) && "opacity-70",
             isDragging && "shadow-xl ring-2 ring-blue-500/30"
@@ -117,8 +117,8 @@ function AccountCard({
                             onClick={(e) => e.stopPropagation()}
                         />
                         <h3 className={cn(
-                            "font-semibold text-sm truncate flex-1 min-w-0",
-                            isCurrent ? "text-blue-700 dark:text-blue-400" : "text-gray-900 dark:text-base-content"
+                            "text-sm truncate flex-1 min-w-0",
+                            isCurrent ? "font-bold text-blue-800 dark:text-blue-300" : "font-semibold text-gray-900 dark:text-base-content"
                         )} title={account.email}>
                             {account.email}
                         </h3>
@@ -164,7 +164,8 @@ function AccountCard({
 
                             {/* 3. 额外状态标签 (全部后置，不挤占 Pro 对齐位置) */}
                             {isCurrent && (
-                                <span className="px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[9px] font-bold shadow-sm border border-blue-200/50">
+                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-600 dark:bg-blue-500 text-white text-[9px] font-bold shadow-xs">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                                     {t('accounts.current').toUpperCase()}
                                 </span>
                             )}
