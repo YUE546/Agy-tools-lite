@@ -153,7 +153,7 @@ impl Table {
 
     pub fn render(&self) -> String {
         let term_w = get_terminal_width();
-        let max_w = term_w.saturating_sub(2).max(60);
+        let max_w = term_w.saturating_sub(2).min(78).max(40);
         self.render_with_max_width(max_w)
     }
 
@@ -188,7 +188,7 @@ impl Table {
                     .enumerate()
                     .max_by_key(|&(_, w)| *w)
                     .unwrap();
-                if widest_w <= 6 {
+                if widest_w <= 4 {
                     break;
                 }
                 col_widths[widest_idx] -= 1;
@@ -199,7 +199,7 @@ impl Table {
         let mut out = String::new();
 
         // Top border: ┌───┬───┐
-        out.push('┌');
+        out.push_str("\r┌");
         for (i, w) in col_widths.iter().enumerate() {
             out.push_str(&"─".repeat(*w + 2));
             if i + 1 < num_cols {
@@ -209,7 +209,7 @@ impl Table {
         out.push_str("┐\n");
 
         // Header: │ Title │ ... │
-        out.push('│');
+        out.push_str("\r│");
         for (i, h) in self.headers.iter().enumerate() {
             out.push(' ');
             let w = col_widths[i];
@@ -231,7 +231,7 @@ impl Table {
         out.push('\n');
 
         // Header separator: ├───┼───┤
-        out.push('├');
+        out.push_str("\r├");
         for (i, w) in col_widths.iter().enumerate() {
             out.push_str(&"─".repeat(*w + 2));
             if i + 1 < num_cols {
@@ -242,7 +242,7 @@ impl Table {
 
         // Data rows
         for row in &self.rows {
-            out.push('│');
+            out.push_str("\r│");
             for (i, cell) in row.iter().enumerate() {
                 out.push(' ');
                 let clean = strip_ansi(cell);
@@ -269,7 +269,7 @@ impl Table {
         }
 
         // Bottom border: └───┴───┘
-        out.push('└');
+        out.push_str("\r└");
         for (i, w) in col_widths.iter().enumerate() {
             out.push_str(&"─".repeat(*w + 2));
             if i + 1 < num_cols {
@@ -493,6 +493,7 @@ impl RawTerminal {
             }
             let mut raw = orig;
             libc::cfmakeraw(&mut raw);
+            raw.c_oflag |= libc::OPOST | libc::ONLCR;
             raw.c_cc[libc::VMIN] = 0;
             raw.c_cc[libc::VTIME] = 1; // 100ms
             if libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw) != 0 {
@@ -859,9 +860,11 @@ pub fn select_account_interactive<'a>(
                     print!("\x1b[{}A", total_lines);
                 }
 
-                print!("{}", table_str);
+                for line in table_str.lines() {
+                    println!("\x1b[2K\r{}", line);
+                }
                 println!("\x1b[2K\r\x1b[1m{}\x1b[0m", prompt_text);
-                println!("\x1b[2K\r");
+                print!("\x1b[2K\r");
                 let _ = out.flush();
             };
 
@@ -1175,10 +1178,24 @@ fn show_account_switcher(_root: &Path, snapshot: &Snapshot, lang: Lang) {
         return;
     }
 
+    print!("\x1b[2J\x1b[H");
+    let header = match lang {
+        Lang::Zh => "切换当前生效账号",
+        Lang::En => "Switch Active Account",
+    };
+    println!("\x1b[1m{}\x1b[0m\n", header);
+
     let selected = match select_account_interactive(&snapshot.accounts, lang) {
         Some(acc) => acc,
         None => return,
     };
+
+    print!("\x1b[2J\x1b[H");
+    let target_header = match lang {
+        Lang::Zh => format!("已选择账号: \x1b[1;32m{}\x1b[0m\n", selected.email),
+        Lang::En => format!("Selected account: \x1b[1;32m{}\x1b[0m\n", selected.email),
+    };
+    println!("{}", target_header);
 
     let (title, target_items) = match lang {
         Lang::Zh => (
@@ -1920,10 +1937,19 @@ fn show_manage_accounts(snapshot: &Snapshot, lang: Lang) {
         return;
     }
 
+    print!("\x1b[2J\x1b[H");
+    let header = match lang {
+        Lang::Zh => "账号管理与设置",
+        Lang::En => "Account Management",
+    };
+    println!("\x1b[1m{}\x1b[0m\n", header);
+
     let selected = match select_account_interactive(&snapshot.accounts, lang) {
         Some(acc) => acc,
         None => return,
     };
+
+    print!("\x1b[2J\x1b[H");
 
     let (title, sub_items) = match lang {
         Lang::Zh => (
