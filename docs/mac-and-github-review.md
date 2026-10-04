@@ -187,3 +187,5 @@ The user requested no legacy Lite compatibility. The final 4.7.9 source and gene
 Homebrew CI previously used the source package version to regenerate an older published cask, preventing a version bump from being merged before publication. It now validates the published cask version, keeping real archive/checksum comparison intact. The release workflow separately verifies the new source version and generates the new cask from its actual package.
 
 CLI review also found remaining account-table, refresh and status labels describing the recorded selection as an active external identity. All now use Selected/当前选择, and the status section calls it a local record. Read-only CLI identity semantics remain unchanged.
+
+The final Linux native run exposed a route-mount race: the harness clicked Settings then queried its category immediately. Earlier runs passed by timing. Native clicks now wait for a visible, enabled element before using WebDriver, while retaining all screenshot/IPC assertions and the 30-second failure bound. This is a harness readiness fix, not a skipped GUI check.

@@ -112,7 +112,7 @@ async function until(check, label, timeout = 30000) {
     throw new Error(`Timed out: ${label}${last ? ': ' + last.message : ''}`);
 }
 async function click(selector) {
-    const element = await execute(`return [...document.querySelectorAll(arguments[0])].find(e => e.getClientRects().length && !e.disabled)`, [selector]);
+    const element = await until(() => execute(`return [...document.querySelectorAll(arguments[0])].find(e => e.getClientRects().length && !e.disabled)`, [selector]), `visible element: ${selector}`);
     assert.ok(element, `Visible element: ${selector}`);
     await command('POST', `/element/${element['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
 }
