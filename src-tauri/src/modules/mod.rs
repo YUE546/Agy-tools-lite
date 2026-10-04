@@ -2,8 +2,9 @@ pub mod account;
 pub mod account_dashboard;
 pub mod account_service;
 pub mod api_pricing;
-pub mod app_localization;
 pub(crate) mod app_identity;
+#[cfg(any(target_os = "macos", test))]
+pub(crate) mod app_metadata_macos;
 pub mod cli_credentials;
 pub mod config;
 pub mod db;
@@ -14,8 +15,6 @@ pub mod integration;
 pub mod linux_credentials;
 #[cfg(target_os = "linux")]
 pub mod linux_paths;
-pub(crate) mod localization_macos;
-pub(crate) mod localization_transport;
 pub mod logger;
 pub mod migration;
 pub mod native_token_stats;

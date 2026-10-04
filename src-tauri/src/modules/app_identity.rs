@@ -92,7 +92,7 @@ fn request_email(
 /// error: falling back to the keyring then would reproduce the false identity.
 #[cfg(target_os = "macos")]
 pub(crate) fn running_email(configured: Option<&str>) -> Result<Option<String>, String> {
-    use super::localization_macos as metadata;
+    use super::app_metadata_macos as metadata;
     let Some(installation) = metadata::installed(configured)? else {
         return Ok(None);
     };

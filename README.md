@@ -105,8 +105,6 @@ These are native Linux viewports with synthetic data; Settings content below the
 - **Local data** — location of the application data (`~/.antigravity_tools/`), with a button to open the folder
 - **Startup and menu bar** — launch at login, background launch at login and hiding the Dock icon are all off by default; hiding the Dock icon is macOS-only
 
-**App Settings navigation in Chinese (experimental)** is off by default and supports nine fixed entry/navigation labels in official Antigravity App 2.19.1 on macOS only. Tools Lite's own display language is separate; chat, code, account/project names, paths and input values are excluded. Temporary translation/restoration passed for those nine labels; the final Tools package's enable, reload, reconnect and disable/restore flows still need native acceptance. See [scope and acceptance](docs/app-localization.md).
-
 ## Data handling
 
 | | |

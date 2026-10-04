@@ -10,7 +10,6 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:debug": "RUST_LOG=debug npm run tauri dev",
-    "test:app-localization": "node scripts/test-app-localization-runtime.mjs && node scripts/test-app-localization-settings.mjs",
     "deploy:desktop": "node scripts/deploy-desktop.mjs"
   },
   "dependencies": {

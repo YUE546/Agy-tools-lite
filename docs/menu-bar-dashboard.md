@@ -37,7 +37,7 @@ The frontend does not start a second coordinator or duplicate the background quo
 - **Start in the background at login** only suppresses the main window for `--autostart` launches while a tray is available. Launching the application yourself still opens the main window
 - **Hide Dock icon** is macOS-only and preserves the preference when opening or closing windows
 
-Desktop preferences and App-localization opt-in use separate atomic setters under the same configuration lock. Saving an older ordinary Settings snapshot cannot enable or undo either preference, and one dedicated setter preserves changes made by the other. Failed OS writes are compensated even if the initial call partially changed state. A failed native Dock rollback remains visibly uncertain until another apply succeeds. Reopening a window never replays an old Dock preference.
+Desktop preferences use a dedicated atomic setter under the same configuration lock as ordinary Settings saves. Saving an older ordinary Settings snapshot preserves the current desktop preferences; the dedicated setter retains other saved settings. Failed OS writes are compensated even if the initial call partially changed state. A failed native Dock rollback remains visibly uncertain until another apply succeeds. Reopening a window never replays an old Dock preference.
 
 None of these options is enabled by migrating an older configuration. The application never enables login startup when loading config. If the tray fails to initialize, the main window is shown and macOS uses a regular Dock presence. You can reopen the application through Applications/Spotlight even when its Dock icon is hidden. An explicit Quit exits the process; closing the main window keeps it in the tray when the tray is available.
 
