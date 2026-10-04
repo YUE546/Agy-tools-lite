@@ -68,7 +68,7 @@ pub(crate) fn parse_listener_fields(text: &str) -> Result<Vec<ListenerObservatio
 }
 
 #[cfg(target_os = "macos")]
-fn command(program: &str, args: &[String]) -> Result<String, &'static str> {
+pub(crate) fn command(program: &str, args: &[String]) -> Result<String, &'static str> {
     let mut command = std::process::Command::new(program);
     command.args(args).stdin(std::process::Stdio::null());
     let output =
@@ -83,7 +83,7 @@ fn command(program: &str, args: &[String]) -> Result<String, &'static str> {
 }
 
 #[cfg(target_os = "macos")]
-fn pids(args: &[String]) -> Result<Vec<u32>, &'static str> {
+pub(crate) fn pids(args: &[String]) -> Result<Vec<u32>, &'static str> {
     let mut command = std::process::Command::new("/usr/bin/pgrep");
     command.args(args).stdin(std::process::Stdio::null());
     let output =
@@ -116,7 +116,7 @@ fn parse_pid_metadata(output: &[u8]) -> Result<Vec<u32>, &'static str> {
 }
 
 #[cfg(target_os = "macos")]
-fn verify_executable(pid: u32, expected: &Path) -> Result<(), &'static str> {
+pub(crate) fn verify_executable(pid: u32, expected: &Path) -> Result<(), &'static str> {
     let actual = command(
         "/bin/ps",
         &[
@@ -138,7 +138,7 @@ fn verify_executable(pid: u32, expected: &Path) -> Result<(), &'static str> {
 /// Select only an exact executable match. Metadata collection failures must
 /// never be mistaken for an unrelated process that can safely be ignored.
 #[cfg(any(target_os = "macos", test))]
-fn verified_app_pid(
+pub(crate) fn verified_app_pid(
     candidates: &[u32],
     mut verify: impl FnMut(u32) -> Result<(), &'static str>,
 ) -> Result<u32, &'static str> {
@@ -196,7 +196,7 @@ fn known_process_exit_result(result: i32, error: Option<i32>) -> Result<bool, &'
 }
 
 #[cfg(target_os = "macos")]
-fn listener(port: u16, pid: u32) -> Result<VerifiedListener, &'static str> {
+pub(crate) fn listener(port: u16, pid: u32) -> Result<VerifiedListener, &'static str> {
     let text = command(
         "/usr/sbin/lsof",
         &[

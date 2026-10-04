@@ -295,15 +295,23 @@ pub async fn import_from_db(
     app: tauri::AppHandle,
     target_ide: Option<String>,
 ) -> Result<Vec<Account>, String> {
+    let _switch_guard = crate::cli::SwitchLock::acquire(&modules::account::get_data_dir()?)?;
+    let target = target_ide.clone();
+    let identity = tokio::task::spawn_blocking(move || {
+        modules::migration::get_current_identity(target.as_deref())
+    })
+    .await
+    .map_err(|_| "current_identity_task_failed".to_string())?;
     let imported_accounts =
         modules::migration::import_all_local_accounts(target_ide.as_deref()).await?;
 
-    if let Some(first_acc) = imported_accounts.first() {
-        let account_id = first_acc.id.clone();
-        let _ = modules::account::set_current_account_id_with_target(
-            &account_id,
-            target_ide.as_deref(),
-        );
+    if let Ok(identity) = identity {
+        if let Some(active) = imported_accounts.iter().find(|account| identity.matches(account)) {
+            modules::account::set_current_account_id_with_target(
+                &active.id,
+                target_ide.as_deref(),
+            )?;
+        }
     }
 
     for mut account in imported_accounts.clone() {
@@ -335,6 +343,8 @@ pub async fn import_custom_db(app: tauri::AppHandle, path: String) -> Result<Acc
 
 #[tauri::command]
 pub async fn sync_account_from_db(app: tauri::AppHandle) -> Result<Option<Account>, String> {
+    // Serialize the observation and index update with real credential switches.
+    let _switch_guard = crate::cli::SwitchLock::acquire(&modules::account::get_data_dir()?)?;
     // Check if the current target is one we should not sync (like agy CLI)
     let index = modules::account::load_account_index()?;
     let current_target = index.current_target_ide.as_deref();
@@ -343,45 +353,49 @@ pub async fn sync_account_from_db(app: tauri::AppHandle) -> Result<Option<Accoun
         return Ok(None);
     }
 
-    // 1. 获取 DB 中的 Refresh Token
-    let db_refresh_token = match modules::migration::get_refresh_token_from_db(current_target) {
-        Ok(token) => token,
-        Err(e) => {
-            modules::logger::log_info(&format!("自动同步跳过: {}", e));
-            return Ok(None);
+    let target = index.current_target_ide.clone();
+    let identity = tokio::task::spawn_blocking(move || {
+        modules::migration::get_current_identity(target.as_deref())
+    })
+    .await
+    .map_err(|_| "current_identity_task_failed".to_string())??;
+    let current = modules::account::get_current_account()?;
+    if current.as_ref().is_some_and(|account| identity.matches(account)) {
+        return Ok(None);
+    }
+    let from_live_app = matches!(&identity, modules::migration::CurrentIdentity::AppEmail(_));
+    let mut account = match identity {
+        modules::migration::CurrentIdentity::AppEmail(email) => {
+            let mut matches = index
+                .accounts
+                .iter()
+                .filter(|account| account.email.eq_ignore_ascii_case(&email));
+            let active = matches.next().ok_or("running_app_account_not_imported")?;
+            if matches.next().is_some() {
+                return Err("running_app_account_ambiguous".into());
+            }
+            modules::account::load_account(&active.id)?
+        }
+        modules::migration::CurrentIdentity::Credentials(state) => {
+            modules::migration::import_observed_oauth_state(state).await?
         }
     };
-
-    // 2. 获取 Manager 当前账号
-    let curr_account = modules::account::get_current_account()?;
-
-    // 3. 对比：如果 Refresh Token 相同，说明账号没变，无需导入
-    if let Some(acc) = curr_account {
-        if acc.token.refresh_token == db_refresh_token {
-            // 账号未变，由于已经是周期性任务，我们可以选择性刷新一下配额，或者直接返回
-            // 这里为了节省 API 流量，直接返回
-            return Ok(None);
-        }
-        modules::logger::log_info(&format!(
-            "检测到账号切换 ({} -> DB新账号)，正在同步...",
-            acc.email
-        ));
-    } else {
-        modules::logger::log_info("检测到新登录账号，正在自动同步...");
-    }
-
-    // 4. 执行完整导入
-    let mut account = modules::migration::import_from_db(current_target).await?;
 
     // 既然是从数据库导入，自动将其设为 Manager 的当前账号并保留当前 target
     let account_id = account.id.clone();
     modules::account::set_current_account_id_with_target(&account_id, current_target)?;
+    modules::logger::log_info(if from_live_app {
+        "Current account synchronized from running App identity"
+    } else {
+        "Current account synchronized from exact observed credential"
+    });
 
     // 自动触发刷新额度
     let _ = internal_refresh_account_quota(&app, &mut account).await;
 
     // 刷新托盘图标展示
     crate::modules::tray::update_tray_menus(&app);
+    let _ = app.emit("accounts://refreshed", ());
 
     Ok(Some(account))
 }

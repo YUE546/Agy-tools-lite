@@ -431,6 +431,16 @@ fn configured_client_path(path: &std::path::Path, configured: &std::path::Path) 
 /// Compare credentials privately. No token or raw authentication error is exposed
 /// through the status DTO. Any external sign-in mismatch invalidates the request.
 fn verify_source(source: &Account, target: Target) -> Result<(), &'static str> {
+    if target == Target::App || target == Target::AppCli {
+        let config =
+            crate::modules::config::load_app_config().map_err(|_| "credentials_changed")?;
+        if crate::modules::app_identity::running_email(config.antigravity_executable.as_deref())
+            .map_err(|_| "credentials_changed")?
+            .is_some_and(|email| !email.eq_ignore_ascii_case(&source.email))
+        {
+            return Err("credentials_changed");
+        }
+    }
     let actual_refresh_token = match target {
         Target::App | Target::AppCli => {
             let v = installed_app_version()?;
@@ -1149,10 +1159,47 @@ async fn evaluate_core<E: Environment>(
     if !is_vscode {
         if process_state != ProcessState::Closed {
             status.set("pending", "clients_running");
-            update_status(runtime, revision, status);
+            update_status(runtime, revision, status.clone());
             // In automated mode, trigger close on running clients when safe:
             if config.mode == Mode::Stop || (config.mode == Mode::Wait && !environment.is_agent_working()) {
-                let _ = environment.close_client(20, config.target.argument());
+                let close_environment = environment.clone();
+                let close_data = runtime.data.clone();
+                let close_source = source.clone();
+                let close_config = config.clone();
+                let checked_close = tokio::task::spawn_blocking(move || {
+                    let root = account::get_data_dir().map_err(|_| "source_changed")?;
+                    let _switch = crate::cli::SwitchLock::acquire(&root)
+                        .map_err(|_| "another_account_switch_in_progress")?;
+                    // A stale index must never cause the real client to exit.
+                    // Recheck identity before closing, as well as before writing.
+                    close_environment.verify_source(&close_source, close_config.target)?;
+                    if account::get_current_account_id()
+                        .map_err(|_| "source_changed")?
+                        .as_deref()
+                        != Some(close_source.id.as_str())
+                    {
+                        return Err("source_changed");
+                    }
+                    {
+                        let d = close_data.lock().map_err(|_| "request_changed")?;
+                        if d.revision != revision
+                            || d.pending.is_none()
+                            || d.canceled_source.as_deref() == Some(close_source.id.as_str())
+                            || read_config().map_err(|_| "configuration_required")? != close_config
+                        {
+                            return Err("request_changed");
+                        }
+                    }
+                    close_environment
+                        .close_client(20, close_config.target.argument())
+                        .map_err(|_| "clients_running")
+                })
+                .await
+                .unwrap_or(Err("process_unknown"));
+                if let Err(reason) = checked_close {
+                    status.set("blocked", reason);
+                    update_status(runtime, revision, status);
+                }
             }
             return Ok(false);
         }
@@ -1705,6 +1752,7 @@ mod tests {
         process: Arc<std::sync::atomic::AtomicU8>,
         writes: Arc<std::sync::atomic::AtomicUsize>,
         source_checks: Arc<std::sync::atomic::AtomicUsize>,
+        closes: Arc<std::sync::atomic::AtomicUsize>,
         fail_save: Arc<std::sync::atomic::AtomicBool>,
         low_backup: Arc<std::sync::atomic::AtomicBool>,
         fail_write: Arc<std::sync::atomic::AtomicBool>,
@@ -1717,6 +1765,7 @@ mod tests {
                 process: Arc::new(std::sync::atomic::AtomicU8::new(1)),
                 writes: Arc::default(),
                 source_checks: Arc::default(),
+                closes: Arc::default(),
                 fail_save: Arc::default(),
                 low_backup: Arc::default(),
                 fail_write: Arc::default(),
@@ -1734,6 +1783,10 @@ mod tests {
                 1 => ProcessState::Running,
                 _ => ProcessState::Unknown,
             }
+        }
+        fn close_client(&self, _timeout: u64, _target_ide: Option<&str>) -> Result<(), String> {
+            self.closes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
         }
         async fn fetch_quota(&self, a: &mut Account) -> Result<QuotaData, String> {
             let mut q = if a.id == "B" && self.low_backup.load(std::sync::atomic::Ordering::SeqCst)
@@ -1876,7 +1929,8 @@ mod tests {
                     account::load_account("B").unwrap().custom_label.as_deref(),
                     Some("keep-concurrent-label")
                 );
-                assert_eq!(env.source_checks.load(SeqCst), 1);
+                assert_eq!(env.source_checks.load(SeqCst), 2);
+                assert_eq!(env.closes.load(SeqCst), 1);
                 assert_eq!(env.writes.load(SeqCst), 1);
                 assert_eq!(r.data.lock().unwrap().status.phase, "completed");
                 assert!(!read_pause().unwrap().failed);
@@ -1984,7 +2038,29 @@ mod tests {
             env.now.store(NOW + 70, SeqCst);
             evaluate_core(&r, env.clone(), false).await.unwrap();
             assert_eq!(env.writes.load(SeqCst), 1);
-            // Wrong native identity is rejected by the actual integration callback.
+            // A wrong native identity must not close a running App in either mode.
+            for mode in [Mode::Wait, Mode::Stop] {
+                let r = fixture_setup(mode);
+                let env = FixtureEnvironment::default();
+                let b = account::load_account("B").unwrap();
+                cli_credentials::write_session(
+                    &account::get_data_dir().unwrap().join("fixture-native.json"),
+                    &cli_credentials::payload(&b.token).unwrap(),
+                )
+                .unwrap();
+                assert!(!evaluate_core(&r, env.clone(), false).await.unwrap());
+                assert_eq!(
+                    r.data.lock().unwrap().status.reason.as_deref(),
+                    Some("credentials_changed")
+                );
+                assert_eq!(env.closes.load(SeqCst), 0);
+                assert_eq!(env.writes.load(SeqCst), 0);
+                assert_eq!(
+                    account::get_current_account_id().unwrap().as_deref(),
+                    Some("A")
+                );
+            }
+            // Wrong native identity is also rejected by the integration callback.
             let r = fixture_setup(Mode::Wait);
             let env = FixtureEnvironment::default();
             env.process.store(0, SeqCst);

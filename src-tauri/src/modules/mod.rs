@@ -3,6 +3,7 @@ pub mod account_dashboard;
 pub mod account_service;
 pub mod api_pricing;
 pub mod app_localization;
+pub(crate) mod app_identity;
 pub mod cli_credentials;
 pub mod config;
 pub mod db;
