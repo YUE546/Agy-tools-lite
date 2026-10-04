@@ -160,17 +160,17 @@ export function getCanonicalModelDisplayName(keyOrRawId: string): string {
 /**
  * 获取主模型的档位归并提示（说明其包含哪些共享池档位）
  */
-export function getCanonicalModelSublabel(keyOrRawId: string): string | undefined {
+export function getCanonicalModelSublabel(keyOrRawId: string, format: (tiers: string) => string = tiers => `Shared quota pool: ${tiers}`): string | undefined {
     const canon = getCanonicalModelKey(keyOrRawId);
     switch (canon) {
         case 'gemini-3.8-flash':
-            return '涵盖 High · Medium · Low 共享额度池';
+            return format('High / Medium / Low');
         case 'gemini-3.1-pro':
-            return '涵盖 Pro Agent · High · Low 共享额度池';
+            return format('Pro Agent / High / Low');
         case 'gemini-3.5-flash':
-            return '涵盖 High · Low 共享额度池';
+            return format('High / Low');
         case 'gemini-2.5-flash':
-            return '涵盖 Flash · Lite · Think 共享额度池';
+            return format('Flash / Lite / Think');
         default:
             return undefined;
     }

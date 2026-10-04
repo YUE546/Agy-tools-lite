@@ -16,7 +16,6 @@ import { showToast } from '../common/ToastContainer';
 interface ModelOption {
     id: string;
     label: string;
-    sublabel?: string;
     group: 'gemini' | 'claude' | 'other';
     iconType: 'gemini' | 'claude' | 'bot';
     tag?: string;
@@ -24,9 +23,9 @@ interface ModelOption {
 
 // 兜底基准主模型（已预先归并多档位）
 const BASELINE_CANONICAL_MODELS: ModelOption[] = [
-    { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', group: 'gemini', iconType: 'gemini', tag: 'PRO', sublabel: '涵盖 Pro Agent · High · Low' },
-    { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', group: 'gemini', iconType: 'gemini', tag: 'FLASH', sublabel: '涵盖 High · Medium · Low' },
-    { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', group: 'gemini', iconType: 'gemini', tag: 'FLASH', sublabel: '涵盖 High · Low' },
+    { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', group: 'gemini', iconType: 'gemini', tag: 'PRO' },
+    { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', group: 'gemini', iconType: 'gemini', tag: 'FLASH' },
+    { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', group: 'gemini', iconType: 'gemini', tag: 'FLASH' },
     { id: 'gemini-3-flash', label: 'Gemini 3 Flash', group: 'gemini', iconType: 'gemini', tag: 'FLASH' },
     { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', group: 'gemini', iconType: 'gemini', tag: 'LITE' },
     { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', group: 'gemini', iconType: 'gemini', tag: 'PRO' },
@@ -82,7 +81,6 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
                         group,
                         iconType,
                         tag: getCanonicalModelTag(canonKey),
-                        sublabel: getCanonicalModelSublabel(canonKey),
                     });
                 }
             }
@@ -249,6 +247,7 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     {groupModels.map(model => {
                                         const isChecked = currentPinned.includes(model.id);
+                                        const sublabel = getCanonicalModelSublabel(model.id, tiers => t('model_display.shared_pool', { tiers }));
                                         return (
                                             <div
                                                 key={model.id}
@@ -264,9 +263,9 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
                                                         <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate" title={model.label}>
                                                             {model.label}
                                                         </div>
-                                                        {model.sublabel ? (
-                                                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={model.sublabel}>
-                                                                {model.sublabel}
+                                                        {sublabel ? (
+                                                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={sublabel}>
+                                                                {sublabel}
                                                             </div>
                                                         ) : (
                                                             <div className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate" title={model.id}>

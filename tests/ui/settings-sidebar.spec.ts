@@ -30,6 +30,21 @@ test('menu display preferences save partial patches and retain one quota window'
   await expect(page.getByLabel('账号区显示系列')).toHaveValue('other');
   await page.getByLabel('红色额度阈值').fill('90'); await page.getByLabel('红色额度阈值').blur(); await expect(page.getByLabel('红色额度阈值')).toHaveValue('20');
 });
+test('model selection follows the UI language for actions and shared-pool descriptions', async ({ page }) => {
+  await page.getByRole('button', { name: 'English', exact: true }).click();
+  await page.locator('#settings-tab-quota').click();
+  const panel = page.locator('#settings-panel-quota');
+  await expect(panel.getByRole('button', { name: 'Select all', exact: true })).toBeVisible();
+  await expect(panel.getByText('Shared quota pool: High / Medium / Low', { exact: true })).toBeVisible();
+  expect(await panel.innerText()).not.toMatch(/[\u3400-\u9fff]/);
+  await panel.getByRole('button', { name: 'Select all', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'Deselect all', exact: true })).toBeVisible();
+  await page.locator('#settings-tab-general').click();
+  await page.getByRole('button', { name: '简体中文', exact: true }).click();
+  await page.locator('#settings-tab-quota').click();
+  await expect(panel.getByRole('button', { name: '取消全选', exact: true })).toBeVisible();
+  await expect(panel.getByText('共享额度池：High / Medium / Low', { exact: true })).toBeVisible();
+});
 test('number edits and account choices auto-save and survive navigation', async ({ page }) => {
   await page.locator('#settings-tab-autoSwitch').click(); const reserve = page.locator('#auto-switch-reserve');
   await reserve.fill('13'); await page.locator('#auto-switch-model').selectOption('gemini'); await page.getByLabel('backup@example.invalid', { exact: true }).check();
