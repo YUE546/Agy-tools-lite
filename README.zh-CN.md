@@ -31,7 +31,7 @@ Linux 真实 Tauri/WebKitGTK 视口，CI 调试构建 `5be961d3`，英文界面�
 
 当前发布流程没有配置 Developer ID 签名/公证或 Windows Authenticode 签名，系统可能提示或阻止运行下载的安装包。请先核对发布来源和校验值，再通过系统正常的审核流程自行决定是否信任。参见 [Apple 官方说明](https://support.apple.com/en-gb/102445)和 [Microsoft 应用信誉说明](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)。Homebrew 安装不会取消这些系统检查
 
-**macOS 分发状态：** 完整的临时签名修复了包完整性，但不等于通过 Apple 信任检查。v4.7.8 已在 Apple Silicon Mac 上通过 Homebrew 实际安装，公开应用仍被 Gatekeeper 拒绝。正式可信分发仍需开发者签名和公证。
+**macOS 分发状态：** 完整的临时签名修复了包完整性，但不等于通过 Apple 信任检查。v4.7.9 已在 Apple Silicon Mac 上通过 Homebrew 实际升级并保留账号文件，应用仍被系统信任检查拒绝，Brew 命令启动超时。正式可信分发仍需开发者签名和公证。
 
 ## 账号管理
 
@@ -151,4 +151,4 @@ agy-switch --version
 agy-switch --help
 ```
 
-配方固定了正式 ZIP 已核验的 SHA-256；v4.7.8 已在真实 Mac 上使用自定义应用目录完成 Homebrew 安装，但公开 APP 被 Gatekeeper 拒绝。升级和卸载另行验收。已有手动安装时请先保留 APP 备份，自行处理应用目录冲突，不要删除账号数据。此 cask 不会安装 Google 的 `agy`，详见 [Homebrew 验证范围与限制](docs/homebrew.md)。
+配方固定了正式 ZIP 已核验的 SHA-256；v4.7.9 已在真实 Mac 上使用自定义应用目录完成 Homebrew 升级并保留账号文件，仅链接 `agy-switch`。公开 ZIP 通过了 14 项隔离命令行检查，但带下载隔离标记的 Brew 命令启动超时，应用被系统信任检查拒绝；启动和卸载另行验收。已有手动安装时请先保留 APP 备份，自行处理应用目录冲突，不要删除账号数据。此 cask 不会安装 Google 的 `agy`，详见 [Homebrew 验证范围与限制](docs/homebrew.md)。

@@ -31,7 +31,7 @@ Native Linux Tauri/WebKitGTK viewport, CI debug build `5be961d3`, English UI and
 
 The release workflow does not configure Developer ID signing/notarization or Windows Authenticode signing. macOS or Windows may therefore warn about or block a downloaded package. Check its release source and checksum, and make any required trust decision yourself through the operating system's normal review flow. See [Apple's guidance](https://support.apple.com/en-gb/102445) and [Microsoft's app-reputation guidance](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation). Homebrew does not remove these platform checks
 
-**macOS distribution:** Complete ad-hoc signing fixes bundle integrity, but does not establish Apple trust. Actual Homebrew installation of v4.7.8 succeeded on Apple Silicon; Gatekeeper rejected that public app. Developer ID signing and notarization are still required for normal trusted distribution.
+**macOS distribution:** Complete ad-hoc signing fixes bundle integrity, but does not establish Apple trust. Actual Homebrew upgrade to v4.7.9 succeeded on Apple Silicon and preserved account files; Gatekeeper rejected the app and Brew CLI launch timed out. Developer ID signing and notarization are still required for normal trusted distribution.
 
 ## Account management
 
@@ -151,4 +151,4 @@ agy-switch --version
 agy-switch --help
 ```
 
-The recipe pins the published ZIP's verified SHA-256. Actual Homebrew installation of v4.7.8 with a custom app directory succeeded, but Gatekeeper rejected the public app. Upgrade and uninstall acceptance are tracked separately. Keep a backup of an existing manually installed app and resolve any app-folder conflict yourself without deleting account data. Homebrew does not install Google's `agy`. See [Homebrew verification and limitations](docs/homebrew.md).
+The recipe pins the published ZIP's verified SHA-256. Actual Homebrew upgrade to v4.7.9 with a custom app directory succeeded and retained account files; only `agy-switch` is linked. The public ZIP passed 14 isolated CLI checks, but the quarantined Brew command timed out and Gatekeeper rejected the app. Launch and uninstall acceptance remain separate. Keep a backup of an existing manually installed app and resolve any app-folder conflict yourself without deleting account data. Homebrew does not install Google's `agy`. See [Homebrew verification and limitations](docs/homebrew.md).
