@@ -9,7 +9,7 @@ cask "antigravity-tools-lite" do
   homepage "https://github.com/anglee0323/antigravity-tools-lite"
 
   depends_on arch: :arm64
-  depends_on macos: ">= :big_sur"
+  depends_on :macos
 
   app "Antigravity Tools Lite.app"
   binary "#{appdir}/Antigravity Tools Lite.app/Contents/MacOS/antigravity-tools", target: "agy-switch"
