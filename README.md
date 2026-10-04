@@ -4,9 +4,9 @@
 
 A local desktop application for [Antigravity](https://antigravity.google). It manages the Google accounts used by the Antigravity app and its `agy` CLI, shows per-model quota with reset countdowns, and summarises locally recorded token usage together with an estimated API cost. Account and usage records are stored locally, and usage aggregation runs on the device. Google authorization, token refresh and quota queries use the network and the corresponding credentials; price synchronization also uses the network
 
-![Dashboard — Linux native WebKitGTK](docs/screenshots/4.7.7/linux-dashboard-light.png)
+![Dashboard — Linux native WebKitGTK](docs/screenshots/4.7.9/linux-dashboard-light.png)
 
-Native Linux Tauri/WebKitGTK viewport, CI debug build `6896ce61`, English UI and synthetic example data; system window frame excluded. [Screenshot sources and platform limits](docs/screenshots/4.7.7/README.md)
+Native Linux Tauri/WebKitGTK viewport, CI debug build `5be961d3`, English UI and synthetic example data; system window frame excluded. [Screenshot sources and platform limits](docs/screenshots/4.7.9/README.md)
 
 ## Overview
 
@@ -14,7 +14,7 @@ Native Linux Tauri/WebKitGTK viewport, CI debug build `6896ce61`, English UI and
 - **Quota overview** — per-model quota and reset time, grouped by PRO / ULTRA / FREE, with table and card views
 - **Usage dashboard** — token usage for today, yesterday, the last 3, 7 or 30 days, broken down per model, with an estimated API cost
 - **Quick dashboard** — inspect quotas from the menu bar or tray, with a separate action to activate an account
-- **Low-quota coordination** — optional backup-account switching after all detected clients exit; running tasks are not migrated
+- **Smart switching** — optional backup-account selection by priority or round robin, with activity checks and configurable thresholds; running tasks are not migrated
 - **One switch for both clients** — switching synchronizes the credentials used by Antigravity and an initialized `agy` CLI
 - **Local storage** — no project-operated proxy or credential relay service; local account and usage storage with direct Google authorization and quota requests
 - **Bilingual interface** — Simplified Chinese and English, light and dark themes, tray menu
@@ -41,7 +41,7 @@ The **+** button offers three ways to add an account
 - **Refresh token** — paste a single token or a JSON array of tokens to import several accounts at once
 - **Import from this machine** — scans the system credential store, the Antigravity databases, installed plugins, the native agy session and the legacy CLI data directory (`~/.antigravity-agent`), then imports every account it finds
 
-![Accounts — Linux native WebKitGTK, synthetic data](docs/screenshots/4.7.7/linux-accounts-light.png)
+![Accounts — Linux native WebKitGTK, synthetic data](docs/screenshots/4.7.9/linux-accounts-light.png)
 
 Each row provides four actions, each with a tooltip
 
@@ -77,24 +77,20 @@ Cost is estimated from Google's public Gemini pricing pages, which are fetched o
 
 ## Quick dashboard
 
-| Overview (English) | Account view (Chinese) |
-| --- | --- |
-| ![Overview component preview](docs/screenshots/4.7.7/menu-overview-preview-en.png) | ![Account component preview](docs/screenshots/4.7.7/menu-account-preview-zh.png) |
+On macOS, the native menu has three sections: today's local usage and estimated cost, aggregate remaining quota, and per-account quotas with explicit switch controls. Settings selects Gemini, Claude/GPT or both families, account labels, unavailable-account visibility and reset countdowns on hover, always or hidden. Aggregate percentages are equal-weight means, not summed tokens. The native menu opens from cached local data and updates in the background.
 
-Chromium layout previews at 380 × 480 with synthetic IPC/data, source `6896ce61`. These are not native macOS menu screenshots; [capture provenance](docs/screenshots/4.7.7/README.md) distinguishes them from the Linux native images.
+Switching may close and restart Antigravity; save work first. Current identity is checked against the running standalone Mac app when available; the full application's selection and CLI `current` remain local records. Device-wide usage is not attributed to an account.
 
-The menu-bar/tray panel offers Overview and per-account inspection. Selecting an account only changes the view; **Use this account** performs a real switch and may close and restart Antigravity, so save work first. The current-account indicator is Tools' local record, and device-wide token totals are not attributed to individual accounts.
-
-Open the panel from the icon on macOS/Windows, or **Quick Dashboard** in the Linux tray menu. The main window remains available when no tray is present. Native positioning, focus, Dock and login-startup acceptance is still pending; browser previews do not establish it. See [panel behavior and platform limits](docs/menu-bar-dashboard.md).
+Windows/Linux retain the shared WebView panel. Linux opens it from **Quick Dashboard** in the tray menu; the main window remains available without a tray. Native Mac login startup and multiple displays, and Windows GUI acceptance still require separate checks. See [panel behavior and platform limits](docs/menu-bar-dashboard.md).
 
 ## Settings
 
-![Settings — Linux native WebKitGTK, light theme](docs/screenshots/4.7.7/linux-settings-light.png)
+![Settings — Linux native WebKitGTK, light theme](docs/screenshots/4.7.9/linux-settings-light.png)
 
 <details>
 <summary>Dark theme — Linux native viewport</summary>
 
-![Settings — Linux native WebKitGTK, dark theme](docs/screenshots/4.7.7/linux-settings-dark.png)
+![Settings — Linux native WebKitGTK, dark theme](docs/screenshots/4.7.9/linux-settings-dark.png)
 
 </details>
 
@@ -104,6 +100,7 @@ These are native Linux viewports with synthetic data; Settings content below the
 - **Background tasks** — how often account quotas refresh, and how often the active account is re-read from local Antigravity data
 - **Local data** — location of the application data (`~/.antigravity_tools/`), with a button to open the folder
 - **Startup and menu bar** — launch at login, background launch at login and hiding the Dock icon are all off by default; hiding the Dock icon is macOS-only
+- **Updates** — optional startup checks and a manual check in Settings; a new-version notice opens this repository’s official release page. Installer download and automatic installation are not implemented
 
 ## Data handling
 
@@ -129,9 +126,9 @@ npm run tauri build     # macOS .app or Windows installer
 
 Bundles are written to `src-tauri/target/release/bundle/`. Pushing a `v*` tag runs the release workflow, which builds macOS, Windows and Linux deb packages and attaches the results to the GitHub release
 
-## Low-quota account switching
+## Smart account switching
 
-Settings offers two default-off modes: **Switch after tasks finish** and **Stop first, then switch**. Both select an allowed backup using real quota and update credentials only after all detected Antigravity APP, IDE and agy clients have exited. This coordinator never stops tasks, closes clients or restarts them. Reopen the client, verify the account and continue the original conversation manually; running generations and commands are not migrated. See [setup, limits, and verification](docs/low-quota-switching.md).
+This default-off feature monitors real quotas and selects only allowed backup accounts. Settings supports priority order or round robin, with drag or keyboard reordering. **Wait for detected inactivity** uses recent activity observations before closing an affected client; **Switch at the threshold** can interrupt running work. Activity detection does not prove that every task has finished. The coordinator rechecks identity, fresh quota and the pending request before writing credentials; running generations are not migrated. Reopen the client and verify its account before continuing. See [setup, limits and verification](docs/low-quota-switching.md).
 
 ## Relation to the upstream project
 
@@ -145,7 +142,7 @@ Based on [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Mana
 
 Tools Lite includes `agy-switch` for account management, cached quotas, local statistics and explicit switching. On macOS and Linux, the terminal menu also supports account labels, enable/disable, confirmed deletion and account addition through browser authorization or masked token entry. It is separate from Google’s `agy`; `current` is a local record and `quota` does not refresh live data. See [CLI usage](docs/cli.md).
 
-[v4.7.7](https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.7.7) includes this CLI; older v4.7.6 packages do not. On Apple Silicon macOS, the cask in this repository installs the app and links its bundled command as `agy-switch`:
+[v4.7.9](https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.7.9) provides the single management command `agy-switch`. On Apple Silicon macOS, the cask in this repository installs the app and links its bundled command as `agy-switch`:
 
 ```sh
 brew tap anglee0323/antigravity-tools-lite https://github.com/anglee0323/antigravity-tools-lite.git
