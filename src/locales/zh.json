@@ -56,7 +56,8 @@
     "unpriced": "未计价",
     "pricing_pending": "暂无可用价格",
     "priced_subtotal": "已计价小计",
-    "total_cost": "预估合计"
+    "total_cost": "预估合计",
+    "cost_details": "明细"
   },
   "local_settings": {
     "title": "设置",
@@ -399,5 +400,21 @@
     "storage_and_executables": "关联应用与数据存储",
     "storage_and_executables_desc": "管理本机账号凭据存储位置与外部关联客户端的识别路径。",
     "config_failed": "无法读取或保存应用设置：{{error}}"
+  },
+  "updater": {
+    "title": "软件更新",
+    "desc": "检查 GitHub 发布的新版本。",
+    "startup": "启动时检查更新",
+    "check_now": "检查更新",
+    "checking": "正在检查",
+    "current_version": "当前版本",
+    "available": "发现新版本 {{version}}",
+    "latest": "当前已是最新版本",
+    "failed": "暂时无法检查更新，请稍后重试。",
+    "open_release": "查看新版",
+    "dismiss": "稍后",
+    "dialog_title": "发现新版本",
+    "dialog_desc": "版本 {{version}} 已发布。请在发布页下载对应平台的安装包；通过 Homebrew 安装的用户也可运行 brew upgrade。",
+    "open_failed": "无法打开发布页。"
   }
 }

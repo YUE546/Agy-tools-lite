@@ -260,6 +260,7 @@ function TokenCard({
     locale: string;
     tooltipContent?: React.ReactNode;
 }) {
+    const { t } = useTranslation();
     return (
         <div className="relative group rounded-2xl border border-gray-100 bg-white p-3 shadow-sm transition-all hover:border-gray-200 hover:shadow-md dark:border-base-200 dark:bg-base-100 hover:z-30">
             <div className="mb-2 flex items-center justify-between">
@@ -272,7 +273,7 @@ function TokenCard({
                 {tooltipContent && (
                     <span className="flex items-center gap-0.5 cursor-pointer rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-600 transition-colors group-hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300">
                         <Info className="h-2.5 w-2.5" />
-                        <span>明细</span>
+                        <span>{t('local_dashboard.cost_details')}</span>
                     </span>
                 )}
             </div>

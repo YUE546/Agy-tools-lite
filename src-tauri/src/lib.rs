@@ -324,6 +324,7 @@ pub fn run() {
             commands::get_local_token_usage,
             commands::get_menu_bar_usage,
             commands::get_api_pricing,
+            commands::check_for_updates,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

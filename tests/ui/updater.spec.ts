@@ -1,0 +1,32 @@
+import { expect, test } from '@playwright/test';
+import { setupSettingsFixture } from './settings-fixture';
+for (const language of ['zh', 'en']) test(`update prompt and manual check are localized (${language})`, async ({ page }) => {
+    const override = () => {
+        const w=window as any, original=w.__TAURI_INTERNALS__.invoke;
+        w.__updateFixture={fail:false,newer:true,calls:[]};
+        w.__TAURI_INTERNALS__.invoke=async (command:string,args:any)=>{
+            w.__updateFixture.calls.push(command);
+            if(command==='check_for_updates'){
+                if(w.__updateFixture.fail)throw 'raw backend language should not appear';
+                return {current_version:'4.7.8',latest_version:'v4.7.9',has_update:w.__updateFixture.newer,release_url:'https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.7.9'};
+            }
+            if(command==='plugin:opener|open_url')return null;
+            return original(command,args);
+        };
+    };
+    await page.addInitScript({ content: `(${setupSettingsFixture.toString()})(${JSON.stringify({ language })});(${override.toString()})();` });
+    await page.goto('/settings');
+    const check=page.getByRole('button',{name:language==='zh'?'检查更新':'Check for updates',exact:true});
+    await check.click(); const dialog=page.getByRole('dialog'); await expect(dialog).toBeVisible();
+    if(language==='en')expect(await dialog.innerText()).not.toMatch(/[\u3400-\u9fff]/);
+    await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
+    expect(await page.evaluate(()=>localStorage.getItem('dismissed_release'))).toBe('v4.7.9');
+    await page.getByLabel(language==='zh'?'启动时检查更新':'Check for updates on startup').uncheck();
+    await expect.poll(()=>page.evaluate(()=>(window as any).__settingsFixture.calls.filter((c:any)=>c.command==='save_config').at(-1)?.args.config.check_updates_on_startup)).toBe(false);
+    await page.evaluate(()=>{(window as any).__updateFixture.newer=false;}); await check.click();
+    await expect(page.getByText(language==='zh'?'当前已是最新版本':'You are up to date',{exact:true})).toBeVisible();
+    await page.evaluate(()=>{(window as any).__updateFixture.fail=true;}); await check.click();
+    await expect(page.getByRole('alert')).toContainText(language==='zh'?'暂时无法检查更新':'Could not check for updates');
+    expect(await page.locator('main').innerText()).not.toContain('raw backend');
+    expect(await page.evaluate(()=>(window as any).__updateFixture.calls)).not.toContain('download_and_install_update');
+});

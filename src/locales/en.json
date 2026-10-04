@@ -56,7 +56,8 @@
     "unpriced": "Unpriced",
     "pricing_pending": "Prices unavailable",
     "priced_subtotal": "Priced subtotal",
-    "total_cost": "Total estimate"
+    "total_cost": "Total estimate",
+    "cost_details": "Details"
   },
   "local_settings": {
     "title": "Settings",
@@ -399,5 +400,21 @@
     "storage_and_executables": "Client Integration & Data Storage",
     "storage_and_executables_desc": "Manage local credentials directory and linked client application paths.",
     "config_failed": "Could not load or save application settings: {{error}}"
+  },
+  "updater": {
+    "title": "Software updates",
+    "desc": "Check GitHub Releases for a newer version.",
+    "startup": "Check for updates on startup",
+    "check_now": "Check for updates",
+    "checking": "Checking",
+    "current_version": "Current version",
+    "available": "Version {{version}} is available",
+    "latest": "You are up to date",
+    "failed": "Could not check for updates. Try again later.",
+    "open_release": "View release",
+    "dismiss": "Later",
+    "dialog_title": "Update available",
+    "dialog_desc": "Version {{version}} is ready. Download the package for your platform from the release page, or run brew upgrade if you installed with Homebrew.",
+    "open_failed": "Could not open the release page."
   }
 }

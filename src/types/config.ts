@@ -41,6 +41,7 @@ export interface AppConfig {
     menu_bar?: MenuBarPreferences;
     language: string;
     theme: string;
+    check_updates_on_startup?: boolean;
     auto_refresh: boolean;
     refresh_interval: number;
     auto_sync: boolean;

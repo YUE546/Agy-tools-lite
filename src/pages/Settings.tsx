@@ -6,6 +6,7 @@ import { AppConfig } from '../types/config';
 import { request as invoke } from '../utils/request';
 import { showToast } from '../components/common/ToastContainer';
 import { open } from '@tauri-apps/plugin-dialog';
+import UpdateSettings from '../components/settings/UpdateSettings';
 import DesktopSettings from '../components/settings/DesktopSettings';
 import ModelDisplaySettings from '../components/settings/ModelDisplaySettings';
 import { AutoSwitchSettings } from '../components/autoSwitch/AutoSwitch';
@@ -174,6 +175,7 @@ function Settings() {
                 </section>
 
                 {/* 2. 桌面与系统窗口 */}
+                <UpdateSettings />
                 <DesktopSettings />
 
                 {/* 3. 数据存储与关联应用 */}

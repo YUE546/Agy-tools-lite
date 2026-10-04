@@ -38,3 +38,4 @@ pub mod menu_bar_projection;
 #[cfg(target_os = "macos")]
 pub mod native_menu;
 pub mod auto_switch;
+pub mod updater;

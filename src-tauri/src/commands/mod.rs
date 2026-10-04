@@ -570,3 +570,9 @@ pub async fn get_menu_bar_usage() -> Result<crate::modules::menu_bar_usage::Menu
 pub async fn get_api_pricing() -> Result<crate::modules::api_pricing::ApiPricingSnapshot, String> {
     crate::modules::api_pricing::get_api_pricing().await
 }
+
+/// 检查 GitHub Releases 获取最新版本信息
+#[tauri::command]
+pub async fn check_for_updates() -> Result<crate::modules::updater::UpdateInfo, String> {
+    crate::modules::updater::check_for_updates().await
+}
