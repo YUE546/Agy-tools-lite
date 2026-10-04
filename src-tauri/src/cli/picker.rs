@@ -673,18 +673,136 @@ fn read_key_action() -> KeyAction {
     }
 }
 
-fn prompt_line(prompt: &str) -> String {
+pub enum PromptResult {
+    Confirmed(String),
+    Cancelled,
+}
+
+pub fn prompt_line_with_cancel(prompt: &str, max_chars: usize) -> PromptResult {
     print!("{}", prompt);
     let _ = io::stdout().flush();
+
+    #[cfg(unix)]
+    {
+        if let Some(raw) = RawTerminal::enter() {
+            let mut buffer = String::new();
+            let mut stdin = io::stdin();
+            let mut stdout = io::stdout();
+
+            let _ = write!(stdout, "\x1b[?25h");
+            let _ = stdout.flush();
+
+            loop {
+                let mut byte = [0u8; 1];
+                match stdin.read(&mut byte) {
+                    Ok(1) => {}
+                    Ok(0) => continue,
+                    _ => {
+                        drop(raw);
+                        return PromptResult::Cancelled;
+                    }
+                }
+
+                match byte[0] {
+                    b'\r' | b'\n' => {
+                        let _ = writeln!(stdout);
+                        let _ = stdout.flush();
+                        drop(raw);
+                        return PromptResult::Confirmed(buffer.trim().to_string());
+                    }
+                    b'\x03' => {
+                        let _ = writeln!(stdout);
+                        let _ = stdout.flush();
+                        drop(raw);
+                        return PromptResult::Cancelled;
+                    }
+                    b'\x1b' => {
+                        let mut seq = [0u8; 2];
+                        match stdin.read(&mut seq[0..1]) {
+                            Ok(1) if seq[0] == b'[' || seq[0] == b'O' => {
+                                let _ = stdin.read(&mut seq[1..2]);
+                                continue;
+                            }
+                            _ => {
+                                let _ = writeln!(stdout);
+                                let _ = stdout.flush();
+                                drop(raw);
+                                return PromptResult::Cancelled;
+                            }
+                        }
+                    }
+                    b'\x08' | 127 => {
+                        if let Some(c) = buffer.pop() {
+                            let w = display_width(&c.to_string());
+                            if w > 0 {
+                                let _ = write!(stdout, "\x1b[{}D\x1b[K", w);
+                                let _ = stdout.flush();
+                            }
+                        }
+                    }
+                    b => {
+                        if b >= 32 || b >= 0x80 {
+                            let char_len = if b < 0x80 {
+                                1
+                            } else if (b & 0xE0) == 0xC0 {
+                                2
+                            } else if (b & 0xF0) == 0xE0 {
+                                3
+                            } else if (b & 0xF8) == 0xF0 {
+                                4
+                            } else {
+                                1
+                            };
+
+                            let mut char_bytes = vec![b];
+                            if char_len > 1 {
+                                let mut rest = vec![0u8; char_len - 1];
+                                let mut read_so_far = 0;
+                                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(300);
+                                while read_so_far < rest.len() && std::time::Instant::now() < deadline {
+                                    match stdin.read(&mut rest[read_so_far..]) {
+                                        Ok(0) => {
+                                            std::thread::sleep(std::time::Duration::from_millis(5));
+                                        }
+                                        Ok(n) => {
+                                            read_so_far += n;
+                                        }
+                                        Err(_) => break,
+                                    }
+                                }
+                                if read_so_far == rest.len() {
+                                    char_bytes.extend(rest);
+                                }
+                            }
+
+                            if let Ok(s) = std::str::from_utf8(&char_bytes) {
+                                if let Some(c) = s.chars().next() {
+                                    if max_chars == 0 || buffer.chars().count() < max_chars {
+                                        buffer.push(c);
+                                        let _ = write!(stdout, "{}", c);
+                                        let _ = stdout.flush();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let mut line = String::new();
-    let _ = io::stdin().read_line(&mut line);
-    line.trim().to_string()
+    if io::stdin().read_line(&mut line).is_ok() {
+        PromptResult::Confirmed(line.trim().to_string())
+    } else {
+        PromptResult::Cancelled
+    }
 }
 
 fn wait_for_key(lang: Lang) {
     let msg = match lang {
-        Lang::Zh => "按任意键继续...",
-        Lang::En => "Press any key to continue...",
+        Lang::Zh => "按 Esc 或任意键继续...",
+        Lang::En => "Press Esc or any key to continue...",
     };
     print!("\n\x1b[2m{}\x1b[0m", msg);
     let _ = io::stdout().flush();
@@ -716,8 +834,8 @@ pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize, lang
             let _ = stdout.flush();
 
             let hint = match lang {
-                Lang::Zh => "(↑/↓ 移动  |  回车确认  |  数字键选择  |  0/Q 退出)",
-                Lang::En => "(↑/↓ Navigate  |  Enter Select  |  Numbers  |  0/Q Quit)",
+                Lang::Zh => "(↑/↓ 移动  |  回车确认  |  数字键选择  |  Esc/0 返回)",
+                Lang::En => "(↑/↓ Navigate  |  Enter Select  |  Numbers  |  Esc/0 Back)",
             };
 
             let render = |sel: usize, first: bool| {
@@ -1006,8 +1124,8 @@ pub fn select_account_interactive<'a>(
             let _ = stdout.flush();
 
             let prompt_text = match lang {
-                Lang::Zh => "? 请选择账号 (↑/↓ 移动  |  回车确认  |  数字键直选  |  0/Q 取消):",
-                Lang::En => "? Select account (↑/↓ Navigate  |  Enter Select  |  Numbers  |  0/Q Cancel):",
+                Lang::Zh => "? 请选择账号 (↑/↓ 移动  |  回车确认  |  数字键直选  |  Esc/0 取消):",
+                Lang::En => "? Select account (↑/↓ Navigate  |  Enter Select  |  Numbers  |  Esc/0 Cancel):",
             };
 
             let render = |sel: usize, initial: bool| {
@@ -1351,8 +1469,8 @@ fn select_account_hub_action(
                 Lang::En => "* indicates active account",
             };
             let prompt_text = match lang {
-                Lang::Zh => "操作: (↑/↓ 移动  |  回车 切换  |  V 详情  |  R 备注  |  T 启/禁  |  X 删除  |  0 返回)",
-                Lang::En => "Action: (↑/↓ Move  |  Enter Switch  |  V Details  |  R Label  |  T Toggle  |  X Delete  |  0 Back)",
+                Lang::Zh => "操作: (↑/↓ 移动  |  回车 切换  |  V 详情  |  R 备注  |  T 启/禁  |  X 删除  |  Esc/0 返回)",
+                Lang::En => "Action: (↑/↓ Move  |  Enter Switch  |  V Details  |  R Label  |  T Toggle  |  X Delete  |  Esc/0 Back)",
             };
 
             let render = |sel: usize, initial: bool| {
@@ -1582,46 +1700,49 @@ fn show_accounts_and_quotas_hub(root: &Path, lang: Lang) {
                 let target_acc = &snapshot.accounts[idx];
                 print!("\x1b[2J\x1b[H");
                 let edit_header = match lang {
-                    Lang::Zh => format!("修改备注标签 · \x1b[1;36m{}\x1b[0m\n", target_acc.email),
-                    Lang::En => format!("Edit Custom Label · \x1b[1;36m{}\x1b[0m\n", target_acc.email),
+                    Lang::Zh => format!("修改账号备注 · \x1b[1;36m{}\x1b[0m\n", target_acc.email),
+                    Lang::En => format!("Edit Account Label · \x1b[1;36m{}\x1b[0m\n", target_acc.email),
                 };
                 println!("{}", edit_header);
 
-                let prompt = match lang {
-                    Lang::Zh => format!(
-                        "当前备注: {}\n请输入新的备注标签 (回车保持不变，输入 - 清除当前备注，最多15字): ",
-                        target_acc.custom_label.as_deref().unwrap_or("无")
-                    ),
-                    Lang::En => format!(
-                        "Current Label: {}\nEnter new label (Press Enter to keep, enter - to clear, max 15 chars): ",
-                        target_acc.custom_label.as_deref().unwrap_or("None")
-                    ),
+                let cur_label = target_acc.custom_label.as_deref().unwrap_or(match lang {
+                    Lang::Zh => "无",
+                    Lang::En => "None",
+                });
+                let cur_info = match lang {
+                    Lang::Zh => format!("当前备注: {}\n", cur_label),
+                    Lang::En => format!("Current Label: {}\n", cur_label),
                 };
-                let new_label = prompt_line(&prompt);
-                if new_label.is_empty() {
-                    // Keep unchanged
-                } else if new_label == "-" {
-                    if let Ok(mut acc) = crate::modules::account::load_account(&target_acc.id) {
-                        acc.custom_label = None;
-                        let _ = crate::modules::account::save_account(&acc);
-                        if let Ok(reloaded) = Snapshot::read(root) {
-                            snapshot = reloaded;
+                println!("{}", cur_info);
+
+                let tip = match lang {
+                    Lang::Zh => "\x1b[90m(操作: 直接输入后按 [回车] 确定  |  输入为空按回车清空备注  |  按 [Esc] 取消返回)\x1b[0m\n",
+                    Lang::En => "\x1b[90m(Action: Type and press [Enter] to save  |  Empty to clear  |  Press [Esc] to cancel)\x1b[0m\n",
+                };
+                println!("{}", tip);
+
+                let prompt = match lang {
+                    Lang::Zh => "请输入新备注 (最多15字): ",
+                    Lang::En => "Enter new label (max 15 chars): ",
+                };
+
+                match prompt_line_with_cancel(prompt, 15) {
+                    PromptResult::Confirmed(new_label) => {
+                        let label_opt = if new_label.is_empty() {
+                            None
+                        } else {
+                            Some(new_label)
+                        };
+                        if let Ok(mut acc) = crate::modules::account::load_account(&target_acc.id) {
+                            acc.custom_label = label_opt;
+                            let _ = crate::modules::account::save_account(&acc);
+                            if let Ok(reloaded) = Snapshot::read(root) {
+                                snapshot = reloaded;
+                            }
                         }
                     }
-                } else if new_label.chars().count() > 15 {
-                    let err_msg = match lang {
-                        Lang::Zh => "\x1b[31m标签长度不能超过 15 个字符\x1b[0m",
-                        Lang::En => "\x1b[31mLabel cannot exceed 15 characters\x1b[0m",
-                    };
-                    println!("{}", err_msg);
-                    wait_for_key(lang);
-                } else {
-                    if let Ok(mut acc) = crate::modules::account::load_account(&target_acc.id) {
-                        acc.custom_label = Some(new_label);
-                        let _ = crate::modules::account::save_account(&acc);
-                        if let Ok(reloaded) = Snapshot::read(root) {
-                            snapshot = reloaded;
-                        }
+                    PromptResult::Cancelled => {
+                        // User pressed Esc or Ctrl+C, discard changes and return cleanly to table
                     }
                 }
             }
@@ -1651,37 +1772,41 @@ fn show_accounts_and_quotas_hub(root: &Path, lang: Lang) {
                 };
                 println!("{}", del_header);
 
-                let confirm_prompt = match lang {
-                    Lang::Zh => format!(
-                        "警告: 此操作将永久移除该账号的本地凭证与配置！\n确定要永久删除账号 {} 吗？(y/N): ",
-                        target_acc.email
-                    ),
-                    Lang::En => format!(
-                        "Warning: This will permanently remove local credentials & settings!\nPermanently delete account {}? (y/N): ",
-                        target_acc.email
-                    ),
+                let warn_text = match lang {
+                    Lang::Zh => "警告: 此操作将永久移除该账号的本地凭证与配置！\n",
+                    Lang::En => "Warning: This will permanently remove local credentials & settings!\n",
                 };
-                let confirm = prompt_line(&confirm_prompt);
-                if confirm.eq_ignore_ascii_case("y") || confirm.eq_ignore_ascii_case("yes") {
-                    match crate::modules::account::delete_account(&target_acc.id) {
-                        Ok(_) => {
-                            let del_msg = match lang {
-                                Lang::Zh => "\x1b[1;32m✓ 账号已成功删除\x1b[0m",
-                                Lang::En => "\x1b[1;32m✓ Account deleted successfully\x1b[0m",
-                            };
-                            println!("{}", del_msg);
-                            wait_for_key(lang);
-                            if let Ok(reloaded) = Snapshot::read(root) {
-                                snapshot = reloaded;
+                println!("{}", warn_text);
+
+                let confirm_prompt = match lang {
+                    Lang::Zh => "确定要永久删除该账号吗？(按 [y/回车] 确认删除，按 [Esc/n] 取消返回): ",
+                    Lang::En => "Permanently delete this account? ([y/Enter] confirm, [Esc/n] cancel): ",
+                };
+                match prompt_line_with_cancel(confirm_prompt, 10) {
+                    PromptResult::Confirmed(ans) if ans.eq_ignore_ascii_case("y") || ans.eq_ignore_ascii_case("yes") => {
+                        match crate::modules::account::delete_account(&target_acc.id) {
+                            Ok(_) => {
+                                let del_msg = match lang {
+                                    Lang::Zh => "\x1b[1;32m✓ 账号已成功删除\x1b[0m",
+                                    Lang::En => "\x1b[1;32m✓ Account deleted successfully\x1b[0m",
+                                };
+                                println!("{}", del_msg);
+                                wait_for_key(lang);
+                                if let Ok(reloaded) = Snapshot::read(root) {
+                                    snapshot = reloaded;
+                                }
+                                if snapshot.accounts.is_empty() {
+                                    break;
+                                }
                             }
-                            if snapshot.accounts.is_empty() {
-                                break;
+                            Err(e) => {
+                                println!("\x1b[31mDelete error: {}\x1b[0m", e);
+                                wait_for_key(lang);
                             }
                         }
-                        Err(e) => {
-                            println!("\x1b[31mDelete error: {}\x1b[0m", e);
-                            wait_for_key(lang);
-                        }
+                    }
+                    _ => {
+                        // Cancelled!
                     }
                 }
             }
@@ -1957,8 +2082,8 @@ fn show_token_statistics(lang: Lang) {
             print!("{}", footer);
 
             let prompt = match lang {
-                Lang::Zh => "\x1b[1m操作: (M 查看今日模型明细  |  回车/0 返回主菜单)\x1b[0m ",
-                Lang::En => "\x1b[1mAction: (M Today's Models  |  Enter/0 Back)\x1b[0m ",
+                Lang::Zh => "\x1b[1m操作: (M 查看今日模型明细  |  Esc/0 返回主菜单)\x1b[0m ",
+                Lang::En => "\x1b[1mAction: (M Today's Models  |  Esc/0 Back)\x1b[0m ",
             };
             print!("{}", prompt);
             let _ = io::stdout().flush();
@@ -2011,8 +2136,8 @@ fn show_token_statistics(lang: Lang) {
             print!("{}", footer);
 
             let prompt = match lang {
-                Lang::Zh => "\x1b[1m操作: (M 返回用量总览  |  回车/0 返回主菜单)\x1b[0m ",
-                Lang::En => "\x1b[1mAction: (M Back to Overview  |  Enter/0 Back)\x1b[0m ",
+                Lang::Zh => "\x1b[1m操作: (M 返回用量总览  |  Esc/0 返回主菜单)\x1b[0m ",
+                Lang::En => "\x1b[1mAction: (M Back to Overview  |  Esc/0 Back)\x1b[0m ",
             };
             print!("{}", prompt);
             let _ = io::stdout().flush();
@@ -2448,11 +2573,28 @@ fn show_add_account(lang: Lang) {
             };
             println!("\x1b[1m{}\x1b[0m\n", sub_title);
 
+            let tip = match lang {
+                Lang::Zh => "\x1b[90m(操作: 粘贴或输入 Token 后按 [回车] 确定  |  按 [Esc] 取消返回)\x1b[0m\n",
+                Lang::En => "\x1b[90m(Action: Paste or type Token and press [Enter]  |  Press [Esc] to cancel)\x1b[0m\n",
+            };
+            println!("{}", tip);
+
             let prompt_text = match lang {
                 Lang::Zh => "请输入 Google Refresh Token: ",
                 Lang::En => "Enter Google Refresh Token: ",
             };
-            let refresh_token = prompt_line(prompt_text);
+            let refresh_token = match prompt_line_with_cancel(prompt_text, 0) {
+                PromptResult::Confirmed(token) => token,
+                PromptResult::Cancelled => {
+                    let cancel_msg = match lang {
+                        Lang::Zh => "\x1b[2m已取消输入。\x1b[0m",
+                        Lang::En => "\x1b[2mInput cancelled.\x1b[0m",
+                    };
+                    println!("{}", cancel_msg);
+                    wait_for_key(lang);
+                    return;
+                }
+            };
             if refresh_token.is_empty() {
                 let cancel_msg = match lang {
                     Lang::Zh => "\x1b[2m已取消输入。\x1b[0m",
