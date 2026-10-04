@@ -11,7 +11,7 @@ antigravity-tools-lite
 
 The deb installs `antigravity-tools-lite`, its application-menu entry/icon, and `/usr/bin/agy-switch`. A desktop display and D-Bus session are needed for the GUI. Modern Antigravity APP credential switching needs an unlocked Secret Service such as GNOME Keyring. A compatible KWallet service has not been separately validated.
 
-The main app exposes the same account, quota, usage, switching strategy, update and appearance settings as Mac. A supported tray offers Quick Dashboard; environments without a usable tray retain the main window, and closing it exits rather than hiding an inaccessible application.
+The main app exposes the same account, quota, usage, switching strategy, update and appearance settings as Mac. A supported tray offers Quick Dashboard. If tray creation fails, the main window remains available and closing it exits. If the desktop creates an invisible tray icon, disable the tray as described below.
 
 ## Terminal-only installation
 
@@ -44,7 +44,11 @@ Quotas are cached observations. Missing windows, stale records and disabled acco
 
 ## Desktop compatibility
 
-Windows are opaque. GNOME/KDE tray presentation depends on the desktop’s AppIndicator/StatusNotifier support; merely having a library installed does not prove a visible tray. Wayland restricts absolute placement and activation, so tray positioning needs validation on each compositor. A desktop without a tray is still usable through the main window.
+Windows are opaque. GNOME/KDE tray presentation depends on the desktop’s AppIndicator/StatusNotifier support; merely having a library installed does not prove a visible tray. Wayland restricts absolute placement and activation, so tray positioning needs validation on each compositor. If the desktop does not display its tray icon, use `ANTIGRAVITY_DISABLE_TRAY=1` so closing the main window exits instead of hiding it.
+
+![Linux quick dashboard](screenshots/4.8.0/linux-quick-dashboard-light.png)
+
+Actual Linux WebKitGTK viewport, CI debug build with synthetic quota observations. This is a compact-route capture, not a Wayland/tray-placement test. [Source and hashes](screenshots/4.8.0/README.md)
 
 Existing overrides remain available:
 

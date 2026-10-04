@@ -93,11 +93,13 @@ Desktop preferences, update notices and the background smart-switch scheduler re
 
 ## Screenshots and validation
 
-![Usage dashboard](docs/screenshots/4.7.9/linux-dashboard-light.png)
+![Windows usage dashboard](docs/screenshots/4.8.0/windows-dashboard-light.png)
 
-![Account management](docs/screenshots/4.7.9/linux-accounts-light.png)
+Windows native WebView2 usage dashboard.
 
-These are real Linux Tauri/WebKitGTK viewports from the documented v4.7.9 CI build, using synthetic example accounts. They exclude the system window frame. [Image provenance](docs/screenshots/4.7.9/README.md)
+![Linux quick dashboard](docs/screenshots/4.8.0/linux-quick-dashboard-light.png)
+
+Linux native WebKitGTK quick dashboard. Both images come from the documented 4.8.0 CI debug build with synthetic example data and exclude the system window frame. [Image provenance](docs/screenshots/4.8.0/README.md)
 
 Native window tests, terminal tests and package tests are tracked separately. Build success alone does not prove authenticated switching, login startup, tray placement on every monitor or compatibility with every Linux desktop. [Platform acceptance](docs/native-gui-acceptance.md)
 

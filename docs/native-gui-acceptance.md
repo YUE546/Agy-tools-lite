@@ -16,6 +16,7 @@ driver diagnostics, and these screenshots:
 - `accounts-light.png`: two synthetic accounts loaded through the actual backend
 - `settings-light.png` / `settings-dark.png`: low-quota Settings controls and themes
 - `settings-light-760.png` / `settings-dark-760.png`: exactly 760 CSS-pixel viewport
+- `quick-dashboard-light.png`: 424 CSS-pixel compact dashboard in the native WebView
 
 Each image is a capture of the app's actual native WebView viewport, not the system
 window frame or the runner desktop. Linux uses WebKitGTK in Xvfb with a new D-Bus
@@ -122,3 +123,11 @@ The Windows report at the same source/checkout SHA records `status: blocked`, `p
 The [final Build run](https://github.com/anglee0323/antigravity-tools-lite/actions/runs/37233892799) checked out `5be961d3149be5f80bdd4b39b51b4a4020dea4cd`. Linux passed all six native Tauri/WebKitGTK viewport captures, real IPC, persisted themes, narrow layouts and cleanup. A route-mount race was fixed by waiting for a visible, enabled element before native clicks, retaining the original assertions and failure timeout. Four unchanged, visually inspected captures are in [4.7.9 screenshot sources](screenshots/4.7.9/README.md).
 
 Windows still records `status: blocked`, no app launch and no screenshots, independently of passing package and one-line CLI checks. Installed-package, real-account and Mac login/multiple-display acceptance remain separate.
+
+## Integrated 4.8.0 test build
+
+The [4.8.0 Build run](https://github.com/anglee0323/antigravity-tools-lite/actions/runs/37240883998) checked out `8f14803e9a7ceeb8293b3a9f75739eb3e8ed7de2`. Both Windows and Linux reports now record `status: passed`, `passed: true`, seven actual native captures, real Rust IPC, persisted themes, 760px Settings layouts and completed app/fixture cleanup. The compact route also checks all three dashboard sections, English copy, synthetic per-family quota percentages, single-line window labels and action/percentage alignment. Its viewport is 424 × 720; this is not an actual tray-window placement or opening-speed test. Three unchanged, visually reviewed captures are in [4.8.0 screenshot sources](screenshots/4.8.0/README.md).
+
+Windows CI explicitly builds the opt-in `native-gui-test` feature. Only Windows debug builds with that feature and the fixture marker forward the driver's validated numeric port through Tauri's `additional_browser_args` WebView2 API. Release builds cannot enable this path. This resolves the hosted elevated-process automation limitation without registry changes, runtime downgrades or security-policy changes. The older blocked reports remain valid for their recorded source; they are not current Windows UI results.
+
+Native GUI acceptance remains independent of package installation, real Google authorization, authenticated switching, login startup, physical monitors, Wayland/KDE and platform signing. Console acceptance separately uses real PTY/ConPTY, direct PowerShell invocations and JSON/exit-code checks.

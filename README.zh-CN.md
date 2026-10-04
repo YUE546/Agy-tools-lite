@@ -93,11 +93,13 @@ agy-switch current --json         # Tools Lite 保存的选择
 
 ## 截图与验证
 
-![用量看板](docs/screenshots/4.7.9/linux-dashboard-light.png)
+![Windows 用量看板](docs/screenshots/4.8.0/windows-dashboard-light.png)
 
-![账号管理](docs/screenshots/4.7.9/linux-accounts-light.png)
+Windows 原生 WebView2 用量看板。
 
-以上是真实 Linux Tauri/WebKitGTK 视口，来自记录完整的 v4.7.9 CI 构建，使用合成示例账号，不含系统窗框。[截图来源](docs/screenshots/4.7.9/README.md)
+![Linux 快捷看板](docs/screenshots/4.8.0/linux-quick-dashboard-light.png)
+
+Linux 原生 WebKitGTK 快捷看板。两张截图来自记录完整的 4.8.0 CI 调试构建，使用合成示例数据，不含系统窗框。[截图来源](docs/screenshots/4.8.0/README.md)
 
 原生窗口、终端和安装包分别验证。构建成功不等于已经验证真实授权切换、登录启动、所有显示器上的托盘定位，或所有 Linux 桌面环境。[各平台验收](docs/native-gui-acceptance.md)
 
