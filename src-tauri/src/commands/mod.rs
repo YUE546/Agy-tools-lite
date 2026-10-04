@@ -552,17 +552,17 @@ pub async fn update_account_label(account_id: String, label: String) -> Result<(
 #[tauri::command]
 pub async fn get_local_token_usage(
 ) -> Result<crate::modules::native_token_stats::LocalTokenUsageSummary, String> {
-    tokio::task::spawn_blocking(crate::modules::native_token_stats::get_local_token_usage)
+    let summary = tokio::task::spawn_blocking(crate::modules::native_token_stats::get_local_token_usage)
         .await
-        .map_err(|error| format!("读取本地 Token 统计任务失败: {}", error))?
+        .map_err(|error| format!("读取本地 Token 统计任务失败: {}", error))??;
+    crate::modules::menu_bar_usage::remember(&summary);
+    Ok(summary)
 }
 
 /// Compact local daily usage for the tray, without a network pricing request.
 #[tauri::command]
 pub async fn get_menu_bar_usage() -> Result<crate::modules::menu_bar_usage::MenuBarUsage, String> {
-    let summary = get_local_token_usage().await?;
-    let pricing = crate::modules::api_pricing::cached_pricing();
-    Ok(crate::modules::menu_bar_usage::project(&summary, pricing.as_ref()))
+    crate::modules::menu_bar_usage::load().await
 }
 
 /// 同步 Google 官方 API 价格，用于本地费用等价估算

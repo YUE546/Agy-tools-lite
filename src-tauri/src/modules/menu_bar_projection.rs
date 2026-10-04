@@ -93,6 +93,21 @@ pub fn reset_summary(value: &str, now: i64, zh: bool) -> String {
         else { format!("{minutes}m") };
     if zh { format!("{remaining} 后重置") } else { format!("Resets in {remaining}") }
 }
+/// Compact inline reset labels retain the row geometry during hover.
+pub fn account_reset_labels(account: &DashboardEntry, now: i64, zh: bool) -> [[String; 2]; 2] {
+    std::array::from_fn(|period| std::array::from_fn(|family| {
+        if account.disabled { return if zh { "禁用" } else { "Disabled" }.into(); }
+        let window = if period == 0 { "5h" } else { "weekly" };
+        let resets: std::collections::BTreeSet<_> = account.quota.iter().flat_map(|quota| quota.groups.iter().flatten())
+            .filter(|group| { let name = group.display_name.to_lowercase(); if family == 0 { name.contains("gemini") } else { name.contains("claude") || name.contains("gpt") } })
+            .flat_map(|group| &group.buckets).filter(|bucket| bucket.window.trim().eq_ignore_ascii_case(window)).map(|bucket| bucket.reset_time.as_str()).collect();
+        if resets.len() > 1 { return if zh { "多组" } else { "Multiple" }.into(); }
+        let summary = reset_summary(resets.first().copied().unwrap_or(""), now, false);
+        if let Some(countdown) = summary.strip_prefix("Resets in ") { countdown.into() }
+        else if summary.starts_with("Reset due") { if zh { "请刷新" } else { "Refresh" }.into() }
+        else { if zh { "未报告" } else { "Unknown" }.into() }
+    }))
+}
 
 #[cfg(test)]
 mod tests {
@@ -123,6 +138,19 @@ mod tests {
         assert_eq!(reset_summary("2026-10-05T00:00:01Z", now, false), "Resets in 1m");
         assert_eq!(reset_summary("bad", now, true), "重置时间未报告");
         assert_eq!(reset_summary("2026-10-05T00:00:00Z", now, true), "已到重置时间，请刷新");
+    }
+    #[test] fn hover_resets_keep_independent_windows_and_disabled_state() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-05T00:00:00Z").unwrap().timestamp();
+        let mut account = account();
+        let groups = account.quota.as_mut().unwrap().groups.as_mut().unwrap();
+        groups[0].buckets[0].reset_time = "2026-10-05T04:00:00Z".into();
+        groups[0].buckets[1].reset_time = "2026-10-07T03:00:00Z".into();
+        assert_eq!(account_reset_labels(&account, now, false)[0][0], "4h 0m");
+        assert_eq!(account_reset_labels(&account, now, true)[1][0], "2d 3h");
+        account.disabled = true;
+        assert!(account_reset_labels(&account, now, true).iter().flatten().all(|label| label == "禁用"));
+        account.disabled = false; account.quota = None;
+        assert!(account_reset_labels(&account, now, false).iter().flatten().all(|label| label == "Unknown"));
     }
     #[test] fn visibility_hides_invalid_accounts_without_hiding_missing_quota() {
         let preferences = MenuBarPreferences::default(); let mut account = account();

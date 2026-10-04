@@ -110,15 +110,19 @@ mod tests {
     use super::*;
     #[test]
     fn menu_patches_preserve_other_preferences_and_survive_stale_general_saves() {
-        use crate::models::config::{MenuBarPreferencesPatch, MenuBarQuotaScope};
+        use crate::models::config::{MenuBarPreferencesPatch, MenuBarQuotaScope, MenuBarResetTimeDisplay};
         let root = tempfile::tempdir().unwrap(); let path = root.path().join(CONFIG_FILE);
         let stale = load_config_at(&path).unwrap();
         patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { display_scope: Some(MenuBarQuotaScope::Other), green_above: Some(75), ..Default::default() }).unwrap();
-        patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { hide_unavailable: Some(false), ..Default::default() }).unwrap();
+        patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { hide_unavailable: Some(false), show_reset_on_hover: Some(false), ..Default::default() }).unwrap();
         save_config_at(&path, &stale).unwrap();
         let actual = load_config_at(&path).unwrap().menu_bar;
         assert_eq!(actual.display_scope, MenuBarQuotaScope::Other); assert_eq!(actual.green_above, 75);
-        assert!(!actual.hide_unavailable);
+        assert!(!actual.hide_unavailable && !actual.show_reset_on_hover);
+        assert_eq!(actual.reset_time_mode(), MenuBarResetTimeDisplay::Hidden);
+        patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { reset_time_display: Some(MenuBarResetTimeDisplay::Always), ..Default::default() }).unwrap();
+        save_config_at(&path, &stale).unwrap();
+        assert_eq!(load_config_at(&path).unwrap().menu_bar.reset_time_mode(), MenuBarResetTimeDisplay::Always);
         let before = fs::read(&path).unwrap();
         assert!(patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { red_below: Some(80), ..Default::default() }).is_err());
         assert!(patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { show_session: Some(false), show_weekly: Some(false), ..Default::default() }).is_err());
@@ -126,11 +130,17 @@ mod tests {
     }
     #[test]
     fn legacy_menu_preferences_receive_new_defaults() {
-        use crate::models::config::{MenuBarPreferences, MenuBarQuotaScope, MenuBarLabelStyle};
+        use crate::models::config::{MenuBarPreferences, MenuBarQuotaScope, MenuBarLabelStyle, MenuBarResetTimeDisplay};
         let actual: MenuBarPreferences = serde_json::from_str(r#"{"quota_scope":"other"}"#).unwrap();
         assert_eq!(actual.quota_scope, MenuBarQuotaScope::Other); assert_eq!(actual.display_scope, MenuBarQuotaScope::All);
         assert_eq!(actual.label_style, MenuBarLabelStyle::EmailThenLabel);
-        assert!(actual.hide_unavailable && actual.show_session && actual.show_weekly);
+        assert!(actual.hide_unavailable && actual.show_session && actual.show_weekly && actual.show_reset_on_hover);
+        assert_eq!(actual.reset_time_mode(), MenuBarResetTimeDisplay::Hover);
+        let disabled: MenuBarPreferences = serde_json::from_str(r#"{"show_reset_on_hover":false}"#).unwrap();
+        assert_eq!(disabled.reset_time_mode(), MenuBarResetTimeDisplay::Hidden);
+        let always: MenuBarPreferences = serde_json::from_str(r#"{"reset_time_display":"always","show_reset_on_hover":false}"#).unwrap();
+        assert_eq!(always.reset_time_mode(), MenuBarResetTimeDisplay::Always);
+        assert!(serde_json::from_str::<MenuBarPreferences>(r#"{"reset_time_display":"invalid"}"#).is_err());
         assert_eq!((actual.red_below, actual.green_above), (20, 60));
     }
 

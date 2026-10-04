@@ -3,14 +3,14 @@
 //! No WebView transparency, root-view replacement, or credential DTOs.
 use super::{account_dashboard::{DashboardSnapshot, DashboardEntry}, menu_bar_projection as projection};
 use crate::{commands, modules, models::AppConfig};
-use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadOnly};
+use objc2::{define_class, msg_send, sel, AnyThread, DefinedClass, MainThreadOnly};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2_app_kit::{NSApplication, NSBezierPath, NSButton, NSBezelStyle, NSCellImagePosition, NSControlSize, NSColor, NSFont, NSImage, NSImageView, NSMenu, NSMenuItem, NSTextField, NSView};
-use crate::models::config::{MenuBarPreferences, MenuBarQuotaScope};
+use objc2_app_kit::{NSApplication, NSBezierPath, NSButton, NSBezelStyle, NSCellImagePosition, NSControlSize, NSColor, NSFont, NSImage, NSImageView, NSMenu, NSMenuItem, NSTextField, NSView, NSEvent, NSTrackingArea, NSTrackingAreaOptions};
+use crate::models::config::{MenuBarPreferences, MenuBarQuotaScope, MenuBarResetTimeDisplay};
 use tauri_plugin_opener::OpenerExt;
-use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
-use std::{cell::RefCell, sync::{Mutex, atomic::{AtomicBool, AtomicU64, Ordering}}};
+use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer, NSRunLoop, NSRunLoopCommonModes};
+use std::{cell::{Cell, RefCell}, sync::{Mutex, mpsc, atomic::{AtomicBool, AtomicU64, Ordering}}, time::Instant};
 use tauri::Emitter;
 
 const WIDTH: f64 = 380.0;
@@ -20,30 +20,19 @@ static OPEN: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static BUSY: AtomicBool = AtomicBool::new(false);
 static NOTICE: Mutex<Option<String>> = Mutex::new(None);
-struct MenuPages {
-    overview: Vec<Retained<NSMenuItem>>,
-    details: Vec<(String, Vec<Retained<NSMenuItem>>)>,
+struct MenuSession {
+    zh: bool,
+    _targets: Vec<Retained<MenuAction>>,
+    controls: Vec<AccountControls>,
+    usage: UsageWidgets,
 }
 thread_local! {
     static ACTIVE: RefCell<Option<Retained<NSMenu>>> = const { RefCell::new(None) };
-    static PAGES: RefCell<Option<MenuPages>> = const { RefCell::new(None) };
-}
-fn show_page(menu: &NSMenu, account_id: Option<&str>) {
-    PAGES.with(|pages| {
-        let pages = pages.borrow();
-        let Some(pages) = pages.as_ref() else { return; };
-        if account_id.is_some_and(|id| !pages.details.iter().any(|(key, _)| key == id)) { return; }
-        for item in &pages.overview { item.setHidden(account_id.is_some()); }
-        for (id, items) in &pages.details {
-            for item in items { item.setHidden(account_id != Some(id.as_str())); }
-        }
-    });
-    // Update this tracking session; do not dismiss/reopen or create a submenu.
-    menu.update();
+    static SESSION: RefCell<Option<MenuSession>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone)]
-enum Action { Switch(String), Details(String), Overview, Page(&'static str), Refresh, Cancel(String), Github, Quit }
+enum Action { Switch(String), Page(&'static str), Refresh, Cancel(String), Github, Quit }
 struct ActionState { app: tauri::AppHandle, menu: Retained<NSMenu>, action: Action, zh: bool }
 define_class!(
     #[unsafe(super = NSObject)]
@@ -55,11 +44,6 @@ define_class!(
         #[unsafe(method(perform:))]
         fn perform(&self, _sender: &AnyObject) {
             let state = self.ivars();
-            match &state.action {
-                Action::Details(id) => { show_page(&state.menu, Some(id)); return; },
-                Action::Overview => { show_page(&state.menu, None); return; },
-                _ => {},
-            }
             let mut root = state.menu.clone();
             // All parent menus are retained during this tracking session.
             while let Some(parent) = unsafe { root.supermenu() } { root = parent; }
@@ -68,7 +52,6 @@ define_class!(
             let zh = state.zh;
             match &state.action {
                 Action::Quit => app.exit(0),
-                Action::Details(_) | Action::Overview => unreachable!(),
                 Action::Github => { let _ = app.opener().open_url(GITHUB, None::<&str>); },
                 Action::Page(page) => { let _ = modules::desktop::open_app_page(app, (*page).into()); },
                 action => {
@@ -78,16 +61,15 @@ define_class!(
                         let result = match action {
                             Action::Switch(id) => commands::switch_account(app.clone(), id.clone(), None).await.map(|()| {
                                 let _ = app.emit("tray://account-switched", id);
-                                if zh { "账号已切换".into() } else { "Account switched".into() }
+                            }).map_err(|_| if zh { "切换失败，请在 App 中检查账号状态".into() } else { "Switch failed. Check this account in the app.".into() }),
+                            Action::Refresh => commands::refresh_all_quotas(app.clone()).await.map_err(|_| if zh { "刷新失败，请重试".to_string() } else { "Refresh failed. Retry.".into() }).and_then(|stats| {
+                                if stats.failed > 0 { Err(if zh { format!("{} 个账号刷新失败，已保留缓存", stats.failed) } else { format!("{} accounts could not refresh", stats.failed) }) }
+                                else { Ok(()) }
                             }),
-                            Action::Refresh => commands::refresh_all_quotas(app.clone()).await.map(|stats| {
-                                if stats.failed > 0 { if zh { format!("{} 个账号刷新失败，已保留缓存", stats.failed) } else { format!("{} accounts could not refresh", stats.failed) } }
-                                else if zh { "全部额度已刷新".into() } else { "All quotas refreshed".into() }
-                            }),
-                            Action::Cancel(id) => modules::auto_switch::cancel_auto_switch(app.clone(), id).map(|_| if zh { "待切换操作已取消".into() } else { "Pending switch cancelled".into() }),
-                            _ => Ok(String::new()),
+                            Action::Cancel(id) => modules::auto_switch::cancel_auto_switch(app.clone(), id).map(|_| ()).map_err(|_| if zh { "取消失败，请在 App 中检查换号状态".into() } else { "Cancellation failed. Check auto-switch in the app.".into() }),
+                            _ => Ok(()),
                         };
-                        if let Ok(mut notice) = NOTICE.lock() { *notice = Some(result.unwrap_or_else(|_| if zh { "操作失败，请在 App 中检查账号状态".into() } else { "Operation failed. Check this account in the app.".into() })); }
+                        if let Ok(mut notice) = NOTICE.lock() { *notice = result.err(); }
                         BUSY.store(false, Ordering::Release);
                         modules::tray::update_tray_menus(&app);
                     });
@@ -140,29 +122,60 @@ define_class!(
 struct QuotaRow { cells: Vec<(Retained<QuotaBar>, Retained<NSTextField>)>, y: f64 }
 impl QuotaRow {
     fn apply(&self, scope: MenuBarQuotaScope) {
-        let width = (WIDTH - 90.0) / if scope == MenuBarQuotaScope::All { 2.0 } else { 1.0 };
+        let gap = if scope == MenuBarQuotaScope::All { 12.0 } else { 0.0 };
+        let width = (WIDTH - 90.0 - gap) / if scope == MenuBarQuotaScope::All { 2.0 } else { 1.0 };
         for (family, (progress, text)) in self.cells.iter().enumerate() {
             let visible = scope == MenuBarQuotaScope::All || (scope == MenuBarQuotaScope::Gemini && family == 0) || (scope == MenuBarQuotaScope::Other && family == 1);
             progress.setHidden(!visible); text.setHidden(!visible);
-            let x = 70.0 + if scope == MenuBarQuotaScope::All { family as f64 * width } else { 0.0 };
+            let x = 70.0 + if scope == MenuBarQuotaScope::All { family as f64 * (width + gap) } else { 0.0 };
             progress.setFrame(rect(x, self.y + 3.0, width - 49.0, 4.0)); progress.setNeedsDisplay(true);
             text.setFrame(rect(x + width - 44.0, self.y - 3.0, 46.0, 18.0));
         }
     }
 }
+#[derive(Default)]
+struct AccountRowState { resets: RefCell<Vec<HoverQuota>>, mode: MenuBarResetTimeDisplay }
+struct HoverQuota { bar: Retained<QuotaBar>, reset: Retained<SectionView>, full: NSRect, compact: NSRect }
 define_class!(
     #[unsafe(super = NSView)]
     #[thread_kind = MainThreadOnly]
+    #[ivars = AccountRowState]
     struct AccountRow;
     unsafe impl NSObjectProtocol for AccountRow {}
     impl AccountRow {
         #[unsafe(method(isFlipped))] fn flipped(&self) -> bool { true }
+        #[unsafe(method(mouseEntered:))] fn entered(&self, _event: &NSEvent) { if self.ivars().mode == MenuBarResetTimeDisplay::Hover { self.show_resets(true); } }
+        #[unsafe(method(mouseExited:))] fn exited(&self, _event: &NSEvent) { if self.ivars().mode == MenuBarResetTimeDisplay::Hover { self.show_resets(false); } }
         #[unsafe(method(drawRect:))]
         fn draw(&self, _dirty: NSRect) {
             let bounds = self.bounds();
             NSColor::separatorColor().colorWithAlphaComponent(0.45).setFill();
             NSBezierPath::bezierPathWithRect(rect(20.0, bounds.size.height - 2.0, bounds.size.width - 40.0, 0.5)).fill();
         }
+    }
+);
+impl AccountRow {
+    fn show_resets(&self, visible: bool) {
+        for cell in self.ivars().resets.borrow().iter() {
+            cell.bar.setFrame(if visible { cell.compact } else { cell.full });
+            cell.bar.setNeedsDisplay(true); cell.reset.setHidden(!visible);
+        }
+    }
+}
+fn track_hover(view: &NSView) {
+    // ActiveAlways is required for status menus when the app is not foreground.
+    let area = unsafe { NSTrackingArea::initWithRect_options_owner_userInfo(NSTrackingArea::alloc(), view.bounds(),
+        NSTrackingAreaOptions::MouseEnteredAndExited | NSTrackingAreaOptions::ActiveAlways | NSTrackingAreaOptions::InVisibleRect, Some(view), None) };
+    view.addTrackingArea(&area);
+}
+define_class!(
+    #[unsafe(super = NSButton)]
+    #[thread_kind = MainThreadOnly]
+    struct HoverButton;
+    unsafe impl NSObjectProtocol for HoverButton {}
+    impl HoverButton {
+        #[unsafe(method(mouseEntered:))] fn entered(&self, _event: &NSEvent) { if self.isEnabled() { self.highlight(true); } }
+        #[unsafe(method(mouseExited:))] fn exited(&self, _event: &NSEvent) { self.highlight(false); }
     }
 );
 fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect { NSRect::new(NSPoint::new(x, y), NSSize::new(width, height)) }
@@ -194,7 +207,13 @@ fn image(view: &NSView, image: Option<Retained<NSImage>>, frame: NSRect, marker:
 }
 fn button(view: &NSView, menu: &NSMenu, app: &tauri::AppHandle, title: &str, action: Action, enabled: bool, frame: NSRect, icon: Option<&str>, zh: bool, targets: &mut Vec<Retained<MenuAction>>, marker: MainThreadMarker) -> Retained<NSButton> {
     let target = MenuAction::new(marker, ActionState { app: app.clone(), menu: menu.into(), action, zh });
-    let button = unsafe { NSButton::buttonWithTitle_target_action(&NSString::from_str(title), Some(&target), Some(sel!(perform:)), marker) };
+    let button = if matches!(target.ivars().action, Action::Switch(_)) {
+        let button: Retained<HoverButton> = unsafe { msg_send![HoverButton::alloc(marker), initWithFrame: frame] };
+        button.setTitle(&NSString::from_str(title));
+        unsafe { button.setTarget(Some(&target)); button.setAction(Some(sel!(perform:))); }
+        track_hover(&button);
+        Retained::into_super(button)
+    } else { unsafe { NSButton::buttonWithTitle_target_action(&NSString::from_str(title), Some(&target), Some(sel!(perform:)), marker) } };
     button.setFrame(frame); button.setFont(Some(&NSFont::systemFontOfSize(11.0))); button.setBordered(true);
     button.setBezelStyle(NSBezelStyle::Push); button.setControlSize(NSControlSize::Small); button.setEnabled(enabled);
     if let Some(image) = icon.and_then(symbol) { button.setImage(Some(&image)); button.setImagePosition(NSCellImagePosition::ImageLeading); }
@@ -216,7 +235,7 @@ define_class!(
         }
     }
 );
-fn status_badge(view: &NSView, title: &str, icon: &str, color: &NSColor, frame: NSRect, marker: MainThreadMarker) {
+fn status_badge(view: &NSView, title: &str, icon: &str, color: &NSColor, frame: NSRect, marker: MainThreadMarker) -> (Retained<StatusBadge>, Retained<NSTextField>) {
     let badge: Retained<StatusBadge> = unsafe { msg_send![StatusBadge::alloc(marker), initWithFrame: frame] };
     let text_width = if title.is_ascii() { title.len() as f64 * 5.5 } else { title.chars().count() as f64 * 11.0 };
     let glyph_x = (frame.size.width - 19.0 - text_width) / 2.0;
@@ -224,8 +243,9 @@ fn status_badge(view: &NSView, title: &str, icon: &str, color: &NSColor, frame: 
     glyph.setImage(symbol(icon).as_deref()); glyph.setContentTintColor(Some(color)); badge.addSubview(&glyph);
     let text = label(&badge, title, glyph_x + 19.0, 5.0, text_width, 11.0, false, false, marker);
     text.setTextColor(Some(color)); view.addSubview(&badge);
+    (badge, text)
 }
-struct UsageRingState { values: [f64; 3] }
+struct UsageRingState { values: Cell<[f64; 3]> }
 define_class!(
     #[unsafe(super = NSView)]
     #[thread_kind = MainThreadOnly]
@@ -238,15 +258,16 @@ define_class!(
         fn draw(&self, _dirty: NSRect) {
             let size = self.bounds().size.width;
             let track = NSBezierPath::bezierPathWithOvalInRect(rect(4.0, 4.0, size - 8.0, size - 8.0));
-            NSColor::quaternaryLabelColor().setStroke(); track.setLineWidth(8.0); track.stroke();
-            let total: f64 = self.ivars().values.iter().sum();
+            NSColor::quaternaryLabelColor().setStroke(); track.setLineWidth(6.0); track.stroke();
+            let values = self.ivars().values.get();
+            let total: f64 = values.iter().sum();
             if total <= 0.0 { return; }
             let mut angle = -90.0;
-            for (index, value) in self.ivars().values.iter().enumerate() {
+            for (index, value) in values.iter().enumerate() {
                 if *value <= 0.0 { continue; }
                 let next = angle + value / total * 360.0;
                 let arc = NSBezierPath::bezierPath();
-                usage_color(index).setStroke(); arc.setLineWidth(8.0);
+                usage_color(index).setStroke(); arc.setLineWidth(6.0);
                 arc.appendBezierPathWithArcWithCenter_radius_startAngle_endAngle_clockwise(NSPoint::new(size / 2.0, size / 2.0), (size - 8.0) / 2.0, angle, next, false);
                 arc.stroke(); angle = next;
             }
@@ -254,45 +275,70 @@ define_class!(
     }
 );
 fn usage_color(index: usize) -> Retained<NSColor> {
-    match index { 0 => NSColor::systemBlueColor(), 1 => NSColor::systemOrangeColor(), _ => NSColor::systemPurpleColor() }
+    let (r, g, b) = match index { 0 => (82.0, 163.0, 216.0), 1 => (234.0, 191.0, 83.0), _ => (98.0, 182.0, 157.0) };
+    NSColor::colorWithSRGBRed_green_blue_alpha(r / 255.0, g / 255.0, b / 255.0, 1.0)
 }
 fn compact_tokens(value: u64) -> String {
     if value >= 1_000_000 { format!("{:.1}M", value as f64 / 1_000_000.0) }
     else if value >= 1_000 { format!("{:.1}K", value as f64 / 1_000.0) }
     else { value.to_string() }
 }
-fn usage_section(menu: &NSMenu, usage: Option<&modules::menu_bar_usage::MenuBarUsage>, zh: bool, marker: MainThreadMarker) {
+struct UsageWidgets {
+    ring: Retained<UsageRing>, scope: Retained<NSTextField>, total: Retained<NSTextField>,
+    requests: Retained<NSTextField>, cost: Retained<NSTextField>, counts: Vec<Retained<NSTextField>>, status: Retained<NSTextField>,
+}
+impl UsageWidgets {
+    fn apply(&self, usage: Option<&modules::menu_bar_usage::MenuBarUsage>, failed: bool, zh: bool) {
+        let values = usage.map(|usage| [usage.today.input_tokens as f64, usage.today.output_tokens as f64, usage.today.cached_tokens as f64]).unwrap_or([0.0; 3]);
+        self.ring.ivars().values.set(values); self.ring.setNeedsDisplay(true);
+        self.scope.setStringValue(&NSString::from_str(if usage.is_some_and(|usage| usage.incomplete) { if zh { "统计不完整" } else { "Partial records" } } else { if zh { "本机" } else { "Local" } }));
+        self.total.setStringValue(&NSString::from_str(&usage.map(|usage| compact_tokens(usage.today.total_tokens)).unwrap_or("—".into())));
+        self.requests.setStringValue(&NSString::from_str(&usage.map(|usage| format!("{} {}", usage.today.request_count, if zh { "次请求" } else { "requests" })).unwrap_or("—".into())));
+        let amount = usage.and_then(|usage| usage.estimated_usd).map(|usd| if usd > 0.0 && usd < 0.01 { format!("$ {usd:.4}") } else { format!("$ {usd:.2}") }).unwrap_or(if usage.is_some() { if zh { "未计价".into() } else { "Unpriced".into() } } else { "—".into() });
+        self.cost.setStringValue(&NSString::from_str(&amount));
+        for (index, field) in self.counts.iter().enumerate() { field.setStringValue(&NSString::from_str(&usage.map(|_| compact_tokens(values[index] as u64)).unwrap_or("—".into()))); }
+        let status = if failed { if zh { "统计刷新失败" } else { "Usage refresh failed" } }
+            else if let Some(usage) = usage { if usage.unpriced_models > 0 { if zh { "部分未计价" } else { "Partly unpriced" } } else if usage.pricing_stale && usage.today.total_tokens > 0 { if zh { "缓存价格" } else { "Cached prices" } } else { "" } }
+            else { if zh { "正在读取" } else { "Loading usage" } };
+        self.status.setStringValue(&NSString::from_str(status));
+    }
+}
+fn usage_section(menu: &NSMenu, usage: Option<&modules::menu_bar_usage::MenuBarUsage>, zh: bool, marker: MainThreadMarker) -> UsageWidgets {
     let heading = section(marker, 29.0);
     label(&heading, if zh { "今日用量" } else { "Today's usage" }, 20.0, 5.0, 160.0, 13.0, true, false, marker);
     let scope = label(&heading, if usage.is_some_and(|usage| usage.incomplete) { if zh { "统计不完整" } else { "Partial records" } } else { if zh { "本机" } else { "Local" } }, 210.0, 7.0, WIDTH - 230.0, 11.0, false, true, marker);
     scope.setAlignment(objc2_app_kit::NSTextAlignment::Right);
     custom_item(menu, &heading, "Today's usage", marker);
     let view = section(marker, 119.0);
-    let values = usage.map(|usage| [usage.today.input_tokens as f64, usage.today.output_tokens as f64, usage.today.cached_tokens as f64]).unwrap_or([0.0; 3]);
-    let ring = UsageRing::alloc(marker).set_ivars(UsageRingState { values });
+    let ring = UsageRing::alloc(marker).set_ivars(UsageRingState { values: Cell::new([0.0; 3]) });
     let ring: Retained<UsageRing> = unsafe { msg_send![super(ring), initWithFrame: rect(20.0, 5.0, 88.0, 88.0)] };
     view.addSubview(&ring);
-    let total = label(&view, &usage.map(|usage| compact_tokens(usage.today.total_tokens)).unwrap_or("—".into()), 25.0, 33.0, 78.0, 17.0, true, false, marker);
+    let total = label(&view, "—", 25.0, 33.0, 78.0, 17.0, true, false, marker);
     total.setAlignment(objc2_app_kit::NSTextAlignment::Center);
     let unit = label(&view, "tokens", 25.0, 53.0, 78.0, 9.0, false, true, marker);
     unit.setAlignment(objc2_app_kit::NSTextAlignment::Center);
-    let requests = label(&view, &usage.map(|usage| format!("{} {}", usage.today.request_count, if zh { "次请求" } else { "requests" })).unwrap_or("—".into()), 20.0, 100.0, 88.0, 10.0, false, true, marker);
+    let requests = label(&view, "—", 20.0, 100.0, 88.0, 10.0, false, true, marker);
     requests.setAlignment(objc2_app_kit::NSTextAlignment::Center);
     label(&view, if zh { "API 费用估算" } else { "API estimate" }, 130.0, 5.0, 140.0, 11.0, false, true, marker);
-    let amount = usage.and_then(|usage| usage.estimated_usd).map(|usd| if usd > 0.0 && usd < 0.01 { format!("$ {usd:.4}") } else { format!("$ {usd:.2}") }).unwrap_or(if usage.is_some() { if zh { "未计价".into() } else { "Unpriced".into() } } else { "—".into() });
-    let cost = label(&view, &amount, WIDTH - 105.0, 4.0, 85.0, 13.0, true, false, marker);
+    let cost = label(&view, "—", WIDTH - 105.0, 4.0, 85.0, 13.0, true, false, marker);
     cost.setAlignment(objc2_app_kit::NSTextAlignment::Right);
+    let mut counts = Vec::new();
     for (index, name) in [if zh { "输入" } else { "Input" }, if zh { "输出" } else { "Output" }, if zh { "缓存" } else { "Cached" }].iter().enumerate() {
         let y = 32.0 + index as f64 * 21.0;
-        label(&view, name, 142.0, y, 90.0, 11.0, false, true, marker).setTextColor(Some(&usage_color(index)));
-        let value = label(&view, &usage.map(|_| compact_tokens(values[index] as u64)).unwrap_or("—".into()), WIDTH - 105.0, y, 85.0, 11.0, false, false, marker);
+        let key = NSImageView::new(marker);
+        key.setFrame(rect(130.0, y + 5.0, 8.0, 8.0)); key.setImage(symbol("minus").as_deref());
+        key.setContentTintColor(Some(&usage_color(index))); view.addSubview(&key);
+        label(&view, name, 142.0, y, 90.0, 11.0, false, true, marker);
+        let value = label(&view, "—", WIDTH - 105.0, y, 85.0, 11.0, false, false, marker);
         value.setAlignment(objc2_app_kit::NSTextAlignment::Right);
+        counts.push(value);
     }
-    let status = usage.map(|usage| if usage.unpriced_models > 0 { if zh { "部分未计价" } else { "Partly unpriced" } } else if usage.pricing_stale && usage.today.total_tokens > 0 { if zh { "缓存价格" } else { "Cached prices" } } else { "USD" }).unwrap_or(if zh { "统计暂不可用" } else { "Usage unavailable" });
-    let status = label(&view, status, 130.0, 100.0, WIDTH - 150.0, 10.0, false, true, marker);
+    let status = label(&view, "", 130.0, 100.0, WIDTH - 150.0, 10.0, false, true, marker);
     status.setAlignment(objc2_app_kit::NSTextAlignment::Right);
     custom_item(menu, &view, "Local usage breakdown", marker);
     menu.addItem(&NSMenuItem::separatorItem(marker));
+    let widgets = UsageWidgets { ring, scope, total, requests, cost, counts, status };
+    widgets.apply(usage, false, zh); widgets
 }
 fn custom_item(menu: &NSMenu, view: &NSView, title: &str, marker: MainThreadMarker) -> Retained<NSMenuItem> {
     let item = unsafe { NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(marker), &NSString::from_str(title), None, &NSString::from_str("")) };
@@ -318,29 +364,31 @@ fn can_switch(account: &DashboardEntry, now: i64) -> bool {
         && !(account.validation_blocked && account.validation_blocked_until.is_none_or(|until| until > now))
 }
 
-fn account_item(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry, windows: [[Option<f64>; 2]; 2], preferences: &MenuBarPreferences, current: bool, busy: bool, verified: bool, zh: bool, targets: &mut Vec<Retained<MenuAction>>, marker: MainThreadMarker) {
+struct AccountControls { id: String, switch: Retained<NSButton>, badge: Retained<StatusBadge>, caption: Retained<NSTextField> }
+fn account_item(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry, windows: [[Option<f64>; 2]; 2], preferences: &MenuBarPreferences, busy: bool, zh: bool, targets: &mut Vec<Retained<MenuAction>>, marker: MainThreadMarker) -> Option<AccountControls> {
     let (primary, secondary) = projection::identity_parts(account, preferences);
     let title = if secondary.is_empty() { primary.clone() } else { format!("{primary}   {secondary}") };
     let periods: Vec<_> = (0..2).filter(|period| if *period == 0 { preferences.show_session } else { preferences.show_weekly }).collect();
-    let view: Retained<AccountRow> = unsafe { msg_send![AccountRow::alloc(marker), initWithFrame: rect(0.0, 0.0, WIDTH, 48.0 + periods.len() as f64 * 18.0)] };
+    let mode = preferences.reset_time_mode();
+    let view = AccountRow::alloc(marker).set_ivars(AccountRowState { mode, ..Default::default() });
+    let view: Retained<AccountRow> = unsafe { msg_send![super(view), initWithFrame: rect(0.0, 0.0, WIDTH, 48.0 + periods.len() as f64 * 18.0)] };
     let action_width = if zh { 64.0 } else { 72.0 };
     let action_frame = rect(WIDTH - 20.0 - action_width, 8.0, action_width, 26.0);
     label(&view, &primary, 20.0, 7.0, WIDTH - action_width - 48.0, 12.0, true, false, marker);
     if !secondary.is_empty() { label(&view, &secondary, 20.0, 25.0, WIDTH - action_width - 48.0, 10.0, false, true, marker); }
-    // A transparent hit target preserves ordinary text alignment and color.
-    let identity = button(&view, menu, app, "", Action::Details(account.id.clone()), true, rect(20.0, 4.0, WIDTH - action_width - 48.0, 38.0), None, zh, targets, marker);
-    identity.setBordered(false);
-    unsafe { let _: () = msg_send![&*identity, setAccessibilityLabel: &*NSString::from_str(&format!("{} {primary}", if zh { "查看账号详情" } else { "Account details" }))]; }
-    if account.disabled {
+    let controls = if account.disabled {
         status_badge(&view, if zh { "禁用" } else { "Disabled" }, "nosign", &NSColor::systemRedColor(), action_frame, marker);
-    } else if current {
-        status_badge(&view, if verified { if zh { "当前" } else { "Current" } } else { if zh { "记录" } else { "Saved" } }, "checkmark.circle", &NSColor::systemBlueColor(), action_frame, marker);
+        None
     } else {
-        button(&view, menu, app, if zh { "切换" } else { "Switch" }, Action::Switch(account.id.clone()), !busy && can_switch(account, chrono::Utc::now().timestamp()), action_frame, Some("arrow.left.arrow.right"), zh, targets, marker);
-    }
+        let switch = button(&view, menu, app, if zh { "切换" } else { "Switch" }, Action::Switch(account.id.clone()), !busy && can_switch(account, chrono::Utc::now().timestamp()), action_frame, Some("arrow.left.arrow.right"), zh, targets, marker);
+        let (badge, caption) = status_badge(&view, if zh { "当前" } else { "Current" }, "checkmark.circle", &NSColor::systemBlueColor(), action_frame, marker);
+        badge.setHidden(true);
+        Some(AccountControls { id: account.id.clone(), switch, badge, caption })
+    };
     // Disabled rows display usable quota as zero without changing the cached
     // observations or the aggregate calculation, which still excludes them.
     let windows = if account.disabled { [[Some(0.0); 2]; 2] } else { windows };
+    let resets = projection::account_reset_labels(account, chrono::Utc::now().timestamp(), zh);
     for (row, &period) in periods.iter().enumerate() {
         let y = 46.0 + row as f64 * 18.0;
         label(&view, if period == 0 { if zh { "5 小时" } else { "5 hours" } } else { if zh { "每周" } else { "Weekly" } }, 20.0, y - 3.0, 48.0, 11.0, false, true, marker);
@@ -352,84 +400,59 @@ fn account_item(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry,
             (progress, field)
         }).collect();
         let row = QuotaRow { cells, y }; row.apply(preferences.display_scope);
+        if mode != MenuBarResetTimeDisplay::Hidden {
+            for (family, (progress, _)) in row.cells.iter().enumerate().filter(|(_, (progress, _))| !progress.isHidden()) {
+                let frame = progress.frame();
+                let reset_width = if preferences.display_scope == MenuBarQuotaScope::All { 54.0 } else { 76.0 };
+                let compact = rect(frame.origin.x, frame.origin.y, frame.size.width - reset_width - 6.0, frame.size.height);
+                let reset = section(marker, 18.0);
+                reset.setFrame(rect(compact.origin.x + compact.size.width + 6.0, y - 3.0, reset_width, 18.0));
+                image(&reset, symbol("clock"), rect(0.0, 4.0, 9.0, 9.0), marker);
+                label(&reset, &resets[period][family], 12.0, 0.0, reset_width - 12.0, 9.0, false, true, marker);
+                reset.setHidden(true); view.addSubview(&reset);
+                view.ivars().resets.borrow_mut().push(HoverQuota { bar: progress.clone(), reset, full: frame, compact });
+            }
+        }
     }
+    if mode == MenuBarResetTimeDisplay::Hover { track_hover(&view); }
+    else if mode == MenuBarResetTimeDisplay::Always { view.show_resets(true); }
     custom_item(menu, &view, &title, marker);
+    controls
 }
 
-fn account_details(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry, preferences: &MenuBarPreferences, zh: bool, targets: &mut Vec<Retained<MenuAction>>, marker: MainThreadMarker) {
-    let navigation = section(marker, 34.0);
-    let back = button(&navigation, menu, app, if zh { "返回" } else { "Back" }, Action::Overview, true, rect(16.0, 4.0, 70.0, 26.0), Some("chevron.left"), zh, targets, marker);
-    back.setBordered(false);
-    label(&navigation, if zh { "账号详情" } else { "Account details" }, 100.0, 8.0, WIDTH - 120.0, 12.0, true, false, marker);
-    custom_item(menu, &navigation, "Back to overview", marker);
-    let identity = section(marker, 46.0);
-    let (primary, secondary) = projection::identity_parts(account, preferences);
-    label(&identity, &primary, 20.0, 3.0, WIDTH - 40.0, 13.0, true, false, marker);
-    if !secondary.is_empty() { label(&identity, &secondary, 20.0, 24.0, WIDTH - 40.0, 11.0, false, true, marker); }
-    custom_item(menu, &identity, "Account identity", marker);
-    let heading = section(marker, 48.0);
-    label(&heading, account.quota.as_ref().and_then(|quota| quota.subscription_tier.as_deref()).unwrap_or("Account"), 20.0, 4.0, WIDTH - 40.0, 13.0, true, false, marker);
-    label(&heading, if zh { "缓存详情   最新额度以刷新结果为准" } else { "Cached details   refresh for current quotas" }, 20.0, 26.0, WIDTH - 40.0, 11.0, false, true, marker);
-    custom_item(menu, &heading, "Account details", marker);
-    menu.addItem(&NSMenuItem::separatorItem(marker));
-    if account.disabled {
-        for (title, icon) in [("Gemini", "sparkles"), ("Claude / GPT", "brain")] {
-            let group_heading = section(marker, 30.0);
-            if preferences.show_icons { image(&group_heading, symbol(icon), rect(20.0, 6.0, 16.0, 16.0), marker); }
-            let x = if preferences.show_icons { 43.0 } else { 20.0 };
-            label(&group_heading, title, x, 5.0, WIDTH - x - 20.0, 13.0, true, false, marker);
-            custom_item(menu, &group_heading, title, marker);
-            for period in [if zh { "每周" } else { "Weekly" }, if zh { "5 小时" } else { "5 hours" }] {
-                let row = section(marker, 48.0);
-                label(&row, period, 20.0, 2.0, 85.0, 12.0, false, false, marker);
-                let field = label(&row, "0%", WIDTH - 68.0, 2.0, 48.0, 12.0, true, false, marker);
-                field.setTextColor(Some(&NSColor::labelColor())); field.setAlignment(objc2_app_kit::NSTextAlignment::Right);
-                label(&row, if zh { "禁用" } else { "Disabled" }, 108.0, 3.0, WIDTH - 180.0, 11.0, false, true, marker);
-                bar(&row, Some(0.0), preferences, rect(20.0, 29.0, WIDTH - 40.0, 4.0), true, marker);
-                custom_item(menu, &row, period, marker);
+enum MenuUpdate { Identity(Option<String>, &'static str), Usage(Result<modules::menu_bar_usage::MenuBarUsage, String>) }
+struct MenuRefreshState { updates: mpsc::Receiver<MenuUpdate>, ticket: u64, started: Instant }
+define_class!(
+    #[unsafe(super = NSObject)]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = MenuRefreshState]
+    struct MenuRefresh;
+    unsafe impl NSObjectProtocol for MenuRefresh {}
+    impl MenuRefresh {
+        #[unsafe(method(poll:))]
+        fn poll(&self, _timer: &NSTimer) {
+            if GENERATION.load(Ordering::Acquire) != self.ivars().ticket { return; }
+            for update in self.ivars().updates.try_iter() {
+                SESSION.with(|session| {
+                    let mut session = session.borrow_mut();
+                    let Some(session) = session.as_mut() else { return; };
+                    match update {
+                        MenuUpdate::Identity(current, source) => { for control in &session.controls {
+                            let selected = current.as_ref() == Some(&control.id);
+                            control.switch.setHidden(selected); control.badge.setHidden(!selected);
+                            control.caption.setStringValue(&NSString::from_str(if source == "running_app" { if session.zh { "当前" } else { "Current" } } else { if session.zh { "记录" } else { "Saved" } }));
+                        }
+                            modules::logger::log_info(&format!("Native menu identity applied in {} ms ({source})", self.ivars().started.elapsed().as_millis()));
+                        },
+                        MenuUpdate::Usage(Ok(usage)) => session.usage.apply(Some(&usage), false, session.zh),
+                        MenuUpdate::Usage(Err(_)) => session.usage.apply(modules::menu_bar_usage::cached().as_ref(), true, session.zh),
+                    }
+                });
             }
         }
-    } else if let Some(quota) = &account.quota {
-        for group in quota.groups.iter().flatten() {
-            let group_heading = section(marker, 30.0);
-            let name = group.display_name.to_lowercase();
-            let title = if name.contains("gemini") { "Gemini" } else if name.contains("claude") || name.contains("gpt") { "Claude / GPT" } else { &group.display_name };
-            if preferences.show_icons { image(&group_heading, symbol(if name.contains("gemini") { "sparkles" } else { "brain" }), rect(20.0, 6.0, 16.0, 16.0), marker); }
-            let x = if preferences.show_icons { 43.0 } else { 20.0 };
-            label(&group_heading, title, x, 5.0, WIDTH - x - 20.0, 13.0, true, false, marker);
-            custom_item(menu, &group_heading, title, marker);
-            for bucket in &group.buckets {
-                let row = section(marker, 48.0);
-                let period = match bucket.window.as_str() { "5h" => if zh { "5 小时" } else { "5 hours" }, "weekly" => if zh { "每周" } else { "Weekly" }, _ => &bucket.window };
-                let value = bucket.remaining_fraction.filter(|value| value.is_finite() && (0.0..=1.0).contains(value)).map(|value| value * 100.0);
-                label(&row, period, 20.0, 2.0, 85.0, 12.0, false, false, marker);
-                let field = label(&row, &projection::percent(value), WIDTH - 68.0, 2.0, 48.0, 12.0, true, false, marker);
-                field.setTextColor(Some(&NSColor::labelColor())); field.setAlignment(objc2_app_kit::NSTextAlignment::Right);
-                label(&row, &projection::reset_summary(&bucket.reset_time, chrono::Utc::now().timestamp(), zh), 108.0, 3.0, WIDTH - 180.0, 11.0, false, true, marker);
-                bar(&row, value, preferences, rect(20.0, 29.0, WIDTH - 40.0, 4.0), false, marker);
-                custom_item(menu, &row, period, marker);
-            }
-        }
-        if quota.groups.as_ref().is_none_or(|groups| groups.is_empty()) {
-            for model in &quota.models {
-                let row = section(marker, 50.0);
-                label(&row, model.display_name.as_ref().unwrap_or(&model.name), 20.0, 2.0, WIDTH - 95.0, 12.0, false, false, marker);
-                let field = label(&row, &projection::percent(model.percentage), WIDTH - 68.0, 2.0, 48.0, 12.0, true, false, marker);
-                field.setTextColor(Some(&NSColor::labelColor()));
-                label(&row, &projection::reset_summary(&model.reset_time, chrono::Utc::now().timestamp(), zh), 20.0, 25.0, WIDTH - 40.0, 11.0, false, true, marker);
-                custom_item(menu, &row, &model.name, marker);
-            }
-        }
-    } else {
-        let row = section(marker, 30.0);
-        label(&row, if zh { "额度未报告" } else { "Quota not reported" }, 20.0, 5.0, WIDTH - 40.0, 12.0, false, false, marker);
-        custom_item(menu, &row, "Quota not reported", marker);
     }
-    menu.addItem(&NSMenuItem::separatorItem(marker));
-    standard_item(menu, app, if zh { "在 App 中管理账号" } else { "Manage accounts in app" }, Action::Page("accounts"), true, "", preferences.show_icons, zh, targets, marker);
-}
-
-fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnapshot>, usage: Option<modules::menu_bar_usage::MenuBarUsage>, status: Option<modules::auto_switch::Status>, reserve: u8, _anchor: Option<tauri::Rect>, ticket: u64) {
+);
+fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnapshot>, usage: Option<modules::menu_bar_usage::MenuBarUsage>, status: Option<modules::auto_switch::Status>, reserve: u8, ticket: u64, updates: mpsc::Receiver<MenuUpdate>, started: Instant) {
     let Some(marker) = MainThreadMarker::new() else { OPEN.store(false, Ordering::Release); return; };
     if !OPEN.load(Ordering::Acquire) || GENERATION.load(Ordering::Acquire) != ticket { return; }
     let zh = config.language.starts_with("zh");
@@ -447,7 +470,7 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     label(&header, BRAND, title_x, 8.0, WIDTH - title_x - 20.0, 13.0, true, false, marker);
     custom_item(&menu, &header, BRAND, marker);
     menu.addItem(&NSMenuItem::separatorItem(marker));
-    usage_section(&menu, usage.as_ref(), zh, marker);
+    let usage = usage_section(&menu, usage.as_ref(), zh, marker);
     if preferences.show_aggregate {
       let heading = section(marker, 29.0);
       label(&heading, if zh { "剩余额度" } else { "Remaining quota" }, 20.0, 5.0, 140.0, 13.0, true, false, marker);
@@ -473,13 +496,12 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     let busy = BUSY.load(Ordering::Acquire) || status.as_ref().is_none_or(|status| status.phase == "switching");
     if snapshot.is_none() { readonly_item(&menu, if zh { "账号读取失败，请重试" } else { "Could not read accounts. Retry." }, marker); }
     else if accounts.is_empty() { readonly_item(&menu, if zh { "尚未添加账号" } else { "No saved accounts" }, marker); }
+    let mut controls = Vec::new();
     for (account, windows) in accounts.iter().zip(windows) {
-        let current = snapshot.as_ref().and_then(|snapshot| snapshot.current_account_id.as_ref()).is_some_and(|id| id == &account.id);
-        let verified = snapshot.as_ref().is_some_and(|snapshot| snapshot.current_identity_source == "running_app");
-        account_item(&menu, &app, account, windows, preferences, current, busy, verified, zh, &mut targets, marker);
+        if let Some(control) = account_item(&menu, &app, account, windows, preferences, busy, zh, &mut targets, marker) { controls.push(control); }
     }
     menu.addItem(&NSMenuItem::separatorItem(marker));
-    if let Ok(notice) = NOTICE.lock() { if let Some(notice) = notice.as_ref() { readonly_item(&menu, notice, marker); } }
+    if let Ok(mut notice) = NOTICE.lock() { if let Some(notice) = notice.take() { readonly_item(&menu, &notice, marker); } }
     if BUSY.load(Ordering::Acquire) { readonly_item(&menu, if zh { "正在执行，请稍候…" } else { "Working…" }, marker); }
     if let Some(status) = status.filter(|status| status.pending_id.is_some()) {
         readonly_item(&menu, if zh { "智能换号：等待客户端关闭" } else { "Auto switch: waiting for clients" }, marker);
@@ -492,19 +514,17 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     standard_item(&menu, &app, if zh { "设置" } else { "Settings" }, Action::Page("settings"), true, ",", preferences.show_icons, zh, &mut targets, marker);
     standard_item(&menu, &app, "GitHub ↗", Action::Github, true, "", preferences.show_icons, zh, &mut targets, marker);
     standard_item(&menu, &app, if zh { "退出" } else { "Quit" }, Action::Quit, true, "q", preferences.show_icons, zh, &mut targets, marker);
-    // Prebuild each detail page once. Only the selected page's items are
-    // visible; the brand header stays in place throughout native tracking.
-    let overview = menu.itemArray().iter().skip(2).collect();
-    let mut detail_pages = Vec::new();
-    for account in &accounts {
-        let start = menu.itemArray().len();
-        account_details(&menu, &app, account, preferences, zh, &mut targets, marker);
-        let items: Vec<_> = menu.itemArray().iter().skip(start).collect();
-        for item in &items { item.setHidden(true); }
-        detail_pages.push((account.id.clone(), items));
-    }
-    PAGES.with(|pages| *pages.borrow_mut() = Some(MenuPages { overview, details: detail_pages }));
+    SESSION.with(|session| *session.borrow_mut() = Some(MenuSession { zh, _targets: targets, controls, usage }));
     ACTIVE.with(|active| *active.borrow_mut() = Some(menu.clone()));
+    let refresh = MenuRefresh::alloc(marker).set_ivars(MenuRefreshState { updates, ticket, started });
+    let refresh: Retained<MenuRefresh> = unsafe { msg_send![super(refresh), init] };
+    let timer = unsafe { NSTimer::timerWithTimeInterval_target_selector_userInfo_repeats(0.05, &refresh, sel!(poll:), None, true) };
+    unsafe {
+        NSRunLoop::mainRunLoop().addTimer_forMode(&timer, NSRunLoopCommonModes);
+        NSRunLoop::mainRunLoop().addTimer_forMode(&timer, objc2_app_kit::NSEventTrackingRunLoopMode);
+        let _: () = msg_send![&*refresh, poll: &*timer];
+    }
+    modules::logger::log_info(&format!("Native menu ready in {} ms ({} account rows)", started.elapsed().as_millis(), accounts.len()));
     // Associate the NSMenu with the real status item. AppKit then owns the
     // anchor, active screen, accessibility hierarchy and native menu tracking.
     // This synchronous closure runs on the main thread while `menu` is retained
@@ -524,29 +544,40 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
         true
     }).ok()).unwrap_or(false);
     if !shown { menu.popUpMenuPositioningItem_atLocation_inView(None, objc2_app_kit::NSEvent::mouseLocation(), None); }
+    timer.invalidate();
     ACTIVE.with(|active| active.borrow_mut().take());
-    PAGES.with(|pages| pages.borrow_mut().take());
+    SESSION.with(|session| session.borrow_mut().take());
     if GENERATION.load(Ordering::Acquire) == ticket { OPEN.store(false, Ordering::Release); }
-    drop(targets);
 }
 
-pub fn toggle(app: &tauri::AppHandle, anchor: Option<tauri::Rect>) -> Result<(), String> {
+pub fn toggle(app: &tauri::AppHandle, _anchor: Option<tauri::Rect>) -> Result<(), String> {
+    let started = Instant::now();
     let ticket = GENERATION.fetch_add(1, Ordering::AcqRel) + 1;
     if OPEN.swap(true, Ordering::AcqRel) {
         OPEN.store(false, Ordering::Release);
         return app.run_on_main_thread(|| ACTIVE.with(|active| { if let Some(menu) = active.borrow().as_ref() { menu.cancelTrackingWithoutAnimation(); } })).map_err(|error| error.to_string());
     }
-    let app = app.clone();
+    let (send, updates) = mpsc::channel();
+    let identity_sender = send.clone();
     tauri::async_runtime::spawn(async move {
-        let (snapshot, usage) = tokio::join!(commands::get_menu_bar_snapshot(), tokio::time::timeout(std::time::Duration::from_secs(2), commands::get_menu_bar_usage()));
-        let snapshot = snapshot.ok();
-        let usage = usage.ok().and_then(Result::ok);
+        let identity = commands::get_menu_bar_snapshot().await.ok();
+        let current = identity.as_ref().and_then(|snapshot| snapshot.current_account_id.clone());
+        let source = identity.as_ref().map(|snapshot| snapshot.current_identity_source).unwrap_or("unavailable");
+        let _ = identity_sender.send(MenuUpdate::Identity(current, source));
+    });
+    tauri::async_runtime::spawn(async move { let _ = send.send(MenuUpdate::Usage(modules::menu_bar_usage::load().await)); });
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        // Only small local DTO/config reads are on the opening path. Never mark
+        // the saved index as a verified live App before its background check.
+        let snapshot = modules::account_dashboard::snapshot().ok();
+        let usage = modules::menu_bar_usage::cached();
         if !OPEN.load(Ordering::Acquire) || GENERATION.load(Ordering::Acquire) != ticket { return; }
         let config = modules::load_app_config().unwrap_or_default();
         let status = modules::auto_switch::get_auto_switch_status(app.clone()).ok();
         let reserve = modules::auto_switch::get_auto_switch_config(app.clone()).map(|config| config.reserve_percentage).unwrap_or(10);
         let handle = app.clone();
-        if handle.run_on_main_thread(move || show(app, config, snapshot, usage, status, reserve, anchor, ticket)).is_err() { OPEN.store(false, Ordering::Release); }
+        if handle.run_on_main_thread(move || show(app, config, snapshot, usage, status, reserve, ticket, updates, started)).is_err() { OPEN.store(false, Ordering::Release); }
     });
     Ok(())
 }

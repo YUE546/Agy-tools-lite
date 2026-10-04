@@ -41,6 +41,10 @@ pub enum MenuBarQuotaScope {
 #[serde(rename_all = "snake_case")]
 pub enum MenuBarLabelStyle { #[default] EmailThenLabel, LabelThenEmail, EmailOnly }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MenuBarResetTimeDisplay { Hidden, #[default] Hover, Always }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MenuBarPreferences {
@@ -52,13 +56,21 @@ pub struct MenuBarPreferences {
     pub show_session: bool,
     pub show_weekly: bool,
     pub show_icons: bool,
+    pub show_reset_on_hover: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reset_time_display: Option<MenuBarResetTimeDisplay>,
     pub green_above: u8,
     pub red_below: u8,
 }
 impl Default for MenuBarPreferences {
     fn default() -> Self { Self { quota_scope: MenuBarQuotaScope::All, display_scope: MenuBarQuotaScope::All,
         hide_unavailable: true, label_style: MenuBarLabelStyle::EmailThenLabel,
-        show_aggregate: true, show_session: true, show_weekly: true, show_icons: true, green_above: 60, red_below: 20 } }
+        show_aggregate: true, show_session: true, show_weekly: true, show_icons: true, show_reset_on_hover: true, reset_time_display: None, green_above: 60, red_below: 20 } }
+}
+impl MenuBarPreferences {
+    pub fn reset_time_mode(&self) -> MenuBarResetTimeDisplay {
+        self.reset_time_display.unwrap_or(if self.show_reset_on_hover { MenuBarResetTimeDisplay::Hover } else { MenuBarResetTimeDisplay::Hidden })
+    }
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -66,12 +78,15 @@ pub struct MenuBarPreferencesPatch {
     pub quota_scope: Option<MenuBarQuotaScope>, pub display_scope: Option<MenuBarQuotaScope>,
     pub hide_unavailable: Option<bool>, pub label_style: Option<MenuBarLabelStyle>,
     pub show_aggregate: Option<bool>, pub show_session: Option<bool>, pub show_weekly: Option<bool>, pub show_icons: Option<bool>,
+    pub show_reset_on_hover: Option<bool>,
+    pub reset_time_display: Option<MenuBarResetTimeDisplay>,
     pub green_above: Option<u8>, pub red_below: Option<u8>,
 }
 impl MenuBarPreferencesPatch {
     pub fn apply(self, preferences: &mut MenuBarPreferences) -> Result<(), String> {
         macro_rules! apply { ($($field:ident),*) => { $(if let Some(value) = self.$field { preferences.$field = value; })* }; }
-        apply!(quota_scope, display_scope, hide_unavailable, label_style, show_aggregate, show_session, show_weekly, show_icons, green_above, red_below);
+        apply!(quota_scope, display_scope, hide_unavailable, label_style, show_aggregate, show_session, show_weekly, show_icons, show_reset_on_hover, green_above, red_below);
+        if let Some(mode) = self.reset_time_display { preferences.reset_time_display = Some(mode); }
         if preferences.red_below >= preferences.green_above || preferences.green_above > 100 {
             return Err("Choose color thresholds with 0 ≤ red < green ≤ 100.".into());
         }

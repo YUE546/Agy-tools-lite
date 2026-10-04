@@ -17,8 +17,14 @@ test('three retained panels preserve fields and localization is absent', async (
 test('menu display preferences save partial patches and retain one quota window', async ({ page }) => {
   await expect(page.getByLabel('账号名称格式')).toHaveValue('email_then_label');
   await expect(page.getByLabel('隐藏失效和禁用账号')).toBeChecked();
+  await expect(page.getByLabel('重置时间显示')).toHaveValue('hover');
+  await page.getByLabel('重置时间显示').selectOption('hidden');
+  await expect.poll(() => page.evaluate(() => (window as any).__settingsFixture.calls.filter((call: any) => call.command === 'set_menu_bar_preferences').at(-1)?.args?.patch)).toEqual({ reset_time_display: 'hidden' });
+  await page.getByLabel('重置时间显示').selectOption('always');
+  await expect.poll(() => page.evaluate(() => (window as any).__settingsFixture.calls.filter((call: any) => call.command === 'set_menu_bar_preferences').at(-1)?.args?.patch)).toEqual({ reset_time_display: 'always' });
   await page.getByLabel('账号区显示系列').selectOption('other');
   await expect(page.getByLabel('账号区显示系列')).toHaveValue('other');
+  await expect(page.getByLabel('重置时间显示')).toHaveValue('always');
   await page.getByLabel('显示 5 小时额度').uncheck();
   await expect(page.getByLabel('显示 5 小时额度')).not.toBeChecked();
   await expect(page.getByLabel('显示 5 小时额度')).toBeEnabled();

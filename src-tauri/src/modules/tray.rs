@@ -216,6 +216,8 @@ pub fn create_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+    #[cfg(target_os = "macos")]
+    modules::menu_bar_usage::warm();
     let handle = app.clone();
     app.listen("config://updated", move |_| {
         update_tray_menus(&handle);
