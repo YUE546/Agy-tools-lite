@@ -79,8 +79,6 @@ export function aggregateMenuBar(accounts: AccountQuotaView[], scope: MenuBarQuo
 
 export function quotaDisplay(value: number | null): string {
   if (value === null) return '—';
-  if (value > 0 && value < 1) return '<1%';
-  if (value < 100 && value > 99) return '>99%';
   return `${Math.round(value)}%`;
 }
 

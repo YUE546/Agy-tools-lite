@@ -81,8 +81,7 @@ pub fn aggregate(windows: &[[[Option<f64>; 2]; 2]], scope: MenuBarQuotaScope, pe
 }
 
 pub fn percent(value: Option<f64>) -> String {
-    match value { None => "—".into(), Some(value) if value > 0.0 && value < 1.0 => "<1%".into(),
-        Some(value) if value > 99.0 && value < 100.0 => ">99%".into(), Some(value) => format!("{value:.0}%") }
+    match value { None => "—".into(), Some(value) => format!("{value:.0}%") }
 }
 pub fn reset_summary(value: &str, now: i64, zh: bool) -> String {
     let Ok(time) = chrono::DateTime::parse_from_rfc3339(value) else { return if zh { "重置时间未报告" } else { "Reset not reported" }.into(); };
@@ -185,6 +184,6 @@ mod tests {
         assert_eq!(aggregate(&windows, MenuBarQuotaScope::All, 0, 10), (Some(75.0), 1, 1));
         assert_eq!(aggregate(&windows, MenuBarQuotaScope::Gemini, 1, 10), (Some(50.0), 1, 2));
         assert_eq!(aggregate(&windows, MenuBarQuotaScope::Other, 0, 10), (Some(50.0), 2, 2));
-        assert_eq!(percent(Some(0.02)), "<1%"); assert_eq!(percent(None), "—");
+        assert_eq!(percent(Some(0.02)), "0%"); assert_eq!(percent(Some(99.6)), "100%"); assert_eq!(percent(None), "—");
     }
 }

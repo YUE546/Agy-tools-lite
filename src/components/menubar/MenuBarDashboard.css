@@ -21,6 +21,7 @@
 .mb-header-actions { display: flex; gap: 4px; }
 .mb-header-actions button { padding: 7px; display: flex; }
 .mb-overview { flex: none; padding-bottom: 12px; border-bottom: 1px solid var(--mb-line); }
+.mb-overview-heading h2 { font: inherit; font-weight: 600; color: var(--mb-text); margin: 0; }
 .mb-overview-heading { display: flex; justify-content: space-between; color: var(--mb-muted); font-size: 11px; margin-bottom: 8px; }
 .mb-aggregate + .mb-aggregate { margin-top: 12px; }
 .mb-aggregate > div:first-child { display: flex; align-items: baseline; gap: 9px; margin-bottom: 5px; }
@@ -38,14 +39,13 @@
 .mb-account-heading nav { display: flex; gap: 5px; }
 .mb-account-heading nav button { display: flex; gap: 4px; align-items: center; justify-content: center; flex: 1; border: 1px solid var(--mb-line); padding: 3px; }
 .mb-account-heading nav button[aria-pressed="true"] { color: #007aff; background: var(--mb-hover); }
-.mb-account-identity.actions-leading .mb-account-switch { order: -1; }
 .mb-accounts { flex: 1; min-height: 0; }
-.mb-account-row { height: 56px; box-sizing: border-box; padding: 4px 0; border-bottom: 1px solid var(--mb-line); }
-.mb-account-row:last-child { border-bottom: 0; }
+.mb-account-row { height: 74px; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--mb-line); border-radius: 8px; margin-bottom: 6px; }
+.mb-account-row:last-child { margin-bottom: 0; }
 .mb-account-identity { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.mb-account-identity > button:first-child { display: flex; gap: 6px; align-items: baseline; min-width: 0; padding: 1px 3px; margin-left: -3px; text-align: left; }
+.mb-account-identity > button:first-child { display: flex; flex-direction: column; gap: 0; align-items: flex-start; min-width: 0; padding: 1px 3px; margin-left: -3px; text-align: left; }
 .mb-account-identity > button:first-child > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.mb-account-identity small { font-size: 9px; color: var(--mb-muted); white-space: nowrap; max-width: 95px; overflow: hidden; text-overflow: ellipsis; }
+.mb-account-identity small { font-size: 9px; color: var(--mb-muted); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .menubar-app .mb-account-switch { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 3px 7px; font-size: 10px; flex: none; color: #007aff; border: 1px solid var(--mb-line); background: var(--mb-hover); }
 .dark .menubar-app .mb-account-switch { color: #66b2ff; }
 .mb-account-row.current .mb-account-switch:disabled { color: #168453; opacity: 1; }

@@ -79,10 +79,10 @@ test('future cache timestamps and invalid freshness settings cannot bypass expir
   const b=account('stale');b.quota.last_updated-=3600;
   assert.equal(aggregateMenuBar(views([b],Infinity),'all','5h').remaining,null);
 });
-test('real small fractions stay positive and are displayed without claiming zero or full quota',()=>{
+test('fractional values retain precision while display rounds to integer percentages',()=>{
   const a=account('a',[.004,.6]);
   assert.equal(aggregateMenuBar(views([a]),'gemini','5h').remaining,.4);
-  assert.equal(quotaDisplay(.4),'<1%');assert.equal(quotaDisplay(99.6),'>99%');
+  assert.equal(quotaDisplay(.4),'0%');assert.equal(quotaDisplay(99.6),'100%');
   assert.equal(quotaDisplay(0),'0%');assert.equal(quotaDisplay(null),'—');
 });
 test('normalization and aggregation do not mutate saved observations',()=>{

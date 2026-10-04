@@ -6,7 +6,7 @@ use crate::{commands, modules, models::AppConfig};
 use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadOnly};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2_app_kit::{NSApplication, NSAlert, NSAlertFirstButtonReturn, NSBezierPath, NSButton, NSBezelStyle, NSButtonType, NSControlStateValueOn, NSCellImagePosition, NSControlSize, NSColor, NSFont, NSImage, NSImageView, NSMenu, NSMenuItem, NSTextField, NSView};
+use objc2_app_kit::{NSApplication, NSBezierPath, NSButton, NSBezelStyle, NSButtonType, NSControlStateValueOn, NSControlStateValueOff, NSCellImagePosition, NSControlSize, NSColor, NSFont, NSImage, NSImageView, NSMenu, NSMenuItem, NSTextField, NSView};
 use crate::models::config::{MenuBarPreferences, MenuBarPreferencesPatch, MenuBarQuotaScope};
 use tauri_plugin_opener::OpenerExt;
 use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
@@ -19,12 +19,12 @@ const GITHUB: &str = "https://github.com/anglee0323/antigravity-tools-lite";
 static OPEN: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static BUSY: AtomicBool = AtomicBool::new(false);
-static REOPEN: AtomicBool = AtomicBool::new(false);
 static NOTICE: Mutex<Option<String>> = Mutex::new(None);
+thread_local! { static LIVE: RefCell<Option<LiveMenu>> = const { RefCell::new(None) }; }
 thread_local! { static ACTIVE: RefCell<Option<Retained<NSMenu>>> = const { RefCell::new(None) }; }
 
 #[derive(Clone)]
-enum Action { Switch(String), Page(&'static str), Refresh, Cancel(String), Filter(MenuBarQuotaScope), About, Github, Quit, Noop }
+enum Action { Switch(String), Page(&'static str), Refresh, Cancel(String), Filter(MenuBarQuotaScope), Github, Quit, Noop }
 struct ActionState { app: tauri::AppHandle, menu: Retained<NSMenu>, action: Action, zh: bool }
 define_class!(
     #[unsafe(super = NSObject)]
@@ -36,6 +36,7 @@ define_class!(
         #[unsafe(method(perform:))]
         fn perform(&self, _sender: &AnyObject) {
             let state = self.ivars();
+            if let Action::Filter(scope) = &state.action { change_family(&state.app, *scope, state.zh); return; }
             let mut root = state.menu.clone();
             // All parent menus are retained during this tracking session.
             while let Some(parent) = unsafe { root.supermenu() } { root = parent; }
@@ -46,28 +47,6 @@ define_class!(
                 Action::Quit => app.exit(0),
                 Action::Noop => {},
                 Action::Github => { let _ = app.opener().open_url(GITHUB, None::<&str>); },
-                Action::About => {
-                    let alert = NSAlert::new(self.mtm());
-                    alert.setMessageText(&NSString::from_str(BRAND));
-                    alert.setInformativeText(&NSString::from_str(&format!("{} {}\n\nGitHub\n{GITHUB}", if zh { "版本" } else { "Version" }, app.package_info().version)));
-                    alert.addButtonWithTitle(&NSString::from_str(if zh { "打开 GitHub" } else { "Open GitHub" }));
-                    alert.addButtonWithTitle(&NSString::from_str(if zh { "关闭" } else { "Close" }));
-                    if alert.runModal() == NSAlertFirstButtonReturn { let _ = app.opener().open_url(GITHUB, None::<&str>); }
-                },
-                Action::Filter(scope) => {
-                    let scope = *scope;
-                    tauri::async_runtime::spawn(async move {
-                        let patch = MenuBarPreferencesPatch { display_scope: Some(scope), ..Default::default() };
-                        if commands::set_menu_bar_preferences(app.clone(), None, Some(patch)).await.is_err() {
-                            if let Ok(mut notice) = NOTICE.lock() { *notice = Some(if zh { "系列选择保存失败，请重试".into() } else { "Could not save the family selection. Retry.".into() }); }
-                        }
-                        let handle = app.clone();
-                        let _ = handle.run_on_main_thread(move || {
-                            if OPEN.load(Ordering::Acquire) { REOPEN.store(true, Ordering::Release); }
-                            else { let _ = toggle(&app, None); }
-                        });
-                    });
-                },
                 Action::Page(page) => { let _ = modules::desktop::open_app_page(app, (*page).into()); },
                 action => {
                     if BUSY.swap(true, Ordering::AcqRel) { return; }
@@ -134,6 +113,53 @@ define_class!(
         }
     }
 );
+// Retain the existing views during menu tracking. Family changes only adjust
+// their visibility and frames; they never dismiss or reconstruct the NSMenu.
+struct LiveQuotaRow { cells: Vec<(Retained<QuotaBar>, Retained<NSTextField>)>, y: f64 }
+impl LiveQuotaRow {
+    fn apply(&self, scope: MenuBarQuotaScope) {
+        let width = (WIDTH - 90.0) / if scope == MenuBarQuotaScope::All { 2.0 } else { 1.0 };
+        for (family, (progress, text)) in self.cells.iter().enumerate() {
+            let visible = scope == MenuBarQuotaScope::All || (scope == MenuBarQuotaScope::Gemini && family == 0) || (scope == MenuBarQuotaScope::Other && family == 1);
+            progress.setHidden(!visible); text.setHidden(!visible);
+            let x = 70.0 + if scope == MenuBarQuotaScope::All { family as f64 * width } else { 0.0 };
+            progress.setFrame(rect(x, self.y + 3.0, width - 49.0, 4.0)); progress.setNeedsDisplay(true);
+            text.setFrame(rect(x + width - 42.0, self.y - 3.0, 42.0, 18.0));
+        }
+    }
+}
+struct LiveMenu { scope: MenuBarQuotaScope, rows: Vec<LiveQuotaRow>, filters: Vec<(MenuBarQuotaScope, Retained<NSButton>)>, error: Retained<NSTextField> }
+fn change_family(app: &tauri::AppHandle, scope: MenuBarQuotaScope, zh: bool) {
+    // A small atomic preferences write completes in this native button event,
+    // allowing the active tracking loop to keep all view updates on its thread.
+    let result = modules::config::set_menu_bar_preferences(MenuBarPreferencesPatch { display_scope: Some(scope), ..Default::default() });
+    LIVE.with(|live| {
+        if let Some(live) = live.borrow_mut().as_mut() {
+            if result.is_ok() { live.scope = scope; }
+            for row in &live.rows { row.apply(live.scope); }
+            for (scope, button) in &live.filters { button.setState(if *scope == live.scope { NSControlStateValueOn } else { NSControlStateValueOff }); }
+            live.error.setHidden(result.is_ok());
+            if result.is_err() { live.error.setStringValue(&NSString::from_str(if zh { "保存失败，请重试" } else { "Save failed; retry" })); }
+        }
+    });
+    if let Ok(preferences) = result { let _ = app.emit("menubar://preferences-updated", &preferences); let _ = app.emit("config://updated", ()); }
+}
+define_class!(
+    #[unsafe(super = NSView)]
+    #[thread_kind = MainThreadOnly]
+    struct AccountCard;
+    unsafe impl NSObjectProtocol for AccountCard {}
+    impl AccountCard {
+        #[unsafe(method(isFlipped))] fn flipped(&self) -> bool { true }
+        #[unsafe(method(drawRect:))]
+        fn draw(&self, _dirty: NSRect) {
+            let bounds = self.bounds();
+            let path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect(8.0, 2.0, bounds.size.width - 16.0, bounds.size.height - 5.0), 8.0, 8.0);
+            NSColor::controlBackgroundColor().colorWithAlphaComponent(0.35).setFill(); path.fill();
+            NSColor::separatorColor().colorWithAlphaComponent(0.45).setStroke(); path.setLineWidth(0.5); path.stroke();
+        }
+    }
+);
 fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect { NSRect::new(NSPoint::new(x, y), NSSize::new(width, height)) }
 fn label(view: &NSView, text: &str, x: f64, y: f64, width: f64, size: f64, bold: bool, secondary: bool, marker: MainThreadMarker) -> Retained<NSTextField> {
     let field = NSTextField::labelWithString(&NSString::from_str(text), marker);
@@ -150,10 +176,10 @@ fn quota_color(value: Option<f64>, preferences: &MenuBarPreferences) -> Retained
         projection::QuotaTone::Warning => NSColor::systemYellowColor(), projection::QuotaTone::Critical => NSColor::systemRedColor(),
         projection::QuotaTone::Unknown => NSColor::secondaryLabelColor() }
 }
-fn bar(view: &NSView, value: Option<f64>, preferences: &MenuBarPreferences, frame: NSRect, marker: MainThreadMarker) {
+fn bar(view: &NSView, value: Option<f64>, preferences: &MenuBarPreferences, frame: NSRect, marker: MainThreadMarker) -> Retained<QuotaBar> {
     let this = QuotaBar::alloc(marker).set_ivars(BarState { value, preferences: preferences.clone() });
     let progress: Retained<QuotaBar> = unsafe { msg_send![super(this), initWithFrame: frame] };
-    view.addSubview(&progress);
+    view.addSubview(&progress); progress
 }
 fn symbol(name: &str) -> Option<Retained<NSImage>> { NSImage::imageWithSystemSymbolName_accessibilityDescription(&NSString::from_str(name), None) }
 fn image(view: &NSView, image: Option<Retained<NSImage>>, frame: NSRect, marker: MainThreadMarker) {
@@ -171,9 +197,14 @@ fn custom_item(menu: &NSMenu, view: &NSView, title: &str, marker: MainThreadMark
     let item = unsafe { NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(marker), &NSString::from_str(title), None, &NSString::from_str("")) };
     item.setView(Some(view)); menu.addItem(&item); item
 }
-fn standard_item(menu: &NSMenu, app: &tauri::AppHandle, title: &str, action: Action, enabled: bool, key: &str, zh: bool, targets: &mut Vec<Retained<MenuAction>>, marker: MainThreadMarker) {
-    let target = MenuAction::new(marker, ActionState { app: app.clone(), menu: menu.into(), action, zh });
+fn standard_item(menu: &NSMenu, app: &tauri::AppHandle, title: &str, action: Action, enabled: bool, key: &str, show_icons: bool, zh: bool, targets: &mut Vec<Retained<MenuAction>>, marker: MainThreadMarker) {
+    let icon = if show_icons { match &action {
+        Action::Page("dashboard") => Some("chart.bar"), Action::Page("accounts") => Some("person.2"), Action::Page("settings") => Some("gearshape"),
+        Action::Refresh => Some("arrow.clockwise"), Action::Github => Some("link"), Action::Quit => Some("power"), Action::Cancel(_) => Some("xmark.circle"), _ => None,
+    } } else { None };
     let item = unsafe { NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(marker), &NSString::from_str(title), Some(sel!(perform:)), &NSString::from_str(key)) };
+    if let Some(image) = icon.and_then(symbol) { image.setSize(NSSize::new(16.0, 16.0)); item.setImage(Some(&image)); }
+    let target = MenuAction::new(marker, ActionState { app: app.clone(), menu: menu.into(), action, zh });
     unsafe { item.setTarget(Some(&target)); }
     item.setEnabled(enabled); menu.addItem(&item); targets.push(target);
 }
@@ -186,33 +217,26 @@ fn can_switch(account: &DashboardEntry, now: i64) -> bool {
         && !(account.validation_blocked && account.validation_blocked_until.is_none_or(|until| until > now))
 }
 
-fn account_item(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry, windows: [[Option<f64>; 2]; 2], preferences: &MenuBarPreferences, current: bool, busy: bool, verified: bool, zh: bool, targets: &mut Vec<Retained<MenuAction>>, marker: MainThreadMarker) {
+fn account_item(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry, windows: [[Option<f64>; 2]; 2], preferences: &MenuBarPreferences, current: bool, busy: bool, verified: bool, zh: bool, targets: &mut Vec<Retained<MenuAction>>, live_rows: &mut Vec<LiveQuotaRow>, marker: MainThreadMarker) {
     let (primary, secondary) = projection::identity_parts(account, preferences);
     let title = if secondary.is_empty() { primary.clone() } else { format!("{primary} · {secondary}") };
     let periods: Vec<_> = (0..2).filter(|period| if *period == 0 { preferences.show_session } else { preferences.show_weekly }).collect();
-    let view = section(marker, 30.0 + periods.len() as f64 * 18.0);
-    let action_x = if preferences.actions_leading { 16.0 } else { WIDTH - 80.0 };
-    let name_x = if preferences.actions_leading { 84.0 } else { 20.0 };
-    let available_width = WIDTH - 100.0;
-    let name = label(&view, &primary, name_x, 4.0, available_width, 12.0, true, account.disabled, marker);
-    name.sizeToFit();
-    let name_width = name.frame().size.width.min(available_width - if secondary.is_empty() { 0.0 } else { 70.0 });
-    name.setFrame(rect(name_x, 4.0, name_width, 18.0));
-    if !secondary.is_empty() { label(&view, &format!(" · {secondary}"), name_x + name_width, 5.0, available_width - name_width, 11.0, false, true, marker); }
+    let view: Retained<AccountCard> = unsafe { msg_send![AccountCard::alloc(marker), initWithFrame: rect(0.0, 0.0, WIDTH, 48.0 + periods.len() as f64 * 18.0)] };
+    let action_x = WIDTH - 80.0;
+    label(&view, &primary, 20.0, 7.0, WIDTH - 110.0, 12.0, true, account.disabled, marker);
+    if !secondary.is_empty() { label(&view, &secondary, 20.0, 25.0, WIDTH - 110.0, 10.0, false, true, marker); }
     let action_title = if current { if verified { if zh { "当前" } else { "Current" } } else { if zh { "记录" } else { "Saved" } } } else { if zh { "切换" } else { "Switch" } };
-    button(&view, menu, app, action_title, if current { Action::Noop } else { Action::Switch(account.id.clone()) }, !current && !busy && can_switch(account, chrono::Utc::now().timestamp()), rect(action_x, 0.0, 64.0, 26.0), Some(if current { "checkmark" } else { "arrow.left.arrow.right" }), zh, targets, marker);
-    let families: &[usize] = match preferences.display_scope { MenuBarQuotaScope::All => &[0, 1], MenuBarQuotaScope::Gemini => &[0], MenuBarQuotaScope::Other => &[1] };
+    button(&view, menu, app, action_title, if current { Action::Noop } else { Action::Switch(account.id.clone()) }, !current && !busy && can_switch(account, chrono::Utc::now().timestamp()), rect(action_x, 8.0, 64.0, 26.0), Some(if current { "checkmark" } else { "arrow.left.arrow.right" }), zh, targets, marker);
     for (row, &period) in periods.iter().enumerate() {
-        let y = 29.0 + row as f64 * 18.0;
+        let y = 46.0 + row as f64 * 18.0;
         label(&view, if period == 0 { if zh { "5 小时" } else { "5 hours" } } else { if zh { "每周" } else { "Weekly" } }, 20.0, y - 3.0, 48.0, 11.0, false, true, marker);
-        for (column, &family) in families.iter().enumerate() {
-            let column_width = (WIDTH - 90.0) / families.len() as f64;
-            let x = 70.0 + column as f64 * column_width;
-            let bar_width = column_width - 49.0;
-            bar(&view, windows[period][family], preferences, rect(x, y + 3.0, bar_width, 4.0), marker);
-            let field = label(&view, &projection::percent(windows[period][family]), x + bar_width + 7.0, y - 3.0, 42.0, 11.0, false, true, marker);
+        let cells = (0..2).map(|family| {
+            let progress = bar(&view, windows[period][family], preferences, rect(70.0, y + 3.0, 100.0, 4.0), marker);
+            let field = label(&view, &projection::percent(windows[period][family]), 180.0, y - 3.0, 42.0, 11.0, false, true, marker);
             field.setTextColor(Some(&quota_color(windows[period][family], preferences)));
-        }
+            (progress, field)
+        }).collect();
+        let row = LiveQuotaRow { cells, y }; row.apply(preferences.display_scope); live_rows.push(row);
     }
     view.setToolTip(Some(&NSString::from_str(&format!("{} · Gemini / Claude-GPT", account.email))));
     let item = custom_item(menu, &view, &title, marker);
@@ -260,7 +284,7 @@ fn account_item(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry,
         custom_item(&details, &row, "Quota not reported", marker);
     }
     details.addItem(&NSMenuItem::separatorItem(marker));
-    standard_item(&details, app, if zh { "在 App 中管理账号…" } else { "Manage accounts in app…" }, Action::Page("accounts"), true, "", zh, targets, marker);
+    standard_item(&details, app, if zh { "在 App 中管理账号" } else { "Manage accounts in app" }, Action::Page("accounts"), true, "", preferences.show_icons, zh, targets, marker);
     item.setSubmenu(Some(&details));
 }
 
@@ -270,23 +294,25 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     let zh = config.language.starts_with("zh");
     let menu = NSMenu::new(marker); menu.setAutoenablesItems(false); menu.setMinimumWidth(WIDTH);
     let mut targets = Vec::new();
+    let mut live_rows = Vec::new();
+    let mut live_filters = Vec::new();
     let now = chrono::Utc::now().timestamp();
     let preferences = &config.menu_bar;
     let accounts: Vec<_> = snapshot.as_ref().map(|snapshot| snapshot.accounts.iter().filter(|account| projection::visible_account(account, preferences, now)).collect()).unwrap_or_default();
     let windows: Vec<_> = accounts.iter().map(|account| projection::account_windows(account, now, config.refresh_interval)).collect();
     let scope = config.menu_bar.quota_scope;
     let scope_name = match scope { crate::models::config::MenuBarQuotaScope::All => if zh { "全部系列" } else { "All families" }, crate::models::config::MenuBarQuotaScope::Gemini => "Gemini", crate::models::config::MenuBarQuotaScope::Other => "Claude / GPT" };
-    let header = section(marker, 40.0);
+    let header = section(marker, 34.0);
     if preferences.show_icons { image(&header, NSApplication::sharedApplication(marker).applicationIconImage(), rect(20.0, 5.0, 24.0, 24.0), marker); }
     let title_x = if preferences.show_icons { 53.0 } else { 20.0 };
-    label(&header, BRAND, title_x, 3.0, WIDTH - title_x - 20.0, 13.0, true, false, marker);
-    label(&header, if zh { "额度总览" } else { "Quota overview" }, title_x, 22.0, 240.0, 11.0, false, true, marker);
+    label(&header, BRAND, title_x, 8.0, WIDTH - title_x - 20.0, 13.0, true, false, marker);
     custom_item(&menu, &header, BRAND, marker);
     menu.addItem(&NSMenuItem::separatorItem(marker));
     if preferences.show_aggregate {
       let heading = section(marker, 29.0);
-      label(&heading, if zh { "整体额度" } else { "Overall quotas" }, 20.0, 5.0, 110.0, 13.0, true, false, marker);
-      label(&heading, &format!("{scope_name} · {}", if zh { "平均剩余" } else { "Mean remaining" }), 144.0, 7.0, WIDTH - 164.0, 11.0, false, true, marker);
+      label(&heading, if zh { "总览" } else { "Overview" }, 20.0, 5.0, 110.0, 13.0, true, false, marker);
+      let summary = label(&heading, &format!("{scope_name} · {}", if zh { "平均剩余" } else { "Mean remaining" }), 144.0, 7.0, WIDTH - 164.0, 11.0, false, true, marker);
+      summary.setAlignment(objc2_app_kit::NSTextAlignment::Right);
       custom_item(&menu, &heading, "Overall quotas", marker);
     for period in (0..2).filter(|period| if *period == 0 { preferences.show_session } else { preferences.show_weekly }) {
         let (remaining, usable, covered) = projection::aggregate(&windows, scope, period, reserve);
@@ -301,14 +327,17 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     menu.addItem(&NSMenuItem::separatorItem(marker));
     }
     let account_header = section(marker, 62.0);
-    label(&account_header, &format!("{} · {}", if zh { "账号" } else { "Accounts" }, accounts.len()), 20.0, 4.0, 160.0, 13.0, true, false, marker);
+    label(&account_header, &if zh { format!("{} 个账号", accounts.len()) } else { format!("Accounts ({})", accounts.len()) }, 20.0, 4.0, 160.0, 13.0, true, false, marker);
     for (index, scope) in [MenuBarQuotaScope::Gemini, MenuBarQuotaScope::Other, MenuBarQuotaScope::All].into_iter().enumerate() {
         let title = match scope { MenuBarQuotaScope::Gemini => "Gemini", MenuBarQuotaScope::Other => if zh { "非 Gemini" } else { "Non-Gemini" }, MenuBarQuotaScope::All => if zh { "全部" } else { "Both" } };
         let icon = if !preferences.show_icons { None } else { Some(match scope { MenuBarQuotaScope::Gemini => "sparkles", MenuBarQuotaScope::Other => "brain", MenuBarQuotaScope::All => "square.grid.2x2" }) };
         let filter = button(&account_header, &menu, &app, title, Action::Filter(scope), true, rect(16.0 + index as f64 * 116.0, 28.0, 112.0, 27.0), icon, zh, &mut targets, marker);
         filter.setButtonType(NSButtonType::PushOnPushOff);
         if preferences.display_scope == scope { filter.setState(NSControlStateValueOn); }
+        live_filters.push((scope, filter));
     }
+    let filter_error = label(&account_header, "", 180.0, 4.0, WIDTH - 200.0, 11.0, false, true, marker);
+    filter_error.setTextColor(Some(&NSColor::systemRedColor())); filter_error.setHidden(true);
     custom_item(&menu, &account_header, "Accounts", marker);
     let busy = BUSY.load(Ordering::Acquire) || status.as_ref().is_none_or(|status| status.phase == "switching");
     if snapshot.is_none() { readonly_item(&menu, if zh { "账号读取失败，请重试" } else { "Could not read accounts. Retry." }, marker); }
@@ -316,23 +345,23 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     for (account, windows) in accounts.iter().zip(windows) {
         let current = snapshot.as_ref().and_then(|snapshot| snapshot.current_account_id.as_ref()).is_some_and(|id| id == &account.id);
         let verified = snapshot.as_ref().is_some_and(|snapshot| snapshot.current_identity_source == "running_app");
-        account_item(&menu, &app, account, windows, preferences, current, busy, verified, zh, &mut targets, marker);
+        account_item(&menu, &app, account, windows, preferences, current, busy, verified, zh, &mut targets, &mut live_rows, marker);
     }
     menu.addItem(&NSMenuItem::separatorItem(marker));
     if let Ok(notice) = NOTICE.lock() { if let Some(notice) = notice.as_ref() { readonly_item(&menu, notice, marker); } }
     if BUSY.load(Ordering::Acquire) { readonly_item(&menu, if zh { "正在执行，请稍候…" } else { "Working…" }, marker); }
     if let Some(status) = status.filter(|status| status.pending_id.is_some()) {
         readonly_item(&menu, if zh { "智能换号：等待客户端关闭" } else { "Auto switch: waiting for clients" }, marker);
-        standard_item(&menu, &app, if zh { "取消待切换操作" } else { "Cancel pending switch" }, Action::Cancel(status.pending_id.unwrap()), !busy, "", zh, &mut targets, marker);
+        standard_item(&menu, &app, if zh { "取消待切换操作" } else { "Cancel pending switch" }, Action::Cancel(status.pending_id.unwrap()), !busy, "", preferences.show_icons, zh, &mut targets, marker);
     }
-    standard_item(&menu, &app, if zh { "刷新全部额度" } else { "Refresh All Quotas" }, Action::Refresh, !busy, "r", zh, &mut targets, marker);
-    standard_item(&menu, &app, if zh { "用量看板…" } else { "Usage Dashboard…" }, Action::Page("dashboard"), true, "", zh, &mut targets, marker);
-    standard_item(&menu, &app, if zh { "管理账号…" } else { "Manage Accounts…" }, Action::Page("accounts"), true, "", zh, &mut targets, marker);
+    standard_item(&menu, &app, if zh { "刷新全部额度" } else { "Refresh All Quotas" }, Action::Refresh, !busy, "r", preferences.show_icons, zh, &mut targets, marker);
+    standard_item(&menu, &app, if zh { "用量看板" } else { "Usage Dashboard" }, Action::Page("dashboard"), true, "", preferences.show_icons, zh, &mut targets, marker);
+    standard_item(&menu, &app, if zh { "管理账号" } else { "Manage Accounts" }, Action::Page("accounts"), true, "", preferences.show_icons, zh, &mut targets, marker);
     menu.addItem(&NSMenuItem::separatorItem(marker));
-    standard_item(&menu, &app, if zh { "设置…" } else { "Settings…" }, Action::Page("settings"), true, ",", zh, &mut targets, marker);
-    standard_item(&menu, &app, if zh { "关于 AntiGravity tool lite…" } else { "About AntiGravity tool lite…" }, Action::About, true, "", zh, &mut targets, marker);
-    standard_item(&menu, &app, "GitHub ↗", Action::Github, true, "", zh, &mut targets, marker);
-    standard_item(&menu, &app, if zh { "退出" } else { "Quit" }, Action::Quit, true, "q", zh, &mut targets, marker);
+    standard_item(&menu, &app, if zh { "设置" } else { "Settings" }, Action::Page("settings"), true, ",", preferences.show_icons, zh, &mut targets, marker);
+    standard_item(&menu, &app, "GitHub ↗", Action::Github, true, "", preferences.show_icons, zh, &mut targets, marker);
+    standard_item(&menu, &app, if zh { "退出" } else { "Quit" }, Action::Quit, true, "q", preferences.show_icons, zh, &mut targets, marker);
+    LIVE.with(|live| *live.borrow_mut() = Some(LiveMenu { scope: preferences.display_scope, rows: live_rows, filters: live_filters, error: filter_error }));
     ACTIVE.with(|active| *active.borrow_mut() = Some(menu.clone()));
     // Associate the NSMenu with the real status item. AppKit then owns the
     // anchor, active screen, accessibility hierarchy and native menu tracking.
@@ -353,10 +382,10 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
         true
     }).ok()).unwrap_or(false);
     if !shown { menu.popUpMenuPositioningItem_atLocation_inView(None, objc2_app_kit::NSEvent::mouseLocation(), None); }
+    LIVE.with(|live| live.borrow_mut().take());
     ACTIVE.with(|active| active.borrow_mut().take());
     if GENERATION.load(Ordering::Acquire) == ticket { OPEN.store(false, Ordering::Release); }
     drop(targets);
-    if REOPEN.swap(false, Ordering::AcqRel) { let _ = toggle(&app, None); }
 }
 
 pub fn toggle(app: &tauri::AppHandle, anchor: Option<tauri::Rect>) -> Result<(), String> {

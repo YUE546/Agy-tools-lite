@@ -48,7 +48,6 @@ pub struct MenuBarPreferences {
     pub display_scope: MenuBarQuotaScope,
     pub hide_unavailable: bool,
     pub label_style: MenuBarLabelStyle,
-    pub actions_leading: bool,
     pub show_aggregate: bool,
     pub show_session: bool,
     pub show_weekly: bool,
@@ -57,22 +56,22 @@ pub struct MenuBarPreferences {
     pub red_below: u8,
 }
 impl Default for MenuBarPreferences {
-    fn default() -> Self { Self { quota_scope: MenuBarQuotaScope::All, display_scope: MenuBarQuotaScope::Gemini,
-        hide_unavailable: true, label_style: MenuBarLabelStyle::EmailThenLabel, actions_leading: true,
+    fn default() -> Self { Self { quota_scope: MenuBarQuotaScope::All, display_scope: MenuBarQuotaScope::All,
+        hide_unavailable: true, label_style: MenuBarLabelStyle::EmailThenLabel,
         show_aggregate: true, show_session: true, show_weekly: true, show_icons: true, green_above: 60, red_below: 20 } }
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct MenuBarPreferencesPatch {
     pub quota_scope: Option<MenuBarQuotaScope>, pub display_scope: Option<MenuBarQuotaScope>,
-    pub hide_unavailable: Option<bool>, pub label_style: Option<MenuBarLabelStyle>, pub actions_leading: Option<bool>,
+    pub hide_unavailable: Option<bool>, pub label_style: Option<MenuBarLabelStyle>,
     pub show_aggregate: Option<bool>, pub show_session: Option<bool>, pub show_weekly: Option<bool>, pub show_icons: Option<bool>,
     pub green_above: Option<u8>, pub red_below: Option<u8>,
 }
 impl MenuBarPreferencesPatch {
     pub fn apply(self, preferences: &mut MenuBarPreferences) -> Result<(), String> {
         macro_rules! apply { ($($field:ident),*) => { $(if let Some(value) = self.$field { preferences.$field = value; })* }; }
-        apply!(quota_scope, display_scope, hide_unavailable, label_style, actions_leading, show_aggregate, show_session, show_weekly, show_icons, green_above, red_below);
+        apply!(quota_scope, display_scope, hide_unavailable, label_style, show_aggregate, show_session, show_weekly, show_icons, green_above, red_below);
         if preferences.red_below >= preferences.green_above || preferences.green_above > 100 {
             return Err("Choose color thresholds with 0 ≤ red < green ≤ 100.".into());
         }

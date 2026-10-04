@@ -42,7 +42,7 @@ test.beforeEach(async ({ page }) => {
     };
     w.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} }; localStorage.setItem('i18nextLng', 'zh');
   });
-  await page.goto('/menubar'); await expect(page.getByRole('heading', { name: '额度总览' })).toBeVisible();
+  await page.goto('/menubar'); await expect(page.getByRole('heading', { name: '总览' })).toBeVisible();
   await expect(page.locator('.mb-account-row')).not.toHaveCount(0);
 });
 async function bounded(page: Page) {
@@ -105,17 +105,17 @@ test('scope, language and accessibility material respond to backend events and s
   await expect(page.locator('.mb-availability')).toHaveText(['可用 2/5', '可用 2/5']); await expect(page.locator('.menubar-app')).toHaveAttribute('data-material', 'liquid_glass');
   await page.evaluate(() => (window as any).__menuFixture.setAppearance({ native_material: false, reduced_transparency: true, material_kind: 'opaque' })); await expect(page.locator('.menubar-app')).toHaveClass(/opaque-material/);
   await page.screenshot({ path: info.outputPath('menubar-overview-dark-browser.png') });
-  await page.evaluate(() => (window as any).__menuFixture.setPreferences({ language: 'en' })); await expect(page.getByRole('heading', { name: 'Quota overview' })).toBeVisible();
+  await page.evaluate(() => (window as any).__menuFixture.setPreferences({ language: 'en' })); await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
   await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.goto('/settings'); await page.evaluate(() => (window as any).__menuFixture.setPreferences({ language: 'en' })); await page.getByLabel('Menu bar aggregate quotas').selectOption('other'); await expect(page.getByLabel('Menu bar aggregate quotas')).toHaveValue('other');
   await expect.poll(() => page.evaluate(() => (window as any).__menuFixture.calls.filter((call: any) => call.cmd === 'set_menu_bar_preferences').at(-1)?.args.patch.quota_scope)).toBe('other');
   await page.evaluate(() => (window as any).__menuFixture.failSave()); await page.getByLabel('Menu bar aggregate quotas').selectOption('gemini'); await expect(page.getByRole('alert').filter({ hasText: 'Could not save' })).toBeVisible(); await expect(page.getByLabel('Menu bar aggregate quotas')).toHaveValue('other');
 });
 test('family buttons persist independently from aggregate scope and never switch accounts', async ({ page }) => {
   await expect(page.locator('.mb-eyebrow')).toHaveText('AntiGravity tool lite');
-  await expect(page.locator('.mb-mini.other')).toHaveCount(0);
+  await expect(page.locator('.mb-mini.other').first()).toBeVisible();
   await expect(page.locator('.mb-account-identity').first()).toContainText('a@example.invalid');
   const identity = page.locator('.mb-account-identity').first();
-  expect(await identity.evaluate(el => el.querySelector('.mb-account-switch')!.getBoundingClientRect().left < el.querySelector('button:first-child')!.getBoundingClientRect().left)).toBe(true);
+  expect(await identity.evaluate(el => el.querySelector('.mb-account-switch')!.getBoundingClientRect().left > el.querySelector('button:first-child')!.getBoundingClientRect().left)).toBe(true);
   await page.getByRole('button', { name: '非 Gemini', exact: true }).click();
   await expect(page.locator('.mb-mini.gemini')).toHaveCount(0);
   await expect(page.locator('.mb-mini.other').first()).toBeVisible();
@@ -123,8 +123,8 @@ test('family buttons persist independently from aggregate scope and never switch
   expect(await calls(page, 'switch_account')).toEqual([]);
   expect((await calls(page, 'set_menu_bar_preferences')).at(-1).args.patch).toEqual({ display_scope: 'other' });
   await page.reload(); await expect(page.getByRole('button', { name: '非 Gemini', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await page.evaluate(() => (window as any).__menuFixture.setPreferences({ menu_bar: { hide_unavailable: false, actions_leading: false, label_style: 'email_only', show_weekly: false } }));
+  await page.evaluate(() => (window as any).__menuFixture.setPreferences({ menu_bar: { hide_unavailable: false, label_style: 'email_only', show_weekly: false } }));
   await expect(page.locator('.mb-availability')).toHaveText(['可用 1/7']);
   await expect(page.locator('.mb-account-identity').first()).not.toContainText('账号 A');
-  await page.getByRole('button', { name: '关于应用' }).click(); await expect(page.getByRole('button', { name: 'GitHub ↗' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '关于应用' })).toHaveCount(0); await expect(page.getByRole('button', { name: 'GitHub', exact: true })).toBeVisible();
 });

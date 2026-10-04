@@ -118,7 +118,7 @@ mod tests {
         save_config_at(&path, &stale).unwrap();
         let actual = load_config_at(&path).unwrap().menu_bar;
         assert_eq!(actual.display_scope, MenuBarQuotaScope::Other); assert_eq!(actual.green_above, 75);
-        assert!(!actual.hide_unavailable); assert!(actual.actions_leading);
+        assert!(!actual.hide_unavailable);
         let before = fs::read(&path).unwrap();
         assert!(patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { red_below: Some(80), ..Default::default() }).is_err());
         assert!(patch_menu_bar_preferences_at(&path, MenuBarPreferencesPatch { show_session: Some(false), show_weekly: Some(false), ..Default::default() }).is_err());
@@ -128,9 +128,9 @@ mod tests {
     fn legacy_menu_preferences_receive_new_defaults() {
         use crate::models::config::{MenuBarPreferences, MenuBarQuotaScope, MenuBarLabelStyle};
         let actual: MenuBarPreferences = serde_json::from_str(r#"{"quota_scope":"other"}"#).unwrap();
-        assert_eq!(actual.quota_scope, MenuBarQuotaScope::Other); assert_eq!(actual.display_scope, MenuBarQuotaScope::Gemini);
+        assert_eq!(actual.quota_scope, MenuBarQuotaScope::Other); assert_eq!(actual.display_scope, MenuBarQuotaScope::All);
         assert_eq!(actual.label_style, MenuBarLabelStyle::EmailThenLabel);
-        assert!(actual.hide_unavailable && actual.actions_leading && actual.show_session && actual.show_weekly);
+        assert!(actual.hide_unavailable && actual.show_session && actual.show_weekly);
         assert_eq!((actual.red_below, actual.green_above), (20, 60));
     }
 
