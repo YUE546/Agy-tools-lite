@@ -43,10 +43,12 @@
 .mb-account-identity > button:first-child { display: flex; flex-direction: column; gap: 0; align-items: flex-start; min-width: 0; padding: 1px 3px; margin-left: -3px; text-align: left; }
 .mb-account-identity > button:first-child > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .mb-account-identity small { font-size: 9px; color: var(--mb-muted); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.menubar-app .mb-account-switch { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 3px 7px; font-size: 10px; flex: none; color: #007aff; border: 1px solid var(--mb-line); background: var(--mb-hover); }
+.menubar-app .mb-account-switch { display: flex; align-items: center; justify-content: center; gap: 4px; width: 76px; height: 26px; padding: 3px 7px; font-size: 10px; flex: none; color: #007aff; border: 1px solid var(--mb-line); background: var(--mb-hover); }
 .dark .menubar-app .mb-account-switch { color: #66b2ff; }
-.mb-account-row.current .mb-account-switch:disabled { color: #168453; opacity: 1; }
-.dark .mb-account-row.current .mb-account-switch:disabled { color: #66d6a0; }
+.mb-account-row.current .mb-account-switch:disabled { color: #007aff; opacity: 1; }
+.dark .mb-account-row.current .mb-account-switch:disabled { color: #66b2ff; }
+.mb-account-row.disabled .mb-account-switch:disabled { color: #e34e4e; opacity: 1; }
+.dark .mb-account-row.disabled .mb-account-switch:disabled { color: #ff625a; }
 .mb-account-quotas { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
 .mb-account-window { display: flex; align-items: center; gap: 9px; font-size: 9px; line-height: 1.1; }
 .mb-account-window > span { width: 34px; color: var(--mb-muted); flex: none; }
