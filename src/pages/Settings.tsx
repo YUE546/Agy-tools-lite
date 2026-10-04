@@ -221,7 +221,7 @@ function Settings() {
                         <div className="space-y-2.5 pt-1">
                             {([
                                 { field: 'antigravity_executable', nameKey: 'app_label', defaultName: 'AntiGravity 桌面应用', descKey: 'app_desc', defaultDesc: '用于桌面应用账号与会话无缝切换' },
-                                { field: 'antigravity_ide_executable', nameKey: 'ide_label', defaultName: 'AntiGravity IDE', descKey: 'ide_desc', defaultDesc: '用于独立 IDE 客户端会话同步' },
+                                { field: 'antigravity_ide_executable', nameKey: 'ide_label', defaultName: 'AntiGravity IDE / VS Code 插件', descKey: 'ide_desc', defaultDesc: '用于独立 IDE 客户端或 VS Code 插件宿主会话同步' },
                             ] as const).map(({ field, nameKey, defaultName, descKey, defaultDesc }) => {
                                 const isCustom = Boolean(config?.[field]);
                                 return (

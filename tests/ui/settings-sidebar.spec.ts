@@ -19,7 +19,7 @@ test('six categories retain all fields and expose only the selected panel', asyn
     }
     await page.getByRole('tab', { name: '应用与数据', exact: true }).click();
     await expect(page.getByText('/synthetic/antigravity-tools', { exact: true })).toBeVisible();
-    await expect(page.getByText('Antigravity IDE', { exact: true })).toBeVisible();
+    await expect(page.getByText('AntiGravity IDE / VS Code 插件', { exact: true })).toBeVisible();
     await page.getByRole('tab', { name: '启动与菜单栏', exact: true }).click();
     await expect(page.getByRole('tabpanel').getByRole('switch')).toHaveCount(3);
 });
