@@ -91,7 +91,7 @@ define_class!(
 fn section(marker: MainThreadMarker, height: f64) -> Retained<SectionView> {
     unsafe { msg_send![SectionView::alloc(marker), initWithFrame: rect(0.0, 0.0, WIDTH, height)] }
 }
-struct BarState { value: Option<f64>, preferences: MenuBarPreferences }
+struct BarState { value: Option<f64>, preferences: MenuBarPreferences, disabled: bool }
 define_class!(
     #[unsafe(super = NSView)]
     #[thread_kind = MainThreadOnly]
@@ -102,7 +102,7 @@ define_class!(
         #[unsafe(method(drawRect:))]
         fn draw(&self, _dirty: NSRect) {
             let bounds = self.bounds();
-            NSColor::quaternaryLabelColor().setFill();
+            if self.ivars().disabled { NSColor::systemRedColor().colorWithAlphaComponent(0.3).setFill(); } else { NSColor::quaternaryLabelColor().setFill(); }
             NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(bounds, 3.0, 3.0).fill();
             if let Some(value) = self.ivars().value {
                 let color = quota_color(Some(value), &self.ivars().preferences);
@@ -147,16 +147,15 @@ fn change_family(app: &tauri::AppHandle, scope: MenuBarQuotaScope, zh: bool) {
 define_class!(
     #[unsafe(super = NSView)]
     #[thread_kind = MainThreadOnly]
-    struct AccountCard;
-    unsafe impl NSObjectProtocol for AccountCard {}
-    impl AccountCard {
+    struct AccountRow;
+    unsafe impl NSObjectProtocol for AccountRow {}
+    impl AccountRow {
         #[unsafe(method(isFlipped))] fn flipped(&self) -> bool { true }
         #[unsafe(method(drawRect:))]
         fn draw(&self, _dirty: NSRect) {
             let bounds = self.bounds();
-            let path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect(8.0, 2.0, bounds.size.width - 16.0, bounds.size.height - 5.0), 8.0, 8.0);
-            NSColor::controlBackgroundColor().colorWithAlphaComponent(0.35).setFill(); path.fill();
-            NSColor::separatorColor().colorWithAlphaComponent(0.45).setStroke(); path.setLineWidth(0.5); path.stroke();
+            NSColor::separatorColor().colorWithAlphaComponent(0.45).setFill();
+            NSBezierPath::bezierPathWithRect(rect(20.0, bounds.size.height - 2.0, bounds.size.width - 40.0, 0.5)).fill();
         }
     }
 );
@@ -173,11 +172,14 @@ fn label(view: &NSView, text: &str, x: f64, y: f64, width: f64, size: f64, bold:
 }
 fn quota_color(value: Option<f64>, preferences: &MenuBarPreferences) -> Retained<NSColor> {
     match projection::quota_tone(value, preferences) { projection::QuotaTone::Healthy => NSColor::systemGreenColor(),
-        projection::QuotaTone::Warning => NSColor::systemYellowColor(), projection::QuotaTone::Critical => NSColor::systemRedColor(),
+        projection::QuotaTone::Warning => NSColor::systemBrownColor(), projection::QuotaTone::Critical => NSColor::systemRedColor(),
         projection::QuotaTone::Unknown => NSColor::secondaryLabelColor() }
 }
-fn bar(view: &NSView, value: Option<f64>, preferences: &MenuBarPreferences, frame: NSRect, marker: MainThreadMarker) -> Retained<QuotaBar> {
-    let this = QuotaBar::alloc(marker).set_ivars(BarState { value, preferences: preferences.clone() });
+fn quota_text_color(value: Option<f64>, preferences: &MenuBarPreferences) -> Retained<NSColor> {
+    if projection::quota_tone(value, preferences) == projection::QuotaTone::Warning { NSColor::labelColor() } else { quota_color(value, preferences) }
+}
+fn bar(view: &NSView, value: Option<f64>, preferences: &MenuBarPreferences, frame: NSRect, disabled: bool, marker: MainThreadMarker) -> Retained<QuotaBar> {
+    let this = QuotaBar::alloc(marker).set_ivars(BarState { value, preferences: preferences.clone(), disabled });
     let progress: Retained<QuotaBar> = unsafe { msg_send![super(this), initWithFrame: frame] };
     view.addSubview(&progress); progress
 }
@@ -219,31 +221,37 @@ fn can_switch(account: &DashboardEntry, now: i64) -> bool {
 
 fn account_item(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry, windows: [[Option<f64>; 2]; 2], preferences: &MenuBarPreferences, current: bool, busy: bool, verified: bool, zh: bool, targets: &mut Vec<Retained<MenuAction>>, live_rows: &mut Vec<LiveQuotaRow>, marker: MainThreadMarker) {
     let (primary, secondary) = projection::identity_parts(account, preferences);
-    let title = if secondary.is_empty() { primary.clone() } else { format!("{primary} · {secondary}") };
+    let title = if secondary.is_empty() { primary.clone() } else { format!("{primary}   {secondary}") };
     let periods: Vec<_> = (0..2).filter(|period| if *period == 0 { preferences.show_session } else { preferences.show_weekly }).collect();
-    let view: Retained<AccountCard> = unsafe { msg_send![AccountCard::alloc(marker), initWithFrame: rect(0.0, 0.0, WIDTH, 48.0 + periods.len() as f64 * 18.0)] };
+    let view: Retained<AccountRow> = unsafe { msg_send![AccountRow::alloc(marker), initWithFrame: rect(0.0, 0.0, WIDTH, 48.0 + periods.len() as f64 * 18.0)] };
     let action_x = WIDTH - 80.0;
-    label(&view, &primary, 20.0, 7.0, WIDTH - 110.0, 12.0, true, account.disabled, marker);
-    if !secondary.is_empty() { label(&view, &secondary, 20.0, 25.0, WIDTH - 110.0, 10.0, false, true, marker); }
+    let identity = label(&view, &primary, 20.0, 7.0, WIDTH - 110.0, 12.0, true, false, marker);
+    if account.disabled { identity.setTextColor(Some(&NSColor::systemRedColor())); }
+    if !secondary.is_empty() { let note = label(&view, &secondary, 20.0, 25.0, WIDTH - 110.0, 10.0, false, true, marker); if account.disabled { note.setTextColor(Some(&NSColor::systemRedColor())); } }
     let action_title = if current { if verified { if zh { "当前" } else { "Current" } } else { if zh { "记录" } else { "Saved" } } } else { if zh { "切换" } else { "Switch" } };
-    button(&view, menu, app, action_title, if current { Action::Noop } else { Action::Switch(account.id.clone()) }, !current && !busy && can_switch(account, chrono::Utc::now().timestamp()), rect(action_x, 8.0, 64.0, 26.0), Some(if current { "checkmark" } else { "arrow.left.arrow.right" }), zh, targets, marker);
+    if account.disabled {
+        let state = label(&view, if zh { "已禁用" } else { "Disabled" }, action_x, 12.0, 64.0, 11.0, true, false, marker);
+        state.setTextColor(Some(&NSColor::systemRedColor()));
+    } else { button(&view, menu, app, action_title, if current { Action::Noop } else { Action::Switch(account.id.clone()) }, !current && !busy && can_switch(account, chrono::Utc::now().timestamp()), rect(action_x, 8.0, 64.0, 26.0), Some(if current { "checkmark" } else { "arrow.left.arrow.right" }), zh, targets, marker); }
     for (row, &period) in periods.iter().enumerate() {
         let y = 46.0 + row as f64 * 18.0;
-        label(&view, if period == 0 { if zh { "5 小时" } else { "5 hours" } } else { if zh { "每周" } else { "Weekly" } }, 20.0, y - 3.0, 48.0, 11.0, false, true, marker);
+        let caption = label(&view, if period == 0 { if zh { "5 小时" } else { "5 hours" } } else { if zh { "每周" } else { "Weekly" } }, 20.0, y - 3.0, 48.0, 11.0, false, true, marker);
+        if account.disabled { caption.setTextColor(Some(&NSColor::systemRedColor())); }
         let cells = (0..2).map(|family| {
-            let progress = bar(&view, windows[period][family], preferences, rect(70.0, y + 3.0, 100.0, 4.0), marker);
+            let progress = bar(&view, windows[period][family], preferences, rect(70.0, y + 3.0, 100.0, 4.0), account.disabled, marker);
             let field = label(&view, &projection::percent(windows[period][family]), 180.0, y - 3.0, 42.0, 11.0, false, true, marker);
-            field.setTextColor(Some(&quota_color(windows[period][family], preferences)));
+            let color = if account.disabled { NSColor::systemRedColor() } else { quota_text_color(windows[period][family], preferences) };
+            field.setTextColor(Some(&color));
             (progress, field)
         }).collect();
         let row = LiveQuotaRow { cells, y }; row.apply(preferences.display_scope); live_rows.push(row);
     }
-    view.setToolTip(Some(&NSString::from_str(&format!("{} · Gemini / Claude-GPT", account.email))));
+    view.setToolTip(Some(&NSString::from_str(&format!("{}   Gemini / Claude / GPT", account.email))));
     let item = custom_item(menu, &view, &title, marker);
     let details = NSMenu::new(marker); details.setAutoenablesItems(false); details.setMinimumWidth(WIDTH);
     let heading = section(marker, 48.0);
     label(&heading, account.quota.as_ref().and_then(|quota| quota.subscription_tier.as_deref()).unwrap_or("Account"), 20.0, 4.0, WIDTH - 40.0, 13.0, true, false, marker);
-    label(&heading, if zh { "缓存详情 · 最新额度以刷新结果为准" } else { "Cached details · refresh for current quotas" }, 20.0, 26.0, WIDTH - 40.0, 11.0, false, true, marker);
+    label(&heading, if zh { "缓存详情   最新额度以刷新结果为准" } else { "Cached details   refresh for current quotas" }, 20.0, 26.0, WIDTH - 40.0, 11.0, false, true, marker);
     custom_item(&details, &heading, "Account details", marker);
     details.addItem(&NSMenuItem::separatorItem(marker));
     if let Some(quota) = &account.quota {
@@ -261,9 +269,9 @@ fn account_item(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry,
                 let value = bucket.remaining_fraction.filter(|value| value.is_finite() && (0.0..=1.0).contains(value)).map(|value| value * 100.0);
                 label(&row, period, 20.0, 2.0, 85.0, 12.0, false, false, marker);
                 let field = label(&row, &projection::percent(value), WIDTH - 68.0, 2.0, 48.0, 12.0, true, false, marker);
-                field.setTextColor(Some(&quota_color(value, preferences))); field.setAlignment(objc2_app_kit::NSTextAlignment::Right);
+                field.setTextColor(Some(&quota_text_color(value, preferences))); field.setAlignment(objc2_app_kit::NSTextAlignment::Right);
                 label(&row, &projection::reset_summary(&bucket.reset_time, chrono::Utc::now().timestamp(), zh), 108.0, 3.0, WIDTH - 180.0, 11.0, false, true, marker);
-                bar(&row, value, preferences, rect(20.0, 29.0, WIDTH - 40.0, 4.0), marker);
+                bar(&row, value, preferences, rect(20.0, 29.0, WIDTH - 40.0, 4.0), false, marker);
                 row.setToolTip(Some(&NSString::from_str(&bucket.reset_time)));
                 custom_item(&details, &row, period, marker);
             }
@@ -273,7 +281,7 @@ fn account_item(menu: &NSMenu, app: &tauri::AppHandle, account: &DashboardEntry,
                 let row = section(marker, 50.0);
                 label(&row, model.display_name.as_ref().unwrap_or(&model.name), 20.0, 2.0, WIDTH - 95.0, 12.0, false, false, marker);
                 let field = label(&row, &projection::percent(model.percentage), WIDTH - 68.0, 2.0, 48.0, 12.0, true, false, marker);
-                field.setTextColor(Some(&quota_color(model.percentage, preferences)));
+                field.setTextColor(Some(&quota_text_color(model.percentage, preferences)));
                 label(&row, &projection::reset_summary(&model.reset_time, chrono::Utc::now().timestamp(), zh), 20.0, 25.0, WIDTH - 40.0, 11.0, false, true, marker);
                 custom_item(&details, &row, &model.name, marker);
             }
@@ -301,7 +309,7 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     let accounts: Vec<_> = snapshot.as_ref().map(|snapshot| snapshot.accounts.iter().filter(|account| projection::visible_account(account, preferences, now)).collect()).unwrap_or_default();
     let windows: Vec<_> = accounts.iter().map(|account| projection::account_windows(account, now, config.refresh_interval)).collect();
     let scope = config.menu_bar.quota_scope;
-    let scope_name = match scope { crate::models::config::MenuBarQuotaScope::All => if zh { "全部系列" } else { "All families" }, crate::models::config::MenuBarQuotaScope::Gemini => "Gemini", crate::models::config::MenuBarQuotaScope::Other => "Claude / GPT" };
+    let scope_name = match scope { crate::models::config::MenuBarQuotaScope::All => if zh { "Gemini、Claude、GPT" } else { "Gemini, Claude, GPT" }, crate::models::config::MenuBarQuotaScope::Gemini => "Gemini", crate::models::config::MenuBarQuotaScope::Other => "Claude / GPT" };
     let header = section(marker, 34.0);
     if preferences.show_icons { image(&header, NSApplication::sharedApplication(marker).applicationIconImage(), rect(20.0, 5.0, 24.0, 24.0), marker); }
     let title_x = if preferences.show_icons { 53.0 } else { 20.0 };
@@ -311,16 +319,16 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     if preferences.show_aggregate {
       let heading = section(marker, 29.0);
       label(&heading, if zh { "总览" } else { "Overview" }, 20.0, 5.0, 110.0, 13.0, true, false, marker);
-      let summary = label(&heading, &format!("{scope_name} · {}", if zh { "平均剩余" } else { "Mean remaining" }), 144.0, 7.0, WIDTH - 164.0, 11.0, false, true, marker);
+      let summary = label(&heading, &format!("{scope_name}   {}", if zh { "平均剩余" } else { "Mean remaining" }), 80.0, 7.0, WIDTH - 100.0, 11.0, false, true, marker);
       summary.setAlignment(objc2_app_kit::NSTextAlignment::Right);
       custom_item(&menu, &heading, "Overall quotas", marker);
     for period in (0..2).filter(|period| if *period == 0 { preferences.show_session } else { preferences.show_weekly }) {
         let (remaining, usable, covered) = projection::aggregate(&windows, scope, period, reserve);
         let view = section(marker, 48.0);
         label(&view, if period == 0 { if zh { "5 小时" } else { "5 hours" } } else { if zh { "每周" } else { "Weekly" } }, 20.0, 5.0, 85.0, 13.0, true, false, marker);
-        let stats = label(&view, &format!("{} {usable}/{} · {} {}", if zh { "可用账号" } else { "Available" }, accounts.len(), if zh { "剩余" } else { "Left" }, projection::percent(remaining)), 118.0, 7.0, WIDTH - 138.0, 11.0, false, true, marker);
+        let stats = label(&view, &format!("{} {usable}/{}   {} {}", if zh { "可用账号" } else { "Available" }, accounts.len(), if zh { "剩余" } else { "Left" }, projection::percent(remaining)), 118.0, 7.0, WIDTH - 138.0, 11.0, false, true, marker);
         stats.setAlignment(objc2_app_kit::NSTextAlignment::Right);
-        bar(&view, remaining, preferences, rect(20.0, 30.0, WIDTH - 40.0, 6.0), marker);
+        bar(&view, remaining, preferences, rect(20.0, 30.0, WIDTH - 40.0, 6.0), false, marker);
         view.setToolTip(Some(&NSString::from_str(&format!("{covered}/{} {}", accounts.len(), if zh { "账号有完整有效数据；按账号等权平均，不代表 Token 总量" } else { "accounts report valid data; an equal-weight mean, not token capacity" }))));
         custom_item(&menu, &view, if period == 0 { "5 hours" } else { "Weekly" }, marker);
     }
@@ -329,7 +337,7 @@ fn show(app: tauri::AppHandle, config: AppConfig, snapshot: Option<DashboardSnap
     let account_header = section(marker, 62.0);
     label(&account_header, &if zh { format!("{} 个账号", accounts.len()) } else { format!("Accounts ({})", accounts.len()) }, 20.0, 4.0, 160.0, 13.0, true, false, marker);
     for (index, scope) in [MenuBarQuotaScope::Gemini, MenuBarQuotaScope::Other, MenuBarQuotaScope::All].into_iter().enumerate() {
-        let title = match scope { MenuBarQuotaScope::Gemini => "Gemini", MenuBarQuotaScope::Other => if zh { "非 Gemini" } else { "Non-Gemini" }, MenuBarQuotaScope::All => if zh { "全部" } else { "Both" } };
+        let title = match scope { MenuBarQuotaScope::Gemini => "Gemini", MenuBarQuotaScope::Other => "Claude / GPT", MenuBarQuotaScope::All => if zh { "全部" } else { "Both" } };
         let icon = if !preferences.show_icons { None } else { Some(match scope { MenuBarQuotaScope::Gemini => "sparkles", MenuBarQuotaScope::Other => "brain", MenuBarQuotaScope::All => "square.grid.2x2" }) };
         let filter = button(&account_header, &menu, &app, title, Action::Filter(scope), true, rect(16.0 + index as f64 * 116.0, 28.0, 112.0, 27.0), icon, zh, &mut targets, marker);
         filter.setButtonType(NSButtonType::PushOnPushOff);

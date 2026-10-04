@@ -30,7 +30,7 @@
 .mb-aggregate small { display: block; margin-top: 3px; font-size: 10px; color: var(--mb-muted); }
 .mb-meter { height: 5px; border-radius: 5px; overflow: hidden; background: var(--mb-track); flex: 1; min-width: 0; }
 .mb-meter > span { height: 100%; display: block; border-radius: inherit; background: #23a467; }
-.mb-meter.warning > span { background: #d9a400; }
+.mb-meter.warning > span { background: #a2845e; }
 .mb-meter.critical > span { background: #e34e4e; }
 .mb-meter.unknown { opacity: .65; }
 .mb-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -40,7 +40,7 @@
 .mb-account-heading nav button { display: flex; gap: 4px; align-items: center; justify-content: center; flex: 1; border: 1px solid var(--mb-line); padding: 3px; }
 .mb-account-heading nav button[aria-pressed="true"] { color: #007aff; background: var(--mb-hover); }
 .mb-accounts { flex: 1; min-height: 0; }
-.mb-account-row { height: 74px; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--mb-line); border-radius: 8px; margin-bottom: 6px; }
+.mb-account-row { height: 74px; box-sizing: border-box; padding: 6px 0; border-bottom: 1px solid var(--mb-line); margin-bottom: 6px; }
 .mb-account-row:last-child { margin-bottom: 0; }
 .mb-account-identity { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .mb-account-identity > button:first-child { display: flex; flex-direction: column; gap: 0; align-items: flex-start; min-width: 0; padding: 1px 3px; margin-left: -3px; text-align: left; }
@@ -91,3 +91,7 @@
 @media (max-width: 360px) { .menubar-app { padding: 14px; } .mb-account-heading span:last-child { font-size: 9px; } .mb-account-identity small { max-width: 60px; } }
 @media (max-height: 430px) { .menubar-app { gap: 8px; padding-top: 10px; } .mb-header h1 { font-size: 18px; } .mb-footer .mb-usage { display: none; } .mb-overview { padding-bottom: 8px; } .mb-aggregate + .mb-aggregate { margin-top: 8px; } }
 @media (prefers-reduced-motion: reduce) { .menubar-app .animate-spin { animation: none; } }
+
+.mb-account-row.disabled .mb-account-identity button, .mb-account-row.disabled .mb-account-identity small, .mb-account-row.disabled .mb-account-window > span, .mb-account-row.disabled .mb-mini strong { color: #c63737; opacity: 1; }
+.mb-account-row.disabled .mb-meter { background: #c6373733; }
+.dark .mb-account-row.disabled .mb-account-identity button, .dark .mb-account-row.disabled .mb-account-identity small, .dark .mb-account-row.disabled .mb-account-window > span, .dark .mb-account-row.disabled .mb-mini strong { color: #ff8585; }
