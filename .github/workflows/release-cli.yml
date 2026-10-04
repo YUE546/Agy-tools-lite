@@ -48,6 +48,17 @@ jobs:
           BINARY=src-tauri/target/release/antigravity-tools
           if [[ "$RUNNER_OS" == Windows ]]; then BINARY="${BINARY}.exe"; fi
           node scripts/test-cli.mjs "$BINARY"
+      - name: Test interactive CLI in a real terminal
+        shell: bash
+        run: |
+          BINARY=src-tauri/target/release/agy-switch
+          if [[ "$RUNNER_OS" == Windows ]]; then BINARY="$BINARY.exe"; fi
+          node scripts/test-cli-terminal.mjs "$BINARY"
+
+      - name: Test dedicated Windows console CLI in PowerShell
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-cli.ps1 -Binary ./src-tauri/target/release/agy-switch.exe -Console
       - name: Test Windows release CLI with explicit PowerShell waiting
         if: runner.os == 'Windows'
         shell: pwsh

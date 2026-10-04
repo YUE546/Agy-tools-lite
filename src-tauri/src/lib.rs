@@ -226,6 +226,7 @@ pub fn run() {
     windows_api::disable_efficiency_mode();
 
     let tray_enabled = should_enable_tray();
+    let context = application_context();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -326,7 +327,7 @@ pub fn run() {
             commands::get_api_pricing,
             commands::check_for_updates,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|_app_handle, _event| {
             #[cfg(target_os = "macos")]
@@ -334,4 +335,22 @@ pub fn run() {
                 let _ = modules::desktop::show_main(_app_handle);
             }
         });
+}
+
+// WebView2 150+ ignores environment debug arguments on elevated hosts.
+// Pass only the WebDriver port through its supported API in opt-in debug CI builds.
+fn application_context() -> tauri::Context<tauri::Wry> {
+    #[allow(unused_mut)]
+    let mut context = tauri::generate_context!();
+    #[cfg(all(target_os = "windows", debug_assertions, feature = "native-gui-test"))]
+    if std::env::var("ANTIGRAVITY_NATIVE_GUI_TEST").as_deref() == Ok("1") {
+        if let Some(port) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").ok()
+            .and_then(|args| args.split_whitespace().find_map(|arg|
+                arg.strip_prefix("--remote-debugging-port=").and_then(|port| port.parse::<u16>().ok()))) {
+            for window in &mut context.config_mut().app.windows {
+                window.additional_browser_args = Some(format!("--remote-debugging-port={port}"));
+            }
+        }
+    }
+    context
 }

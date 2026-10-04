@@ -5,6 +5,7 @@ description = "Antigravity Tools"
 authors = ["you"]
 license = "CC-BY-NC-SA-4.0"
 edition = "2021"
+default-run = "antigravity-tools"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -52,6 +53,7 @@ tauri-plugin-window-state = "2"
 plist = "1.7"
 rquest = { version = "5.1.0", features = ["json"] }
 rquest-util = "2.2.1"
+crossterm = "0.29.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
@@ -64,6 +66,8 @@ secret-service = { version = "5.2", features = ["rt-tokio-crypto-rust"] }
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# Debug-only native WebDriver acceptance; never enabled by the release workflow.
+native-gui-test = []
 
 [dev-dependencies]
 tempfile = "3.10"

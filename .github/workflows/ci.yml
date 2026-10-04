@@ -104,7 +104,7 @@ jobs:
         run: "cargo test --locked --manifest-path src-tauri/Cargo.toml --lib cli::"
 
       - name: Build executable for headless CLI smoke test
-        run: cargo build --locked --manifest-path src-tauri/Cargo.toml
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --features native-gui-test
 
       - name: Smoke test CLI without a display or real credentials
         shell: bash
@@ -112,6 +112,20 @@ jobs:
           BINARY=src-tauri/target/debug/antigravity-tools
           if [[ "$RUNNER_OS" == Windows ]]; then BINARY="${BINARY}.exe"; fi
           node scripts/test-cli.mjs "$BINARY"
+
+      - name: Smoke test dedicated console CLI
+        shell: bash
+        run: |
+          BINARY=src-tauri/target/debug/agy-switch
+          if [[ "$RUNNER_OS" == Windows ]]; then BINARY="${BINARY}.exe"; fi
+          node scripts/test-cli.mjs "$BINARY"
+
+      - name: Test interactive CLI in a real terminal
+        shell: bash
+        run: |
+          BINARY=src-tauri/target/debug/agy-switch
+          if [[ "$RUNNER_OS" == Windows ]]; then BINARY="$BINARY.exe"; fi
+          node scripts/test-cli-terminal.mjs "$BINARY"
 
       - name: Validate native GUI fixture and screenshot checks
         run: node scripts/test-native-gui.mjs --self-test
@@ -136,11 +150,12 @@ jobs:
           SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" dbus-run-session -- node scripts/test-native-gui.mjs src-tauri/target/debug/antigravity-tools
 
-      - name: Check Windows native GUI compatibility and test when supported
+      - name: Test actual Windows Tauri window with isolated synthetic data
         if: runner.os == 'Windows'
         timeout-minutes: 5
         env:
           SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          NATIVE_GUI_TEST_FEATURE: '1'
         run: node scripts/test-native-gui.mjs src-tauri/target/debug/antigravity-tools.exe
 
       - name: Upload native GUI evidence (never substitute mock screenshots)

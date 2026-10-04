@@ -67,7 +67,7 @@ function isolatedEnv(info) {
     Object.assign(env, { HOME: home, USERPROFILE: home, APPDATA: join(home, 'AppData/Roaming'), LOCALAPPDATA: join(home, 'AppData/Local'), ABV_DATA_DIR: data,
         XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local/share'), XDG_CACHE_HOME: join(home, '.cache'), XDG_RUNTIME_DIR: join(root, 'runtime'),
         TMP: root, TEMP: root, TMPDIR: root, ANTIGRAVITY_DISABLE_TRAY: '1', MSEDGEDRIVER_TELEMETRY_OPTOUT: '1', WEBVIEW2_USER_DATA_FOLDER: join(root, 'webview'), RUST_LOG: 'warn' });
-    if (windows) env.WEBVIEW2_BROWSER_EXECUTABLE_FOLDER = info.runtime;
+    if (windows) { env.WEBVIEW2_BROWSER_EXECUTABLE_FOLDER = info.runtime; env.ANTIGRAVITY_NATIVE_GUI_TEST = '1'; }
     return env;
 }
 // Validate actual screenshot pixels as well as DOM. A successful blank PNG is a failure.
@@ -163,14 +163,15 @@ try {
     if (!selfTest) {
         binary = resolve(process.argv[2] || `src-tauri/target/debug/antigravity-tools${windows ? '.exe' : ''}`);
         assertNoLinks(binary);
-        report = { ...report, source_head: process.env.SOURCE_HEAD, checkout_commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), run_id: process.env.GITHUB_RUN_ID, binary_sha256: hash(readFileSync(binary)), profile: 'debug, custom-protocol, same executable as CLI smoke', tauri_driver_version: '2.0.6', native_driver_version: windows ? info.driver_version : execFileSync('dpkg-query', ['-W', '-f=${Version}', 'webkit2gtk-driver'], { encoding: 'utf8' }) };
+        report = { ...report, source_head: process.env.SOURCE_HEAD, checkout_commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), run_id: process.env.GITHUB_RUN_ID, binary_sha256: hash(readFileSync(binary)), profile: 'debug, custom-protocol; Windows also enables native-gui-test', tauri_driver_version: '2.0.6', native_driver_version: windows ? info.driver_version : execFileSync('dpkg-query', ['-W', '-f=${Version}', 'webkit2gtk-driver'], { encoding: 'utf8' }) };
         assert.match(report.source_head || '', /^[a-f0-9]{40}$/);
         assert.equal(report.checkout_commit, report.source_head, 'Test must use the exact requested source SHA');
     }
     if (windows && !selfTest) {
         report.windows_driver = info;
         const wry = readFileSync('src-tauri/Cargo.lock', 'utf8').match(/\[\[package\]\]\r?\nname = "wry"\r?\nversion = "([^"]+)"/)[1];
-        if (knownWindowsBlock(info, wry)) {
+        report.automation = 'Debug-only native-gui-test feature passes the driver port through the WebView2 API; release builds cannot use this path';
+        if (knownWindowsBlock(info, wry) && process.env.NATIVE_GUI_TEST_FEATURE !== '1') {
             throw new EnvironmentBlocked('Windows native GUI NOT TESTED: elevated hosted runner + WebView2 150+ + Wry 0.54.1 cannot establish a WebDriver session. No registry/security workaround is applied. https://github.com/tauri-apps/wry/issues/1782');
         }
         const paths = [join(info.known_home, '.gemini'), join(info.known_home, '.antigravity_tools'), join(info.known_roaming, 'com.lbjlaq.antigravity-tools-lite'), join(info.known_local, 'com.lbjlaq.antigravity-tools-lite')];
