@@ -12,7 +12,13 @@ const newer = (a, b) => { const aa = a.split('.').map(Number), bb = b.split('.')
 export function releaseNotes({ tag, commit, repository }) {
   const version = releaseVersion(tag);
   // Each version needs reviewed notes; do not carry old acceptance claims forward.
-  const acceptance = readFileSync(new URL(`../docs/release-notes/${version}.md`, import.meta.url), 'utf8').trim();
+  const acceptance = readFileSync(new URL(`../docs/release-notes/${version}.md`, import.meta.url), 'utf8').trim()
+    // GitHub Release bodies do not share the Markdown source file's directory.
+    .replace(/\]\(([^)\s]+)\)/g, (link, target) => {
+      if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(target)) return link;
+      const base = `https://github.com/${repository}/blob/${commit}/`;
+      return `](${new URL(target.startsWith('/') ? target.slice(1) : target, target.startsWith('/') ? base : `${base}docs/release-notes/`).href})`;
+    });
   if (!acceptance) throw new Error('Release acceptance notes are empty');
   return `Antigravity Tools Lite ${version}\n\nSource commit: ${commit}\n\nPackages: macOS Apple Silicon ZIP, Windows x64 NSIS installer, Linux amd64 deb, Windows console ZIP and Linux console tarball. Checksums and source manifest are attached.\n\nThese builds are not Developer ID signed/notarized or Windows Authenticode signed. Homebrew installation becomes available after the generated cask is verified and merged into the repository's Casks directory.\n\n${acceptance}\n\n[Detailed acceptance and screenshot provenance](https://github.com/${repository}/blob/${commit}/docs/native-gui-acceptance.md)\n`;
 }
@@ -46,13 +52,11 @@ export function publishRelease(directory, context, runGh = gh) {
   };
   try {
     if (!release) {
-      const notes = join(scratch, 'notes.md');
-      writeFileSync(notes, expectedNotes);
-      runGh(['release', 'create', tag, '--repo', repository, '--draft', '--verify-tag', '--target', commit,
-        '--title', `Antigravity Tools Lite ${version}`, '--notes-file', notes]);
-      // The REST tag endpoint finds published releases only. Authenticated
-      // listing includes drafts; once resolved, refresh through the release ID.
-      release = findRelease(listReleases());
+      const request = join(scratch, 'release.json');
+      writeFileSync(request, JSON.stringify({ tag_name: tag, target_commitish: commit, draft: true,
+        name: `Antigravity Tools Lite ${version}`, body: expectedNotes }));
+      // Use the creation response's ID; the release listing can lag behind.
+      release = json(['api', '--method', 'POST', `repos/${repository}/releases`, '--input', request]);
     }
     if (!release?.draft) throw new Error('Could not confirm the draft release');
     if (!Number.isSafeInteger(release.id) || release.id <= 0) throw new Error('Draft has no valid release ID');

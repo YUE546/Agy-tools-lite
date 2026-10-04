@@ -50,7 +50,7 @@ agy-switch              # terminal dashboard
 
 For terminal use alone, use `agy-switch-<version>-linux-amd64.tar.gz`. The [Linux guide](docs/linux.md) covers runtime libraries, installation without a display, Secret Service and desktop compatibility.
 
-**Package trust:** macOS packages currently lack Developer ID signing/notarization, and Windows packages lack Authenticode signing. System trust checks may block them. Homebrew does not bypass those checks. See [distribution validation](docs/release-notes/4.7.9-public-acceptance.md) for the existing Mac trust limitation; file integrity and trusted distribution are separate checks.
+**Package trust:** macOS packages currently lack Developer ID signing/notarization, and Windows packages lack Authenticode signing. System trust checks may block them. Homebrew does not bypass those checks. See [4.8.0 distribution validation](docs/4.8.0-public-acceptance.md) for the observed Mac launch restriction; file integrity and trusted distribution are separate checks.
 
 ## Get started
 
