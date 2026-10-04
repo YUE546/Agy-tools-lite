@@ -36,6 +36,7 @@ function harness() {
     '../../utils/request': { request(command, args) { calls.push({ command, args }); return handler(command, args); } },
     '../../stores/useConfigStore': { useConfigStore: select => select({ loadConfig: async () => { configLoads++; } }) },
     '../menubar/messages': { getMenuBarMessages: () => new Proxy({}, { get: (_, key) => key }) },
+    './MenuBarPreferencesSettings': { default: 'MenuBarPreferencesSettings' },
   };
   const module = { exports: {} };
   runInNewContext(compiled, {

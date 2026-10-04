@@ -1,62 +1,37 @@
 # Quick dashboard and startup preferences
 
-The compact panel is 380 × 480 logical pixels, with a flat system-menu layout. It never scrolls vertically: quotas and the account selector use up to four rows per page. The account selector replaces the quota view within the same fixed window.
+On macOS the overview is an AppKit `NSMenu`, following CodexBar's native menu structure, system typography, fine progress bars and standard action rows. AppKit owns sizing, screen clamping, keyboard tracking and dismissal. Overview shows accounts directly, with separate Gemini and Claude/GPT percentages for both 5-hour and weekly windows and an explicit switch button on each row. Each account has a native submenu containing all reported pools/model observations. Window → Quota Overview (Command–Shift–M) opens the same menu.
 
-Click the menu-bar icon on macOS (or the tray icon on Windows) to toggle a compact dashboard. Linux desktops use the native tray menu's **Quick Dashboard** action because Tauri does not deliver tray-click events there. If a Linux tray is unavailable, the ordinary application window remains usable.
+Windows/Linux retain the WebView panel at 424 × 680 logical pixels, clamped to the work area, with adaptive pagination for accounts and quota details. The browser acceptance suite covers this shared panel; it is not evidence of the Mac native menu's appearance.
 
-On macOS the panel uses the system Popover vibrancy material over a transparent WebView. It reads Reduce Transparency and Increase Contrast when opened and falls back to an opaque surface when requested or when the effect fails. The CSS media preference provides an additional immediate reduce-transparency fallback. Windows and Linux use the same compact layout with opaque, higher-contrast surfaces; no unsupported desktop blur is simulated there. The macOS transparent WebView uses Tauri's documented `macos-private-api` feature, so this build is not intended for Mac App Store distribution.
+Click the macOS menu-bar icon or Windows tray icon to toggle it. Linux uses the native tray menu's Quick Dashboard action. Escape, a second tray click and loss of focus dismiss the panel. The main application remains available if the tray cannot initialize.
 
-A browser preview uses synthetic data and CSS to approximate the material. It cannot verify native macOS desktop blur or accessibility changes.
+## Material
 
-The default Overview separates the recorded current identity, saved-account readiness, and per-pool usable-account counts. Counts use all saved accounts as the denominator. Every reported/required window must be known, fresh and above the configured reserve threshold. Stale/expired, missing-window, validation-blocked, forbidden and locally protected data is never counted as usable. Model fallback and group pools remain separate; percentages are never added or averaged.
+The Mac menu uses the system's own menu background, rounding, shadows, semantic foreground colors and accessibility appearance. It has no transparent WebView window or custom glass container. Earlier direct `NSGlassEffectView` root replacement triggered a foreign exception; the background-only attempt was unreadable over bright content. Both were removed. The native menu does not replace any managed window view. Windows/Linux use opaque panel surfaces. Native appearance requires installed-host acceptance, not browser screenshots.
 
-The recorded current account comes from the local Tools index; it is not a live check of the account in an open Antigravity window.
+## Quota and identity
 
-Choosing an account only changes the inspected view. A separate **Use this account** button invokes the existing switching command. Disabled accounts remain inspectable. Machine-local token totals appear only in Overview, never as per-account usage.
+General Preferences → Menu bar aggregate quotas selects Gemini, Claude/GPT or all families. The overview always shows both **5 hours** and **weekly**. Each is an equal-weight **mean remaining percentage**, not summed tokens or absolute capacity. Shared bucket/window observations are deduplicated. All-family means require both families to be reported for an account. Missing, conflicting, stale, expired, blocked, disabled, forbidden or protected data is excluded. Known low and zero observations stay in the mean; unknown is a dash. The available count uses all indexed accounts as denominator and the configured reserve as its cutoff; hovering the count exposes reported-data coverage. Availability describes quota headroom; native sign-in is verified during switching.
 
-The panel includes:
-- The current account recorded by Tools, subscription tier and quota update age
-- Each **reported** quota pool and window, with remaining percentages and reset countdowns
-- Pinned model quotas when the server does not report grouped windows
-- Today's locally recorded tokens and requests, clearly marked as not attributed to individual accounts
-- Saved-account switching through the same backend as the full application
-- Refresh, account management, full dashboard, settings and quit actions
+The menu's read-only, credential-free snapshot checks the running standalone Mac App identity. A verified live email supersedes the saved Tools index. Failed, unknown and ambiguous observations do not select the first account. With the App closed, the saved Tools account is identified as such. The full application and `agy-switch current` retain their documented Tools-record semantics.
 
-Unknown quota is shown as a dash, not zero. Cached quota is marked stale. Independent quota pools are not averaged. Blocked/disabled accounts cannot be activated in the panel, and concurrent clicks are suppressed. Switching can restart Antigravity App, as the interface explains.
+Per-row switching uses the existing manual switch backend and can close/reopen the App. Disabled/blocked/unreadable accounts, repeated clicks, active coordinator commits and unreadable coordinator state disable activation. Refresh updates **all** quotas and reports partial failures. Mac operations dismiss the native menu and expose completion/failure on its next open. The Usage Dashboard action opens the existing full application. Windows/Linux show today's local machine usage; it is not attributed to an account. Failed reads show unavailable data instead of a fabricated zero.
 
-## Low-quota coordinator status
-
-The menu-bar route has its own compact view of the existing low-quota coordinator because it intentionally does not mount the full window's Layout. Its read-only status indicator uses the existing status-line space. Selecting it replaces the main content with a bounded detail view, with the same verified reason, source/target, wait/stop instructions, cancellation ID and check action as Settings. Stop guidance opens the full Settings view; it never sends a stop or kill command. During a committed coordinator switch or an unreadable coordinator state, manual activation is disabled in the panel. The backend remains the single owner of switching decisions. Overview uses the enabled coordinator's reserve as its read-only display threshold; while that feature is disabled, it retains the existing quota-protection display threshold. This statistic does not broaden the coordinator's configured model or candidate-account scope.
-
-The frontend does not start a second coordinator or duplicate the background quota scheduler. A `tray://account-switched` event updates the inspected account data even when the main Layout is not mounted.
+Both interfaces read the existing low-quota coordinator and never create another scheduler. Mac exposes pending cancellation using the original pending ID, and the full Settings UI retains instructions/check actions. The shared panel's detail view preserves pending IDs, source/target, instructions, cancellation and check actions. Backend switching decisions remain authoritative.
 
 ## Settings
 
-**Startup & menu bar** contains three opt-in controls:
-- **Launch at login** registers this installed application with the OS. The setting reads the actual OS registration, rather than trusting a saved JSON flag. It is unavailable in development builds, to avoid registering a transient development executable
-- **Start in the background at login** only suppresses the main window for `--autostart` launches while a tray is available. Launching the application yourself still opens the main window
-- **Hide Dock icon** is macOS-only and preserves the preference when opening or closing windows
+General Preferences includes OS launch-at-login and macOS Dock visibility controls. Hiding the Dock icon also enables background startup; an explicitly launched App still opens its main window. Login registration is queried from the OS and is only changed by an explicit setting, not migration/startup. Development builds cannot register login items.
 
-Desktop preferences use a dedicated atomic setter under the same configuration lock as ordinary Settings saves. Saving an older ordinary Settings snapshot preserves the current desktop preferences; the dedicated setter retains other saved settings. Failed OS writes are compensated even if the initial call partially changed state. A failed native Dock rollback remains visibly uncertain until another apply succeeds. Reopening a window never replays an old Dock preference.
-
-None of these options is enabled by migrating an older configuration. The application never enables login startup when loading config. If the tray fails to initialize, the main window is shown and macOS uses a regular Dock presence. You can reopen the application through Applications/Spotlight even when its Dock icon is hidden. An explicit Quit exits the process; closing the main window keeps it in the tray when the tray is available.
-
-The panel closes on Escape, a second tray click, or loss of focus. Its position is clamped to the selected display's work area, including negative monitor origins and display scaling. Its geometry is excluded from main-window state restoration.
+Desktop and menu-bar preferences use dedicated atomic setters under the ordinary configuration lock. Older ordinary Settings saves preserve the latest dedicated preferences. Failed OS writes are compensated and rollback failures remain visible. Reopening a window does not replay an old Dock preference. If the tray fails, background start is suppressed and a regular Dock presence is retained.
 
 ## Verification
 
-- `npm run build`
-- `node scripts/test-menubar-logic.mjs`
-- `node scripts/test-desktop-settings.mjs`
-- `cargo check --locked --manifest-path src-tauri/Cargo.toml`
-- `cargo test --locked --manifest-path src-tauri/Cargo.toml --lib`
+Frontend build, 27 existing quota/presentation checks, 11 scoped-aggregation checks, 10 settings contract checks, 6 desktop UI race checks, and 5 synthetic-IPC menu browser cases cover the shared layout and data guards. Rust tests additionally cover the actual Mac menu projection: independent windows/families, duplicate/conflicting pools, unknown and expired observations, stale/disabled accounts, known zero, scoped means and separate availability counts. Synthetic UI tests include 424×640, 380×480 and 320×400, all accounts/models, failed reads/refreshes, concurrent activation, preferences, language and material events.
 
-Automated tests cover quota truthfulness, pinned-model fallback, account eligibility, stale data, startup safety and display-bound calculations. Playwright synthetic-IPC acceptance covers the 380×480 layout, pagination, explicit activation, repeated/interrupted navigation, low-quota status and cancellation, and truthful completion/errors. Captures from that runner are Linux browser UI evidence, not native macOS/Windows screenshots. No test enables startup or modifies a real user's account.
+Installed Mac acceptance is recorded separately in the project audit. Login boot, additional displays and Windows/Linux native GUI still require their own host-specific acceptance; browser or CLI success does not establish those results.
 
-Before release, validate on an installed macOS build: menu-bar positioning on multiple Retina displays; outside-click/second-click dismissal; switching while the main window is hidden; Dock preference preservation; relaunch from Spotlight; actual login startup; System Settings changes to login/menu-bar visibility. Linux compilation is not a substitute for this native macOS validation.
+## References
 
-## Design references
-
-The information hierarchy was informed by [OpenUsage](https://github.com/robinebers/openusage), [CodexBar](https://github.com/steipete/CodexBar), and [ClaudeBar](https://github.com/tddworks/ClaudeBar), using their published screenshots and documentation. The implementation, layout and copy here are original. No project logos, screenshots, or source code were copied into the application.
-
-Platform behavior follows the official Tauri [system-tray](https://v2.tauri.app/learn/system-tray/) and [autostart](https://v2.tauri.app/plugin/autostart/) APIs.
+The layout references [CodexBar](https://github.com/steipete/CodexBar). AppKit renders the native material rather than a CSS blur. No third-party UI source or assets are copied.

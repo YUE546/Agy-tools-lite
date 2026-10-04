@@ -254,6 +254,8 @@ pub fn run() {
         .manage(modules::auto_switch::Runtime::default())
         .setup(move |app| {
             info!("Setup starting...");
+            #[cfg(target_os = "macos")]
+            modules::desktop::install_dashboard_shortcut(app.handle())?;
             modules::auto_switch::start(app.handle().clone());
             if tray_enabled {
                 match modules::tray::create_tray(app.handle()) {
@@ -326,7 +328,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|_app_handle, _event| {
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { .. } = _event {
+            if let tauri::RunEvent::Reopen { has_visible_windows: false, .. } = _event {
                 let _ = modules::desktop::show_main(_app_handle);
             }
         });

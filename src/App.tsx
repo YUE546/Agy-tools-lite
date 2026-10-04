@@ -46,8 +46,10 @@ function App() {
 
   useEffect(() => {
     loadConfig();
-    fetchCurrentAccount();
-    fetchAccounts();
+    if (window.location.pathname !== '/menubar') {
+      fetchCurrentAccount();
+      fetchAccounts();
+    }
   }, [loadConfig, fetchCurrentAccount, fetchAccounts]);
 
   // Sync language from config

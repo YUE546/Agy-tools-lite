@@ -5,6 +5,7 @@ import { request } from "../../utils/request";
 import { isTauri } from "../../utils/env";
 import { useConfigStore } from "../../stores/useConfigStore";
 import { getMenuBarMessages } from "../menubar/messages";
+import MenuBarPreferencesSettings from "./MenuBarPreferencesSettings";
 
 interface DesktopStatus {
   platform: string;
@@ -166,6 +167,7 @@ export default function DesktopSettings() {
           </div>
         ))}
       </div>
+      <MenuBarPreferencesSettings />
       <p className="mt-3.5 rounded-xl border border-gray-200/70 bg-gray-50/60 p-3 text-xs leading-relaxed text-gray-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-gray-400">
         {!isTauri()
           ? t.nativeOnly
