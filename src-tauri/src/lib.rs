@@ -320,6 +320,7 @@ pub fn run() {
             commands::open_data_folder,
             commands::get_data_dir_path,
             commands::show_main_window,
+            modules::desktop::open_project_page,
             commands::set_window_theme,
             commands::update_account_label,
             commands::get_local_token_usage,

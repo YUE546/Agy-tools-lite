@@ -4,7 +4,7 @@
   box-sizing: border-box; width: 100%; height: 100dvh; display: flex; flex-direction: column;
   overflow: hidden; border-radius: 22px; padding: 14px 20px 10px; gap: 8px;
   color: var(--mb-text); background: #f4f4f6;
-  font: 12px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  font: 12px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', sans-serif;
   font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
   user-select: none; -webkit-user-select: none;
 }
@@ -16,7 +16,9 @@
 .menubar-app button:focus-visible { outline: 2px solid #007aff; outline-offset: 2px; }
 .menubar-app button:disabled { cursor: default; opacity: .45; }
 .mb-header { display: flex; align-items: center; justify-content: space-between; flex: none; }
-.mb-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .1px; color: var(--mb-muted); }
+.mb-brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.mb-brand img { flex: none; border-radius: 6px; }
+.mb-eyebrow { font-size: 14px; font-weight: 600; letter-spacing: .1px; color: var(--mb-text); }
 .mb-header h1 { font-size: 22px; font-weight: 650; letter-spacing: -.7px; margin: 1px 0 0; }
 .mb-header-actions { display: flex; gap: 4px; }
 .mb-header-actions button { padding: 5px; display: flex; }
@@ -50,32 +52,34 @@
 .mb-meter { height: 5px; border-radius: 5px; overflow: hidden; background: var(--mb-track); flex: 1; min-width: 0; }
 .mb-meter > span { height: 100%; display: block; border-radius: inherit; background: #23a467; }
 .mb-meter.warning > span { background: #ffcc00; }
-.mb-meter.critical > span { background: #e34e4e; }
+.mb-meter.critical > span { background: #ff3b30; }
 .mb-meter.unknown { opacity: .65; }
 .mb-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .mb-account-heading { display: flex; flex-direction: row; justify-content: space-between; align-items: baseline; gap: 5px; color: var(--mb-muted); font-size: 10px; margin-bottom: 4px; flex: none; }
 .mb-account-heading strong { color: var(--mb-text); font-size: 12px; font-weight: 600; }
 .mb-accounts { flex: 1; min-height: 0; }
-.mb-account-row { height: 74px; box-sizing: border-box; padding: 6px 0; border-bottom: 1px solid var(--mb-line); margin-bottom: 6px; }
+.mb-account-row { height: 80px; box-sizing: border-box; padding: 6px 0; border-bottom: 1px solid var(--mb-line); margin-bottom: 6px; }
 .mb-account-row:last-child { margin-bottom: 0; }
 .mb-account-identity { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .mb-account-label { display: flex; flex-direction: column; gap: 0; align-items: flex-start; min-width: 0; padding: 1px 0; text-align: left; }
-.mb-account-label > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.mb-account-identity small { font-size: 9px; color: var(--mb-muted); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.mb-account-label > span { font-size: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.mb-account-identity small { font-size: 10px; color: var(--mb-muted); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .menubar-app .mb-account-switch { display: flex; align-items: center; justify-content: center; gap: 4px; width: 64px; height: 26px; padding: 3px 7px; font-size: 10px; flex: none; color: var(--mb-text); border: 1px solid var(--mb-line); background: var(--mb-hover); transition: background-color 80ms; }
 .menubar-app .mb-account-switch:hover:enabled { background: var(--mb-track); box-shadow: inset 0 0 0 1px var(--mb-line); }
 .mb-account-row.current .mb-account-switch:disabled { color: #007aff; opacity: 1; }
 .dark .mb-account-row.current .mb-account-switch:disabled { color: #66b2ff; }
-.mb-account-row.disabled .mb-account-switch:disabled { color: #e34e4e; opacity: 1; }
+.mb-account-row.disabled .mb-account-switch:disabled { color: #ff3b30; opacity: 1; }
 .dark .mb-account-row.disabled .mb-account-switch:disabled { color: #ff625a; }
 .mb-account-quotas { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
 .mb-account-window { display: flex; align-items: center; gap: 9px; font-size: 9px; line-height: 1.1; }
 .mb-account-window > span { width: 34px; color: var(--mb-muted); flex: none; }
 .mb-mini { display: flex; gap: 5px; align-items: center; min-width: 0; flex: 1; }
-.mb-mini + .mb-mini { margin-left: 3px; }
+.mb-mini + .mb-mini { margin-left: 7px; }
 .mb-mini strong { width: 30px; flex: none; text-align: right; font-size: 10px; font-weight: 500; }
 .mb-mini .mb-meter { height: 3px; }
-.mb-mini .mb-reset-label { display: none; align-items: center; gap: 3px; flex: none; width: 54px; font-size: 9px; white-space: nowrap; color: var(--mb-muted); }
+.mb-mini .mb-reset-label { display: none; align-items: center; gap: 3px; flex: none; max-width: 54px; font-size: 9px; white-space: nowrap; color: var(--mb-muted); }
+.mb-reset-label > span { color: #996d00; }
+.dark .mb-reset-label > span { color: #ffcf5a; }
 .mb-reset-label svg { flex: none; }
 .mb-reset-label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .mb-account-row.hover-resets:is(:hover, :focus-within) .mb-reset-label, .mb-account-row.always-resets .mb-reset-label { display: flex; }
@@ -107,4 +111,6 @@
 @media (max-height: 430px) { .menubar-app { gap: 4px; padding-top: 10px; } .mb-header h1 { font-size: 18px; } .mb-usage-type { font-size: 9px; } .mb-usage-cost { margin-bottom: 3px; } .mb-usage-meta { font-size: 8px; margin-top: 1px; } .mb-footer { padding-top: 6px; } .mb-footer-actions button { font-size: 10px; } .mb-header-actions button { padding: 4px; } .mb-overview-heading { margin-bottom: 4px; font-size: 10px; } .mb-aggregate strong { font-size: 13px; } .mb-aggregate > div:first-child { margin-bottom: 3px; } .mb-overview { padding-bottom: 4px; } .mb-aggregate + .mb-aggregate { margin-top: 4px; } }
 @media (prefers-reduced-motion: reduce) { .menubar-app .animate-spin { animation: none; } }
 
-.mb-meter.disabled-quota { background: #e34e4e; }
+.mb-meter.disabled-quota { background: #ff3b30; }
+
+.menubar-app[data-language="en"] .mb-account-switch { width: 72px; }

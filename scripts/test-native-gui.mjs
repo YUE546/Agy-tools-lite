@@ -71,7 +71,7 @@ function isolatedEnv(info) {
     return env;
 }
 // Validate actual screenshot pixels as well as DOM. A successful blank PNG is a failure.
-function inspectPng(bytes) {
+function inspectPng(bytes, panel = false) {
     assert.equal(bytes.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
     const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20), depth = bytes[24], type = bytes[25];
     assert.equal(depth, 8); assert.ok([2, 6].includes(type), `Unsupported screenshot PNG type ${type}`); assert.equal(bytes[28], 0);
@@ -94,7 +94,7 @@ function inspectPng(bytes) {
         previous = row;
     }
     const deviation = Math.sqrt(Math.max(0, squares / count - (sum / count) ** 2));
-    assert.ok(width >= 600 && height >= 400 && colors.size >= 24 && deviation >= 8 && opaque / count > 0.99, `Blank/invalid capture: ${width}x${height}, colors=${colors.size}, deviation=${deviation}`);
+    assert.ok(width >= (panel ? 400 : 600) && height >= 400 && colors.size >= 24 && deviation >= 8 && opaque / count > 0.99, `Blank/invalid capture: ${width}x${height}, colors=${colors.size}, deviation=${deviation}`);
     return { width, height, colors: colors.size, luminance_deviation: Number(deviation.toFixed(2)), sha256: hash(bytes) };
 }
 const endpoint = 'http://127.0.0.1:4444';
@@ -121,7 +121,7 @@ async function ipc(commandName) {
     const result = await command('POST', '/execute/async', { script: "const done=arguments[arguments.length-1]; window.__TAURI_INTERNALS__.invoke(arguments[0]).then(value=>done({value}),error=>done({error:String(error)}));", args: [commandName] });
     assert.equal(result.error, undefined); return result.value;
 }
-async function screenshot(name) {
+async function screenshot(name, panel = false) {
     const layout = await execute("return {width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth+1,route:location.pathname,theme:document.documentElement.dataset.theme,text:document.body.innerText.length}");
     assert.equal(layout.overflow, false); assert.ok(layout.text > 100);
     await command('POST', '/execute/async', { script: 'const done=arguments[arguments.length-1]; document.fonts.ready.then(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>done(true))));', args: [] });
@@ -129,7 +129,7 @@ async function screenshot(name) {
     try {
         await until(async () => {
             bytes = Buffer.from(await command('GET', '/screenshot'), 'base64');
-            pixels = inspectPng(bytes); return true;
+            pixels = inspectPng(bytes, panel); return true;
         }, `nonblank native pixels for ${name}`, 10000);
     } catch (e) {
         // Diagnostic comes only from our app session. Never reuse a rejected image as acceptance evidence.
@@ -239,6 +239,16 @@ try {
         await click('nav button[title="Switch to Light Mode"]');
         await until(() => execute("return document.documentElement.dataset.theme === 'light'"), 'light theme restored');
         await screenshot('settings-light-760');
+        // Same native WebView, now exercise the compact cross-platform dashboard route.
+        await execute("history.pushState({}, '', '/menubar'); dispatchEvent(new PopStateEvent('popstate')); return true");
+        await until(() => execute("return document.querySelector('.mb-eyebrow')?.textContent === 'AntiGravity tool lite' && document.querySelectorAll('.mb-account-row').length === 2"), 'native quick dashboard');
+        rect = await command('POST', '/window/rect', { width: 424, height: 720 });
+        for (let i = 0; i < 4; i++) { const width = await execute('return innerWidth'); if (width === 424) break; rect = await command('POST', '/window/rect', { width: Math.round(rect.width + 424 - width), height: 720 }); await delay(200); }
+        assert.equal(await execute('return innerWidth'), 424);
+        assert.equal(await execute("return ['Today’s usage','Remaining quota','Accounts'].every(t=>document.body.innerText.includes(t)) && !/[\u3400-\u9fff]/.test(document.body.innerText)"), true);
+        assert.equal(await execute("return [...document.querySelectorAll('.mb-account-switch')].every(e=>{const r=e.getBoundingClientRect(); const p=e.closest('article').querySelector('.mb-mini:last-child strong').getBoundingClientRect(); return Math.abs(r.right-p.right)<2})"), true);
+        await screenshot('quick-dashboard-light', true);
+        report.checks.push('Native 424px compact dashboard: all three sections, English copy, account/action right alignment; viewport test, not tray placement');
         for (const [path, original] of originals) assert.equal(readFileSync(join(data, path), 'utf8'), original, `Unchanged ${path}`);
         const config = JSON.parse(readFileSync(join(data, 'gui_config.json'))); assert.equal(config.auto_refresh, false); assert.equal(config.auto_sync, false); assert.equal(config.quota_protection.enabled, false);
         report.checks.push('Dashboard, synthetic accounts, Settings controls, persisted light/dark theme, exact 760px viewport without horizontal overflow', 'No account/config mutation except theme; no switch/refresh/login/import/autostart action');
