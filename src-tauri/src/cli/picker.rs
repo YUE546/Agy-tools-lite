@@ -763,19 +763,55 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
                 claude_quota = gemini_quota.clone();
             } else if let Some(groups) = &q.quota_groups {
                 for g in groups {
-                    if let Some(b) = g.buckets.first() {
-                        let pct = (b.remaining_fraction * 100.0).round() as i32;
-                        let cd = format_countdown_compact(&b.reset_time, lang);
-                        let text = if cd.is_empty() || pct >= 100 {
-                            format!("{}%", pct)
-                        } else {
-                            format!("{}% ({})", pct, cd)
-                        };
-                        if g.display_name.contains("Gemini") {
-                            gemini_quota = text;
-                        } else if g.display_name.contains("Claude") || g.display_name.contains("GPT") {
-                            claude_quota = text;
+                    let weekly_b = g.buckets.iter().find(|b| b.bucket_id.contains("week") || b.window.contains("week"));
+                    let five_h_b = g.buckets.iter().find(|b| b.bucket_id.contains("5h") || b.window.contains("5h"));
+
+                    let (chosen_b, is_weekly) = match (weekly_b, five_h_b) {
+                        (Some(wb), Some(fb)) => {
+                            let w_pct = (wb.remaining_fraction * 100.0).round() as i32;
+                            let f_pct = (fb.remaining_fraction * 100.0).round() as i32;
+                            if w_pct < 100 && f_pct < 100 {
+                                if f_pct < w_pct {
+                                    (fb, false)
+                                } else {
+                                    (wb, true)
+                                }
+                            } else if w_pct < 100 {
+                                (wb, true)
+                            } else if f_pct < 100 {
+                                (fb, false)
+                            } else {
+                                (wb, true)
+                            }
                         }
+                        (Some(wb), None) => (wb, true),
+                        (None, Some(fb)) => (fb, false),
+                        _ => match g.buckets.first() {
+                            Some(b) => (b, b.bucket_id.contains("week")),
+                            None => continue,
+                        },
+                    };
+
+                    let pct = (chosen_b.remaining_fraction * 100.0).round() as i32;
+                    let cd = format_countdown_compact(&chosen_b.reset_time, lang);
+                    let tag = if is_weekly {
+                        match lang {
+                            Lang::Zh => "周",
+                            Lang::En => "Wk",
+                        }
+                    } else {
+                        "5h"
+                    };
+
+                    let text = if cd.is_empty() || pct >= 100 {
+                        format!("{}%", pct)
+                    } else {
+                        format!("{}% ({}: {})", pct, tag, cd)
+                    };
+                    if g.display_name.contains("Gemini") {
+                        gemini_quota = text;
+                    } else if g.display_name.contains("Claude") || g.display_name.contains("GPT") {
+                        claude_quota = text;
                     }
                 }
             } else {
@@ -1286,190 +1322,202 @@ fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
         return;
     }
 
-    let account_to_view = if snapshot.accounts.len() == 1 {
-        Some(&snapshot.accounts[0])
-    } else {
+    loop {
+        print!("\x1b[2J\x1b[H");
+        let header = match lang {
+            Lang::Zh => "全部账号配额总览",
+            Lang::En => "All Accounts Quota Overview",
+        };
+        println!("\x1b[1m{}\x1b[0m\n", header);
+
+        print!("{}", build_accounts_table(&snapshot.accounts, lang, None).render());
+
+        let notes = match lang {
+            Lang::Zh => [
+                "* 标注为当前生效账号",
+                "说明: 括号内标注重置时间，(周: 98h) 为7天周配额重置倒计时，(5h: 4h) 为5小时滚动窗口倒计时",
+            ],
+            Lang::En => [
+                "* indicates active account",
+                "Note: In parentheses: (Wk: 98h) = 7-day weekly reset countdown, (5h: 4h) = 5-hour rolling reset",
+            ],
+        };
+        for n in notes {
+            println!("\x1b[90m{}\x1b[0m", n);
+        }
+        println!();
+
         let mut items = Vec::new();
         for (i, acc) in snapshot.accounts.iter().enumerate() {
             let label = match &acc.custom_label {
-                Some(l) if !l.trim().is_empty() => format!(" ({})", l),
+                Some(l) if !l.trim().is_empty() => format!(" ({})", l.trim()),
                 _ => String::new(),
             };
-            let current = if acc.is_current {
-                match lang {
-                    Lang::Zh => " [当前生效]",
-                    Lang::En => " [Active]",
-                }
-            } else {
-                ""
-            };
+            let current = if acc.is_current { " *" } else { "" };
             items.push(format!("{}. {}{}{}", i + 1, acc.email, label, current));
         }
-        let all_label = match lang {
-            Lang::Zh => "A. 全部账号额度总览对比表格",
-            Lang::En => "A. View all accounts comparison table",
-        };
         let back_label = match lang {
             Lang::Zh => "0. 返回主菜单",
             Lang::En => "0. Back to main menu",
         };
-        items.push(all_label.into());
         items.push(back_label.into());
 
         let title = match lang {
-            Lang::Zh => "选择要查看配额的账号:",
-            Lang::En => "Select account to view quotas:",
+            Lang::Zh => "选择要查看独立模型配额的账号:",
+            Lang::En => "Select account to view detailed model breakdown:",
         };
         let str_items: Vec<&str> = items.iter().map(String::as_str).collect();
         let sel = select_menu_interactive(title, &str_items, 0, lang);
 
         match sel {
-            Some(idx) if idx < snapshot.accounts.len() => Some(&snapshot.accounts[idx]),
-            Some(idx) if idx == snapshot.accounts.len() => {
-                // Table of all accounts
-                print!("\x1b[2J\x1b[H");
-                let header = match lang {
-                    Lang::Zh => "全部账号配额总览",
-                    Lang::En => "All Accounts Quota Overview",
-                };
-                println!("\x1b[1m{}\x1b[0m\n", header);
-                print!("{}", build_accounts_table(&snapshot.accounts, lang, None).render());
-                let note = match lang {
-                    Lang::Zh => "* 标注为当前生效账号",
-                    Lang::En => "* indicates active account",
-                };
-                println!("\n{}", note);
-                wait_for_key(lang);
-                return;
+            Some(idx) if idx < snapshot.accounts.len() => {
+                show_single_account_quota(&snapshot.accounts[idx], lang);
             }
-            _ => return,
+            _ => break,
+        }
+    }
+}
+
+fn show_single_account_quota(acc: &AccountView, lang: Lang) {
+    print!("\x1b[2J\x1b[H");
+    let title = match lang {
+        Lang::Zh => format!("账号配额详情 · {}", acc.email),
+        Lang::En => format!("Quota Details · {}", acc.email),
+    };
+    println!("\x1b[1m{}\x1b[0m\n", title);
+
+    let status = if acc.disabled {
+        match lang {
+            Lang::Zh => "\x1b[31m已禁用\x1b[0m",
+            Lang::En => "\x1b[31mDisabled\x1b[0m",
+        }
+    } else if acc.validation_blocked {
+        match lang {
+            Lang::Zh => "\x1b[33m需安全验证\x1b[0m",
+            Lang::En => "\x1b[33mVerification Required\x1b[0m",
+        }
+    } else if acc.is_current {
+        match lang {
+            Lang::Zh => "\x1b[32m当前生效\x1b[0m",
+            Lang::En => "\x1b[32mActive\x1b[0m",
+        }
+    } else {
+        match lang {
+            Lang::Zh => "正常",
+            Lang::En => "Normal",
         }
     };
 
-    if let Some(acc) = account_to_view {
-        print!("\x1b[2J\x1b[H");
-        let title = match lang {
-            Lang::Zh => format!("账号配额详情 · {}", acc.email),
-            Lang::En => format!("Quota Details · {}", acc.email),
-        };
-        println!("\x1b[1m{}\x1b[0m\n", title);
+    let label_str = acc.custom_label.as_deref().unwrap_or("-");
+    let tier_str = acc
+        .quota
+        .as_ref()
+        .and_then(|q| q.subscription_tier.as_deref())
+        .unwrap_or("-");
 
-        let status = if acc.disabled {
-            match lang {
-                Lang::Zh => "\x1b[31m已禁用\x1b[0m",
-                Lang::En => "\x1b[31mDisabled\x1b[0m",
-            }
-        } else if acc.validation_blocked {
-            match lang {
-                Lang::Zh => "\x1b[33m需安全验证\x1b[0m",
-                Lang::En => "\x1b[33mVerification Required\x1b[0m",
-            }
-        } else if acc.is_current {
-            match lang {
-                Lang::Zh => "\x1b[32m当前生效\x1b[0m",
-                Lang::En => "\x1b[32mActive\x1b[0m",
-            }
-        } else {
-            match lang {
-                Lang::Zh => "正常",
-                Lang::En => "Normal",
-            }
-        };
+    let meta_headers = match lang {
+        Lang::Zh => vec!["属性", "内容值"],
+        Lang::En => vec!["Property", "Value"],
+    };
+    let mut meta_table = Table::new(meta_headers);
+    let meta_rows = match lang {
+        Lang::Zh => vec![
+            vec!["邮箱地址".into(), acc.email.clone()],
+            vec!["账号标识".into(), acc.id.clone()],
+            vec!["备注标签".into(), label_str.into()],
+            vec!["当前状态".into(), status.into()],
+            vec!["订阅级别".into(), tier_str.into()],
+        ],
+        Lang::En => vec![
+            vec!["Email".into(), acc.email.clone()],
+            vec!["Account ID".into(), acc.id.clone()],
+            vec!["Label".into(), label_str.into()],
+            vec!["Status".into(), status.into()],
+            vec!["Plan Tier".into(), tier_str.into()],
+        ],
+    };
+    for r in meta_rows {
+        meta_table.add_row(r);
+    }
+    print!("{}", meta_table.render());
 
-        let label_str = acc.custom_label.as_deref().unwrap_or("-");
-        let tier_str = acc
-            .quota
-            .as_ref()
-            .and_then(|q| q.subscription_tier.as_deref())
-            .unwrap_or("-");
-
-        let meta_headers = match lang {
-            Lang::Zh => vec!["属性", "内容值"],
-            Lang::En => vec!["Property", "Value"],
-        };
-        let mut meta_table = Table::new(meta_headers);
-        let meta_rows = match lang {
-            Lang::Zh => vec![
-                vec!["邮箱地址".into(), acc.email.clone()],
-                vec!["账号标识".into(), acc.id.clone()],
-                vec!["备注标签".into(), label_str.into()],
-                vec!["当前状态".into(), status.into()],
-                vec!["订阅级别".into(), tier_str.into()],
-            ],
-            Lang::En => vec![
-                vec!["Email".into(), acc.email.clone()],
-                vec!["Account ID".into(), acc.id.clone()],
-                vec!["Label".into(), label_str.into()],
-                vec!["Status".into(), status.into()],
-                vec!["Plan Tier".into(), tier_str.into()],
-            ],
-        };
-        for r in meta_rows {
-            meta_table.add_row(r);
-        }
-        print!("{}", meta_table.render());
-
-        if let Some(q) = &acc.quota {
-            if q.is_forbidden {
-                let warn = match lang {
-                    Lang::Zh => "\n\x1b[31m[警告] 账号配额访问受限 (Forbidden)，可能需重新授权登录。\x1b[0m",
-                    Lang::En => "\n\x1b[31m[Warning] Quota access is forbidden; please re-authorize account.\x1b[0m",
-                };
-                println!("{}", warn);
-            }
-
-            let q_headers = match lang {
-                Lang::Zh => vec!["模型 / 分组", "余量", "进度", "重置倒计时"],
-                Lang::En => vec!["Model / Group", "Remaining", "Progress", "Resets In"],
+    if let Some(q) = &acc.quota {
+        if q.is_forbidden {
+            let warn = match lang {
+                Lang::Zh => "\n\x1b[31m[警告] 账号配额访问受限 (Forbidden)，可能需重新授权登录。\x1b[0m",
+                Lang::En => "\n\x1b[31m[Warning] Quota access is forbidden; please re-authorize account.\x1b[0m",
             };
-            let mut q_table = Table::new(q_headers);
-            q_table.set_align_right(1, true);
+            println!("{}", warn);
+        }
 
-            if let Some(groups) = &q.quota_groups {
-                for g in groups {
-                    for b in &g.buckets {
-                        let pct = (b.remaining_fraction * 100.0).round() as i32;
-                        let bar = progress_bar(pct, 10);
-                        let cd = format_countdown(&b.reset_time, lang);
-                        let name = if g.display_name.contains("Gemini") {
-                            format!("Gemini ({})", b.bucket_id)
-                        } else if g.display_name.contains("Claude") || g.display_name.contains("GPT") {
-                            format!("Claude/GPT ({})", b.bucket_id)
-                        } else {
-                            format!("{} ({})", g.display_name, b.bucket_id)
-                        };
-                        q_table.add_row(vec![
-                            name,
-                            format!("{}%", pct),
-                            bar,
-                            if cd.is_empty() { "-".into() } else { cd },
-                        ]);
-                    }
-                }
-            } else if !q.models.is_empty() {
-                for m in &q.models {
-                    let bar = progress_bar(m.percentage, 10);
-                    let cd = format_countdown(&m.reset_time, lang);
+        let q_headers = match lang {
+            Lang::Zh => vec!["配额窗口 / 模型", "余量", "进度", "重置倒计时"],
+            Lang::En => vec!["Quota Window / Model", "Remaining", "Progress", "Resets In"],
+        };
+        let mut q_table = Table::new(q_headers);
+        q_table.set_align_right(1, true);
+
+        if let Some(groups) = &q.quota_groups {
+            for g in groups {
+                for b in &g.buckets {
+                    let pct = (b.remaining_fraction * 100.0).round() as i32;
+                    let bar = progress_bar(pct, 10);
+                    let cd = format_countdown(&b.reset_time, lang);
+
+                    let window_desc = if b.bucket_id.contains("week") || b.window.contains("week") {
+                        match lang {
+                            Lang::Zh => "周配额 (7天重置)",
+                            Lang::En => "Weekly (7-Day)",
+                        }
+                    } else if b.bucket_id.contains("5h") || b.window.contains("5h") {
+                        match lang {
+                            Lang::Zh => "5小时滚动配额",
+                            Lang::En => "5-Hour Rolling",
+                        }
+                    } else {
+                        &b.bucket_id
+                    };
+
+                    let group_title = if g.display_name.contains("Gemini") {
+                        "Gemini"
+                    } else if g.display_name.contains("Claude") || g.display_name.contains("GPT") {
+                        "Claude/GPT"
+                    } else {
+                        &g.display_name
+                    };
+
+                    let name = format!("{} ({})", group_title, window_desc);
                     q_table.add_row(vec![
-                        m.name.clone(),
-                        format!("{}%", m.percentage),
+                        name,
+                        format!("{}%", pct),
                         bar,
                         if cd.is_empty() { "-".into() } else { cd },
                     ]);
                 }
             }
-
-            println!("\n{}", q_table.render());
-        } else {
-            let msg = match lang {
-                Lang::Zh => "\n\x1b[33m暂无本地缓存额度，请使用 [4] 刷新配额。\x1b[0m\n",
-                Lang::En => "\n\x1b[33mNo cached quota data. Use [4] to refresh.\x1b[0m\n",
-            };
-            println!("{}", msg);
+        } else if !q.models.is_empty() {
+            for m in &q.models {
+                let bar = progress_bar(m.percentage, 10);
+                let cd = format_countdown(&m.reset_time, lang);
+                q_table.add_row(vec![
+                    m.name.clone(),
+                    format!("{}%", m.percentage),
+                    bar,
+                    if cd.is_empty() { "-".into() } else { cd },
+                ]);
+            }
         }
 
-        wait_for_key(lang);
+        println!("\n{}", q_table.render());
+    } else {
+        let msg = match lang {
+            Lang::Zh => "\n\x1b[33m暂无本地缓存额度，请使用主菜单 [4] 刷新配额。\x1b[0m\n",
+            Lang::En => "\n\x1b[33mNo cached quota data. Use [4] to refresh live quotas.\x1b[0m\n",
+        };
+        println!("{}", msg);
     }
+
+    wait_for_key(lang);
 }
 
 fn show_token_statistics(lang: Lang) {
