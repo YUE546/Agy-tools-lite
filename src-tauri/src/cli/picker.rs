@@ -801,8 +801,8 @@ pub fn prompt_line_with_cancel(prompt: &str, max_chars: usize) -> PromptResult {
 
 fn wait_for_key(lang: Lang) {
     let msg = match lang {
-        Lang::Zh => "按 Esc 或任意键继续...",
-        Lang::En => "Press Esc or any key to continue...",
+        Lang::Zh => "按 Esc 或任意键返回...",
+        Lang::En => "Press Esc or any key to return...",
     };
     print!("\n\x1b[2m{}\x1b[0m", msg);
     let _ = io::stdout().flush();
@@ -1425,8 +1425,8 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
         match choice {
             Some(0) => show_accounts_and_quotas_hub(root, lang),
             Some(1) => show_token_statistics(lang),
-            Some(2) => show_refresh_quotas(&snapshot, lang),
-            Some(3) => show_add_account(lang),
+            Some(2) => show_refresh_quotas(root, lang),
+            Some(3) => show_add_account(root, lang),
             Some(4) => show_system_status(&snapshot, root, lang),
             Some(5) | None => {
                 let exit_msg = match lang {
@@ -2136,8 +2136,8 @@ fn show_token_statistics(lang: Lang) {
             print!("{}", footer);
 
             let prompt = match lang {
-                Lang::Zh => "\x1b[1m操作: (M 返回用量总览  |  Esc/0 返回主菜单)\x1b[0m ",
-                Lang::En => "\x1b[1mAction: (M Back to Overview  |  Esc/0 Back)\x1b[0m ",
+                Lang::Zh => "\x1b[1m操作: (Esc/0 返回用量总览)\x1b[0m ",
+                Lang::En => "\x1b[1mAction: (Esc/0 Back to Overview)\x1b[0m ",
             };
             print!("{}", prompt);
             let _ = io::stdout().flush();
@@ -2151,7 +2151,11 @@ fn show_token_statistics(lang: Lang) {
                         show_today_detail = !show_today_detail;
                     }
                     KeyAction::Enter | KeyAction::Char('0') | KeyAction::Char('q') | KeyAction::Char('Q') | KeyAction::Cancel => {
-                        break;
+                        if show_today_detail {
+                            show_today_detail = false;
+                        } else {
+                            break;
+                        }
                     }
                     _ => {}
                 }
@@ -2166,47 +2170,7 @@ fn show_token_statistics(lang: Lang) {
     }
 }
 
-fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
-    print!("\x1b[2J\x1b[H");
-    if snapshot.accounts.is_empty() {
-        let msg = match lang {
-            Lang::Zh => "\n\x1b[33m暂无已保存账号。\x1b[0m",
-            Lang::En => "\n\x1b[33mNo saved accounts.\x1b[0m",
-        };
-        println!("{}", msg);
-        wait_for_key(lang);
-        return;
-    }
-
-    let header = match lang {
-        Lang::Zh => "配额刷新中心",
-        Lang::En => "Quota Refresh Hub",
-    };
-    println!("\x1b[1m{}\x1b[0m\n", header);
-
-    let (title, items) = match lang {
-        Lang::Zh => (
-            "选择刷新方式:",
-            vec![
-                "1. 刷新当前生效账号配额",
-                "2. 批量刷新全部账号 (并发执行)",
-                "3. 选择指定账号刷新",
-                "0. 返回主菜单",
-            ],
-        ),
-        Lang::En => (
-            "Select Refresh Mode:",
-            vec![
-                "1. Refresh active account quota",
-                "2. Batch refresh all accounts (concurrent)",
-                "3. Select specific account to refresh",
-                "0. Back to main menu",
-            ],
-        ),
-    };
-
-    let choice = select_menu_interactive(title, &items, 0, lang);
-
+fn show_refresh_quotas(root: &Path, lang: Lang) {
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
@@ -2216,8 +2180,54 @@ fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
         }
     };
 
-    match choice {
-        Some(0) => {
+    loop {
+        let snapshot = Snapshot::read(root).unwrap_or(Snapshot {
+            accounts: vec![],
+            current_target: None,
+        });
+
+        print!("\x1b[2J\x1b[H");
+        if snapshot.accounts.is_empty() {
+            let msg = match lang {
+                Lang::Zh => "\n\x1b[33m暂无已保存账号。\x1b[0m",
+                Lang::En => "\n\x1b[33mNo saved accounts.\x1b[0m",
+            };
+            println!("{}", msg);
+            wait_for_key(lang);
+            return;
+        }
+
+        let header = match lang {
+            Lang::Zh => "配额刷新中心",
+            Lang::En => "Quota Refresh Hub",
+        };
+        println!("\x1b[1m{}\x1b[0m\n", header);
+
+        let (title, items) = match lang {
+            Lang::Zh => (
+                "选择刷新方式:",
+                vec![
+                    "1. 刷新当前生效账号配额",
+                    "2. 批量刷新全部账号 (并发执行)",
+                    "3. 选择指定账号刷新",
+                    "0. 返回主菜单",
+                ],
+            ),
+            Lang::En => (
+                "Select Refresh Mode:",
+                vec![
+                    "1. Refresh active account quota",
+                    "2. Batch refresh all accounts (concurrent)",
+                    "3. Select specific account to refresh",
+                    "0. Back to main menu",
+                ],
+            ),
+        };
+
+        let choice = select_menu_interactive(title, &items, 0, lang);
+
+        match choice {
+            Some(0) => {
             print!("\x1b[2J\x1b[H");
             let sub_title = match lang {
                 Lang::Zh => "刷新当前生效账号配额",
@@ -2234,7 +2244,7 @@ fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
                     };
                     println!("{}", msg);
                     wait_for_key(lang);
-                    return;
+                    continue;
                 }
             };
             let wait_msg = match lang {
@@ -2348,7 +2358,7 @@ fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
 
             let selected = match select_account_interactive(&snapshot.accounts, lang) {
                 Some(acc) => acc,
-                None => return,
+                None => continue,
             };
             print!("\x1b[2J\x1b[H");
             println!("\x1b[1m{}\x1b[0m\n", sub_title);
@@ -2413,39 +2423,13 @@ fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
             }
             wait_for_key(lang);
         }
-        _ => {}
+        Some(3) | None => break,
+        _ => break,
     }
 }
+}
 
-fn show_add_account(lang: Lang) {
-    print!("\x1b[2J\x1b[H");
-    let header = match lang {
-        Lang::Zh => "添加 Google 账号",
-        Lang::En => "Add Google Account",
-    };
-    println!("\x1b[1m{}\x1b[0m\n", header);
-
-    let (title, items) = match lang {
-        Lang::Zh => (
-            "选择添加方式:",
-            vec![
-                "1. 浏览器一键授权 (Google OAuth 自动登录)",
-                "2. 手动输入 Refresh Token",
-                "0. 返回主菜单",
-            ],
-        ),
-        Lang::En => (
-            "Select Method:",
-            vec![
-                "1. Browser authorization (Google OAuth auto-login)",
-                "2. Manually enter Refresh Token",
-                "0. Back to main menu",
-            ],
-        ),
-    };
-
-    let choice = select_menu_interactive(title, &items, 0, lang);
-
+fn show_add_account(_root: &Path, lang: Lang) {
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
@@ -2455,8 +2439,37 @@ fn show_add_account(lang: Lang) {
         }
     };
 
-    match choice {
-        Some(0) => {
+    loop {
+        print!("\x1b[2J\x1b[H");
+        let header = match lang {
+            Lang::Zh => "添加 Google 账号",
+            Lang::En => "Add Google Account",
+        };
+        println!("\x1b[1m{}\x1b[0m\n", header);
+
+        let (title, items) = match lang {
+            Lang::Zh => (
+                "选择添加方式:",
+                vec![
+                    "1. 浏览器一键授权 (Google OAuth 自动登录)",
+                    "2. 手动输入 Refresh Token",
+                    "0. 返回主菜单",
+                ],
+            ),
+            Lang::En => (
+                "Select Method:",
+                vec![
+                    "1. Browser authorization (Google OAuth auto-login)",
+                    "2. Manually enter Refresh Token",
+                    "0. Back to main menu",
+                ],
+            ),
+        };
+
+        let choice = select_menu_interactive(title, &items, 0, lang);
+
+        match choice {
+            Some(0) => {
             print!("\x1b[2J\x1b[H");
             let sub_title = match lang {
                 Lang::Zh => "浏览器一键授权 · Google OAuth",
@@ -2479,7 +2492,7 @@ fn show_add_account(lang: Lang) {
                     };
                     println!("{}", err_msg);
                     wait_for_key(lang);
-                    return;
+                    continue;
                 }
             };
 
@@ -2505,7 +2518,7 @@ fn show_add_account(lang: Lang) {
                     };
                     println!("{}", fail_msg);
                     wait_for_key(lang);
-                    return;
+                    continue;
                 }
             };
 
@@ -2518,7 +2531,7 @@ fn show_add_account(lang: Lang) {
                     };
                     println!("{}", no_token_msg);
                     wait_for_key(lang);
-                    return;
+                    continue;
                 }
             };
 
@@ -2586,23 +2599,11 @@ fn show_add_account(lang: Lang) {
             let refresh_token = match prompt_line_with_cancel(prompt_text, 0) {
                 PromptResult::Confirmed(token) => token,
                 PromptResult::Cancelled => {
-                    let cancel_msg = match lang {
-                        Lang::Zh => "\x1b[2m已取消输入。\x1b[0m",
-                        Lang::En => "\x1b[2mInput cancelled.\x1b[0m",
-                    };
-                    println!("{}", cancel_msg);
-                    wait_for_key(lang);
-                    return;
+                    continue;
                 }
             };
             if refresh_token.is_empty() {
-                let cancel_msg = match lang {
-                    Lang::Zh => "\x1b[2m已取消输入。\x1b[0m",
-                    Lang::En => "\x1b[2mInput cancelled.\x1b[0m",
-                };
-                println!("{}", cancel_msg);
-                wait_for_key(lang);
-                return;
+                continue;
             }
 
             let wait_msg = match lang {
@@ -2655,10 +2656,11 @@ fn show_add_account(lang: Lang) {
             }
             wait_for_key(lang);
         }
-        _ => {}
+        Some(2) | None => break,
+        _ => break,
     }
 }
-
+}
 
 fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
     print!("\x1b[2J\x1b[H");
