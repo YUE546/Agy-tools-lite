@@ -29,11 +29,13 @@ Mac 菜单栏改为 `NSMenu`，按照 CodexBar 的系统字体、细进度条和
 
 [Issue #11](https://github.com/anglee0323/antigravity-tools-lite/issues/11) / [PR #12](https://github.com/anglee0323/antigravity-tools-lite/pull/12)，head `c55b4a17720e68267b0391375b9e3c3788485379`。
 
-**P1：立即切换按钮丢失目标程序。** `src/components/autoSwitch/AutoSwitch.tsx:66` 调用 `switchAccount(status.target_account_id!)`，没有传入配置中的 `target_ide`。当策略指向 IDE 时，会走后端默认 App 目标，修改/重启错误的客户端。应由后端在重新验证 pending ID、目标程序和候选条件后执行明确的立即切换操作；至少不能遗漏配置的目标。
+**接入多端版本的适配限制。** `src/components/autoSwitch/AutoSwitch.tsx:66` 调用 `switchAccount(status.target_account_id!)`，没有传递目标程序。重新核对该 PR 固定 head，发现其 `Target` 枚举只有 `App`，因此默认 App 目标在原 PR 内一致；先前将其描述为原 PR 已经会切错 IDE 的 P1 故障不准确，现予更正。若移植到当前支持 App / AppCli / IDE / VS Code 的版本，需要明确传递目标，并重新验证 pending ID、配置和候选条件，不能直接照搬按钮调用。
 
 环形搜索与优先级模式是可取的，但新增测试主要复刻遍历逻辑，应补生产 coordinator 的 A→B→C→A、无候选、禁用/受限、待切换期间配置变化验证。当前分支已更新目标枚举和 5 小时额度决策，不宜直接搬回旧版整套 coordinator。
 
 **需求完成情况：部分完成。** 轮换策略与手动立即重启按钮已实现；任务/turn 完成检测、完成后的提示、可取消的 5 秒静默倒计时、全部耗尽后的最早重置倒计时没有实现。进程正在运行不等于正在生成，更不等于任务已经完成。
+
+**与当前分支的区别。** 当前生产 coordinator 从 `candidate_account_ids` 列表头开始寻找第一个达标账号，属于优先顺序，并非环形轮换；#12 的 RoundRobin 在均衡使用候选账号上是可取的补充。当前分支已有多端目标和等待任务判断，但任务判断基于 transcript 文件最近活动与末行状态的启发式推断，不能视为可靠的任务完成信号。建议保留当前执行机制，按需要增加可选的环形候选顺序。
 
 ### #14 / #15：应用内更新
 
@@ -89,3 +91,9 @@ Mac 菜单栏改为 `NSMenu`，按照 CodexBar 的系统字体、细进度条和
 旧 CI 的 Mac 发布契约仍查找已删除的汉化文案，Linux UI 测试仍按六分类/手动保存验收；已更新到当前产品行为。旧失败不能作为当前提交通过的证据。PR 保持草稿，新的跨平台 CI 结果单独查看；本机 Mac 通过也不自动证明 Windows/Linux 原生 GUI。
 
 `832b9a5e` 的 Mac、Windows 构建及三端 release CLI / 打包通过，Ubuntu build 的浏览器用例有 8 项失败：7 项旧菜单契约和 1 项聚合设置控件缺失。其对应的新控件、紧凑面板与浏览器用例现已一起提交到 `e977a854`，本地全套 17 项通过；应以新 head 的 CI 结果验收，不能沿用上一提交的成功项。
+
+## 后续功能顺序（用户 2026-10-05 意向）
+
+- #18 可以考虑接入现有首页；先修正模型定价与未知费用状态，让总费用、明细与环形图使用同一份计算结果。
+- #15 延后到其他功能收尾之后处理。
+- #12 尚未决定引入；当前需要区分候选账号顺序和换号执行机制，不能笼统认定现有方案全面优于环形轮换。
