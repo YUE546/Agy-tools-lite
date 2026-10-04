@@ -575,8 +575,8 @@ impl Drop for RawTerminal {
     fn drop(&mut self) {
         unsafe {
             libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.orig);
-            print!("\x1b[?25h"); // Show cursor
-            let _ = io::stdout().flush();
+            let seq = b"\x1b[?25h";
+            let _ = libc::write(libc::STDOUT_FILENO, seq.as_ptr() as *const libc::c_void, seq.len());
         }
     }
 }
@@ -599,7 +599,7 @@ fn read_key_action() -> KeyAction {
     loop {
         match stdin.read(&mut byte) {
             Ok(1) => break,
-            Ok(0) => continue,
+            Ok(0) => return KeyAction::Cancel,
             _ => return KeyAction::Cancel,
         }
     }
@@ -679,14 +679,14 @@ pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize, lang
             let render = |sel: usize, first: bool| {
                 let mut out = io::stdout();
                 if !first {
-                    print!("\x1b[{}A", items.len() + 1);
+                    let _ = write!(out, "\x1b[{}A", items.len() + 1);
                 }
-                println!("\x1b[2K\r\x1b[1m{}\x1b[0m \x1b[90m{}\x1b[0m", title, hint);
+                let _ = writeln!(out, "\x1b[2K\r\x1b[1m{}\x1b[0m \x1b[90m{}\x1b[0m", title, hint);
                 for (i, item) in items.iter().enumerate() {
                     if i == sel {
-                        println!("\x1b[2K\r  \x1b[1;36m➤\x1b[0m \x1b[1m{}\x1b[0m", item);
+                        let _ = writeln!(out, "\x1b[2K\r  \x1b[1;36m➤\x1b[0m \x1b[1m{}\x1b[0m", item);
                     } else {
-                        println!("\x1b[2K\r    {}", item);
+                        let _ = writeln!(out, "\x1b[2K\r    {}", item);
                     }
                 }
                 let _ = out.flush();
@@ -973,14 +973,14 @@ pub fn select_account_interactive<'a>(
                 let total_lines = table_lines + 2;
 
                 if !initial {
-                    print!("\x1b[{}A", total_lines);
+                    let _ = write!(out, "\x1b[{}A", total_lines);
                 }
 
                 for line in table_str.lines() {
-                    println!("\x1b[2K\r{}", line);
+                    let _ = writeln!(out, "\x1b[2K\r{}", line);
                 }
-                println!("\x1b[2K\r\x1b[1m{}\x1b[0m", prompt_text);
-                print!("\x1b[2K\r");
+                let _ = writeln!(out, "\x1b[2K\r\x1b[1m{}\x1b[0m", prompt_text);
+                let _ = write!(out, "\x1b[2K\r");
                 let _ = out.flush();
             };
 
