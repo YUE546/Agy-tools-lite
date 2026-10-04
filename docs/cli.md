@@ -11,7 +11,7 @@ With a CLI-enabled macOS app installed, the bundled executable accepts the same 
 "/Applications/Antigravity Tools Lite.app/Contents/MacOS/antigravity-tools" accounts list --json
 ```
 
-The 4.7.9 [Homebrew cask](homebrew.md) installs `agy-switch` and the legacy `agy-lite` alias to this executable. See the linked installation guide for the public tap command.
+The 4.7.9 [Homebrew cask](homebrew.md) installs the `agy-switch` command to this executable. See the linked installation guide for the public tap command.
 
 For a local Rust build:
 

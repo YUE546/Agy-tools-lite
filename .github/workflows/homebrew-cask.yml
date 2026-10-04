@@ -43,7 +43,9 @@ jobs:
           ln -s "$GITHUB_WORKSPACE" "$TAP_PATH"
           brew readall "$TAP"
           brew fetch --cask "$TAP/antigravity-tools-lite"
-          VERSION="$(node -p "require('./package.json').version")"
+          # The app version can advance before its release is published. Validate
+          # the currently published cask, not the unreleased source version.
+          VERSION="$(node --input-type=module -e 'import { readFileSync } from "node:fs"; const match = readFileSync("Casks/antigravity-tools-lite.rb", "utf8").match(/^  version "(\d+\.\d+\.\d+)"$/m); if (!match) throw new Error("Invalid cask version"); process.stdout.write(match[1]);')"
           ARCHIVE="$RUNNER_TEMP/Antigravity-Tools-Lite-${VERSION}-macos-arm64.zip"
           cp "$(brew --cache --cask "$TAP/antigravity-tools-lite")" "$ARCHIVE"
           node scripts/generate-homebrew.mjs --archive "$ARCHIVE" \

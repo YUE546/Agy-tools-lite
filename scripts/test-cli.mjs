@@ -49,8 +49,6 @@ try {
   if (process.platform !== 'win32') {
     const linkSwitch = join(root, 'agy-switch'); symlinkSync(binary, linkSwitch);
     assert.match(run([], 0, linkSwitch).stdout, /Usage:/);
-    const legacy = join(root, 'agy-lite'); symlinkSync(binary, legacy);
-    assert.match(run([], 0, legacy).stdout, /Usage:/);
   }
   console.log(`${passed} CLI executable smoke checks passed; no GUI, network or credential changes`);
 } finally { rmSync(root, { recursive: true, force: true }); }
