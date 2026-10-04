@@ -185,3 +185,5 @@ Final Mac candidate verification: production frontend and arm64 release build pa
 The user requested no legacy Lite compatibility. The final 4.7.9 source and generated cask retain only `agy-switch`; the earlier alias acceptance records describe the superseded candidate. The final executable smoke suite has 14 checks.
 
 Homebrew CI previously used the source package version to regenerate an older published cask, preventing a version bump from being merged before publication. It now validates the published cask version, keeping real archive/checksum comparison intact. The release workflow separately verifies the new source version and generates the new cask from its actual package.
+
+CLI review also found remaining account-table, refresh and status labels describing the recorded selection as an active external identity. All now use Selected/当前选择, and the status section calls it a local record. Read-only CLI identity semantics remain unchanged.

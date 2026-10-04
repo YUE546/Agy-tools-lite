@@ -1063,8 +1063,8 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
             }
         } else if acc.is_current {
             match lang {
-                Lang::Zh => "\x1b[32m当前生效\x1b[0m",
-                Lang::En => "\x1b[32mActive\x1b[0m",
+                Lang::Zh => "\x1b[32m当前选择\x1b[0m",
+                Lang::En => "\x1b[32mSelected\x1b[0m",
             }
         } else {
             match lang {
@@ -1382,7 +1382,7 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
             Lang::Zh => (
                 "选择功能:",
                 vec![
-                    "1. 账号与配额    切换生效账号、查看各模型配额明细、修改备注与启停管理",
+                    "1. 账号与配额    切换账号、查看各模型配额明细、修改备注与启停管理",
                     "2. 用量统计      本地 Token 消耗、预期费用与模型排行",
                     "3. 刷新配额      联网同步 Google API 最新额度",
                     "4. 添加账号      通过 Google OAuth 授权绑定新账号",
@@ -1393,7 +1393,7 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
             Lang::En => (
                 "Select a section:",
                 vec![
-                    "1. Accounts & Quotas   Switch active account, inspect model quotas, edit labels & manage",
+                    "1. Accounts & Quotas   Switch account, inspect model quotas, edit labels & manage",
                     "2. Statistics          Local token usage, estimated cost & model rankings",
                     "3. Refresh             Fetch live quotas from Google API",
                     "4. Add Account         Authorize new Google account via OAuth",
@@ -1448,8 +1448,8 @@ fn select_account_hub_action(
             let _ = stdout.flush();
 
             let note = match lang {
-                Lang::Zh => "* 标注为当前生效账号",
-                Lang::En => "* indicates active account",
+                Lang::Zh => "* 标注为当前选择账号",
+                Lang::En => "* marks the locally selected account",
             };
             let prompt_text = match lang {
                 Lang::Zh => "操作: (↑/↓ 移动  |  回车 切换  |  V 详情  |  R 备注  |  T 启/禁  |  X 删除  |  Esc/0 返回)",
@@ -1793,8 +1793,8 @@ fn show_single_account_quota(acc: &AccountView, lang: Lang) {
         }
     } else if acc.is_current {
         match lang {
-            Lang::Zh => "\x1b[32m当前生效\x1b[0m",
-            Lang::En => "\x1b[32mActive\x1b[0m",
+            Lang::Zh => "\x1b[32m当前选择\x1b[0m",
+            Lang::En => "\x1b[32mSelected\x1b[0m",
         }
     } else {
         match lang {
@@ -2161,7 +2161,7 @@ fn show_refresh_quotas(root: &Path, lang: Lang) {
             Lang::Zh => (
                 "选择刷新方式:",
                 vec![
-                    "1. 刷新当前生效账号配额",
+                    "1. 刷新当前选择账号配额",
                     "2. 批量刷新全部账号 (并发执行)",
                     "3. 选择指定账号刷新",
                     "0. 返回主菜单",
@@ -2170,7 +2170,7 @@ fn show_refresh_quotas(root: &Path, lang: Lang) {
             Lang::En => (
                 "Select Refresh Mode:",
                 vec![
-                    "1. Refresh active account quota",
+                    "1. Refresh selected account quota",
                     "2. Batch refresh all accounts (concurrent)",
                     "3. Select specific account to refresh",
                     "0. Back to main menu",
@@ -2184,8 +2184,8 @@ fn show_refresh_quotas(root: &Path, lang: Lang) {
             Some(0) => {
             print!("\x1b[2J\x1b[H");
             let sub_title = match lang {
-                Lang::Zh => "刷新当前生效账号配额",
-                Lang::En => "Refresh Active Account Quota",
+                Lang::Zh => "刷新当前选择账号配额",
+                Lang::En => "Refresh Selected Account Quota",
             };
             println!("\x1b[1m{}\x1b[0m\n", sub_title);
 
@@ -2193,8 +2193,8 @@ fn show_refresh_quotas(root: &Path, lang: Lang) {
                 Ok(c) => c,
                 Err(_) => {
                     let msg = match lang {
-                        Lang::Zh => "\x1b[33m当前尚未设置生效账号，请使用 [3] 指定账号刷新。\x1b[0m",
-                        Lang::En => "\x1b[33mNo active account set. Use [3] to select an account.\x1b[0m",
+                        Lang::Zh => "\x1b[33m当前尚未选择账号，请使用 [3] 指定账号刷新。\x1b[0m",
+                        Lang::En => "\x1b[33mNo account selected. Use [3] to select an account.\x1b[0m",
                     };
                     println!("{}", msg);
                     wait_for_key(lang);
@@ -2703,7 +2703,7 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
             vec!["AntiGravity 桌面应用".into(), app_status.into(), app_path_str],
             vec!["AntiGravity IDE / VS Code 插件".into(), ide_status.into(), ide_details.into()],
             vec!["本地数据存储".into(), "正常".into(), storage_status],
-            vec!["当前生效账号".into(), "生效".into(), active_info],
+            vec!["当前选择账号".into(), "本地记录".into(), active_info],
             vec![
                 "命令行工具".into(),
                 format!("v{}", env!("CARGO_PKG_VERSION")),
@@ -2714,7 +2714,7 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
             vec!["AntiGravity Desktop App".into(), app_status.into(), app_path_str],
             vec!["AntiGravity IDE / VS Code Plugin".into(), ide_status.into(), ide_details.into()],
             vec!["Local Data Storage".into(), "Normal".into(), storage_status],
-            vec!["Active Account".into(), "Active".into(), active_info],
+            vec!["Selected Account".into(), "Local record".into(), active_info],
             vec![
                 "CLI Binary".into(),
                 format!("v{}", env!("CARGO_PKG_VERSION")),
