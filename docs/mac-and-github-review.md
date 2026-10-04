@@ -189,3 +189,9 @@ Homebrew CI previously used the source package version to regenerate an older pu
 CLI review also found remaining account-table, refresh and status labels describing the recorded selection as an active external identity. All now use Selected/当前选择, and the status section calls it a local record. Read-only CLI identity semantics remain unchanged.
 
 The final Linux native run exposed a route-mount race: the harness clicked Settings then queried its category immediately. Earlier runs passed by timing. Native clicks now wait for a visible, enabled element before using WebDriver, while retaining all screenshot/IPC assertions and the 30-second failure bound. This is a harness readiness fix, not a skipped GUI check.
+
+## Main integration and public 4.7.9
+
+PR #22 merged at `4876f7e7`; contributor PRs #12, #15 and #18 are merged with original history retained. The final installed local Mac app is version 4.7.9, arm64, release UUID `9FE410C8-DD42-3CA4-9C46-D32298865A5B`, with 14 executable CLI checks and final real PTY navigation/masked-input cancellation. Main first-party Chinese/English content was reviewed; OS-owned application menus retain system-provided labels. No complete OS-menu localization claim is made.
+
+The final Linux native CI passed all six captures after the route-readiness fix; Windows GUI remained blocked. Public v4.7.9 assets and their generated Brew cask match all downloaded hashes. Actual Brew upgrade/reinstall preserved twelve existing JSON files and removed the legacy alias. Quarantined Brew CLI launch timed out and Gatekeeper rejected it, separately from valid strict signature integrity in Applications and 14 passing public-ZIP CLI checks. [Public acceptance](release-notes/4.7.9-public-acceptance.md) records the draft publication retry and platform limits.

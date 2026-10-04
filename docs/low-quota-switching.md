@@ -1,22 +1,22 @@
-# Low-quota account switching
+# Smart account switching
 
-This opt-in feature prepares a permitted backup account when the selected model's remaining quota reaches the reserve threshold. It changes credentials **only after all detected Antigravity APP, IDE, and agy processes have exited**. It never sends Stop, kills a process, restarts a client, replays a tool, or submits a continuation message.
+This opt-in feature selects a permitted backup when monitored quota reaches the reserve threshold. Its activity observations, client-close attempts and credential checks are separate steps: inactivity does not prove that every task has finished. Depending on the target and mode, it may close a client or attempt to interrupt a VS Code task. It does not migrate running work, replay tools or submit continuation messages.
 
 ## Setup and the two modes
 
-Open **Settings → Low-quota account switching**. Choose an actual model from the account quota data, the reserve threshold (default 10%), the minimum eligible backup quota (default 30%), and up to ten allowed accounts. Turn the feature on and save. It is off by default, including on upgrades. The original quota-protection setting is separate.
+Open **Settings → Auto Switch Policy**. Choose a model or family scope, the reserve threshold (default 10%), the minimum backup quota (default 30%) and allowed candidate accounts. Choose priority order or round robin; drag selected accounts or use their keyboard sorting controls to change the order. Settings save automatically. The feature is off by default; the original quota-protection setting is separate.
 
-- **Switch after tasks finish:** Let the tasks and background work finish, then quit Antigravity and agy normally. Keep Tools Lite running; it completes the pending switch after observing that the clients are closed.
-- **Stop first, then switch:** Use the client's native Stop/cancellation control, verify that background work has ended, then quit the clients normally. The instructions button only provides guidance; it does not stop anything. Tools Lite then uses the same safe credential-update path.
+- **Wait for detected inactivity:** Recent transcript/activity observations delay the switch; once no recent work is detected, the tool attempts to close the affected client and update credentials. This is a heuristic, not a task-completion guarantee.
+- **Switch at the threshold:** The tool attempts to close the affected client or interrupt a VS Code task before updating credentials. Running work may be interrupted.
 
-After **Account ready; takes effect when you reopen the client**, open the client, verify the signed-in account, open the original conversation from history, and continue manually. There is no claim that a running command or model generation has migrated to another account. A ten-percent reserve is a trigger, not a guarantee that a long task can finish within that balance.
+After completion, reopen the client if necessary, verify the signed-in account, open the original conversation from history and continue manually. There is no claim that a running command or model generation has migrated to another account. A ten-percent reserve is a trigger, not a guarantee that a long task can finish within that balance.
 
 **Cancel this switch** suppresses another attempt for that source account until its quota recovers to the configured backup minimum. Saving the settings clears the cancellation. Cancellations survive application restart. A failed or uncertain credential commit pauses automatic attempts until the settings are saved again; inspect both clients first.
 
 ## Eligibility and safety
 
-- Only explicitly selected backup accounts are considered. Selection follows the configured account order and skips the current account.
-- The monitored model must be present in the account's available models. Known provider bucket IDs are used, not translated display labels. Weekly and five-hour limits are both checked; weekly-only FREE accounts are supported. Unsupported/missing bucket information blocks switching instead of guessing.
+- Only explicitly selected candidates are considered. Priority picks the first eligible candidate; round robin starts after the current account in that same list, wraps and skips the current account. Disabled, forbidden and validation-blocked accounts are excluded.
+- Known provider bucket IDs are used, not translated display labels. The current policy uses the five-hour bucket together with the model percentage; weekly-only FREE accounts use their weekly data. Bucket metadata and reset times must still be valid. Unsupported or missing information blocks switching instead of inventing quota.
 - Quota data older than three minutes, invalid/reset-expired data, refresh failures, disabled accounts, and validation-blocked accounts are not eligible. A reset deadline alone is not treated as quota recovery.
 - The Rust coordinator runs independently of the visible settings page. Routine per-account refreshes are limited to once a minute; explicit checks retain a ten-second floor. Backup quotas are refreshed only when the source reaches the threshold.
 - Config, cancellation, source identity, target eligibility, quota freshness and process observations are revalidated. The credential commit uses the same in-process and cross-process switch locks as the Tools Lite CLI.
@@ -28,7 +28,7 @@ After **Account ready; takes effect when you reopen the client**, open the clien
 
 `~/.antigravity_tools/auto_switch.json` stores this feature's settings separately from general UI preferences. `auto_switch_state.json` stores only cancellation/failure state, with no tokens, email addresses, prompts or conversation content. An in-progress credential commit is journaled before writing so that a crash cannot cause an unattended retry. Pending process observations are never trusted across restart.
 
-No task-observation Hooks are installed, no permission settings are changed, and no extra network listener is started. Closing an application is currently the required handoff boundary; task completion cannot be inferred simply because output or CPU activity stops.
+No task-observation Hooks are installed, no permission settings are changed and no extra network listener is started. Activity detection cannot confirm completion of every external task. Most targets require the detected clients to be closed before credential commit; the VS Code target has a separate interruption/in-place path. Conversation preservation and uninterrupted continuation are not guaranteed.
 
 ## Verification
 

@@ -116,3 +116,9 @@ Windows native GUI remains blocked, separately from passing release CLI checks.
 The [integrated Build run](https://github.com/anglee0323/antigravity-tools-lite/actions/runs/36930452189) checked out `6896ce61ea25ac402a12db0098e631b0fe45462d`, including all product changes and version 4.7.7. Its Linux report records `passed: true`, six visually reviewed native Tauri/WebKitGTK captures, successful real IPC/theme/viewport checks, and completed app exit/cleanup. Normal viewports are 1024 × 700; narrow Settings viewports are 760 × 900, not full-page images.
 
 The Windows report at the same source/checkout SHA records `status: blocked`, `passed: false`, no app launch and no screenshots. macOS package/CLI checks passed, but no native Mac GUI acceptance is implied. Selected unchanged images and browser-preview labels are preserved with hashes in the [screenshot sources](screenshots/4.7.7/README.md).
+
+## Integrated 4.7.9 test build
+
+The [final Build run](https://github.com/anglee0323/antigravity-tools-lite/actions/runs/37233892799) checked out `5be961d3149be5f80bdd4b39b51b4a4020dea4cd`. Linux passed all six native Tauri/WebKitGTK viewport captures, real IPC, persisted themes, narrow layouts and cleanup. A route-mount race was fixed by waiting for a visible, enabled element before native clicks, retaining the original assertions and failure timeout. Four unchanged, visually inspected captures are in [4.7.9 screenshot sources](screenshots/4.7.9/README.md).
+
+Windows still records `status: blocked`, no app launch and no screenshots, independently of passing package and one-line CLI checks. Installed-package, real-account and Mac login/multiple-display acceptance remain separate.
