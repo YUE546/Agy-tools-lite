@@ -55,6 +55,7 @@ fn save_config_at(path: &Path, config: &AppConfig) -> Result<(), String> {
     // settings saves preserve current disk values if their UI snapshot is stale.
     let current = read_config_unlocked(path)?.unwrap_or_default();
     next.desktop = current.desktop;
+    next.menu_bar = current.menu_bar;
     write_config_unlocked(path, &next)
 }
 
@@ -83,9 +84,48 @@ pub fn set_saved_desktop_preferences(preferences: &DesktopPreferences) -> Result
     set_desktop_preferences_at(&get_data_dir()?.join(CONFIG_FILE), preferences)
 }
 
+pub fn set_menu_bar_preferences(
+    scope: crate::models::config::MenuBarQuotaScope,
+) -> Result<crate::models::config::MenuBarPreferences, String> {
+    set_menu_bar_preferences_at(&get_data_dir()?.join(CONFIG_FILE), scope)
+}
+
+fn set_menu_bar_preferences_at(
+    path: &Path,
+    scope: crate::models::config::MenuBarQuotaScope,
+) -> Result<crate::models::config::MenuBarPreferences, String> {
+    let _guard = lock_config()?;
+    let mut config = read_config_unlocked(path)?.unwrap_or_default();
+    config.menu_bar.quota_scope = scope;
+    write_config_unlocked(path, &config)?;
+    Ok(config.menu_bar)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_bar_scope_survives_stale_settings_and_preserves_desktop_preferences() {
+        use crate::models::config::MenuBarQuotaScope;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(CONFIG_FILE);
+        let mut stale = load_config_at(&path).unwrap();
+        assert_eq!(stale.menu_bar.quota_scope, MenuBarQuotaScope::All);
+        set_desktop_preferences_at(&path, &DesktopPreferences {
+            launch_at_login: true, hide_dock_icon: true, start_minimized: true,
+        }).unwrap();
+        set_menu_bar_preferences_at(&path, MenuBarQuotaScope::Gemini).unwrap();
+        stale.language = "en".into();
+        save_config_at(&path, &stale).unwrap();
+        let saved = load_config_at(&path).unwrap();
+        assert_eq!(saved.menu_bar.quota_scope, MenuBarQuotaScope::Gemini);
+        assert!(saved.desktop.launch_at_login);
+        assert_eq!(saved.language, "en");
+        set_menu_bar_preferences_at(&path, MenuBarQuotaScope::Other).unwrap();
+        set_desktop_preferences_at(&path, &DesktopPreferences::default()).unwrap();
+        assert_eq!(load_config_at(&path).unwrap().menu_bar.quota_scope, MenuBarQuotaScope::Other);
+    }
 
     #[test]
     fn new_configuration_persists_defaults_without_recursive_locking() {

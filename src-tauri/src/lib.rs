@@ -290,6 +290,8 @@ pub fn run() {
             modules::desktop::quit_app,
             commands::list_accounts,
             commands::get_account_dashboard_snapshot,
+            commands::get_menu_bar_snapshot,
+            commands::set_menu_bar_preferences,
             commands::add_account,
             commands::delete_account,
             commands::delete_accounts,

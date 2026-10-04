@@ -48,7 +48,7 @@ jobs:
         run: npm run build
 
       - name: Test menu-bar quota presentation
-        run: node scripts/test-menubar-logic.mjs && node scripts/test-account-dashboard.mjs
+        run: node scripts/test-menubar-logic.mjs && node scripts/test-menubar-overview.mjs && node scripts/test-account-dashboard.mjs
 
       - name: Test settings category component contracts
         run: node scripts/test-settings-layout.mjs

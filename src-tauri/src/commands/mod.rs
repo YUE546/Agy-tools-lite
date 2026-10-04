@@ -19,6 +19,35 @@ pub async fn get_account_dashboard_snapshot(
         .map_err(|_| "dashboard_task_failed".to_string())?
 }
 
+/// Resolve the running App identity without exposing credentials or selecting
+/// the first saved account when identity discovery fails.
+#[tauri::command]
+pub async fn get_menu_bar_snapshot(
+) -> Result<modules::account_dashboard::DashboardSnapshot, String> {
+    tokio::task::spawn_blocking(|| {
+        let mut snapshot = modules::account_dashboard::snapshot()?;
+        #[cfg(target_os = "macos")]
+        {
+            let config = modules::load_app_config()?;
+            modules::account_dashboard::apply_running_identity(&mut snapshot,
+                modules::app_identity::running_email(config.antigravity_executable.as_deref()));
+        }
+        Ok(snapshot)
+    }).await.map_err(|_| "dashboard_task_failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn set_menu_bar_preferences(
+    app: tauri::AppHandle,
+    quota_scope: crate::models::config::MenuBarQuotaScope,
+) -> Result<crate::models::config::MenuBarPreferences, String> {
+    let preferences = tokio::task::spawn_blocking(move || modules::config::set_menu_bar_preferences(quota_scope))
+        .await.map_err(|_| "settings_task_failed".to_string())??;
+    app.emit("menubar://preferences-updated", &preferences).map_err(|e| e.to_string())?;
+    app.emit("config://updated", ()).map_err(|e| e.to_string())?;
+    Ok(preferences)
+}
+
 /// 添加账号
 #[tauri::command]
 pub async fn add_account(

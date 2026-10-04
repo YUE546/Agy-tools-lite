@@ -4,6 +4,11 @@ export interface DesktopPreferences {
     start_minimized: boolean;
 }
 
+export type MenuBarQuotaScope = 'all' | 'gemini' | 'other';
+export interface MenuBarPreferences {
+    quota_scope: MenuBarQuotaScope;
+}
+
 export interface QuotaProtectionConfig {
     enabled: boolean;
     threshold_percentage: number;
@@ -16,6 +21,7 @@ export interface PinnedQuotaModelsConfig {
 
 export interface AppConfig {
     desktop?: DesktopPreferences;
+    menu_bar?: MenuBarPreferences;
     language: string;
     theme: string;
     auto_refresh: boolean;

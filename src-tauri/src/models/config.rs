@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct AppConfig {
     pub desktop: DesktopPreferences,
+    pub menu_bar: MenuBarPreferences,
     pub language: String,
     pub theme: String,
     pub auto_refresh: bool,
@@ -25,6 +26,21 @@ pub struct DesktopPreferences {
     pub launch_at_login: bool,
     pub hide_dock_icon: bool,
     pub start_minimized: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MenuBarQuotaScope {
+    #[default]
+    All,
+    Gemini,
+    Other,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MenuBarPreferences {
+    pub quota_scope: MenuBarQuotaScope,
 }
 
 /// Quota protection configuration
@@ -101,6 +117,7 @@ impl AppConfig {
     pub fn new() -> Self {
         Self {
             desktop: DesktopPreferences::default(),
+            menu_bar: MenuBarPreferences::default(),
             language: crate::modules::i18n::default_language(),
             theme: "system".to_string(),
             auto_refresh: true,
