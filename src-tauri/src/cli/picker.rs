@@ -153,7 +153,7 @@ impl Table {
 
     pub fn render(&self) -> String {
         let term_w = get_terminal_width();
-        let max_w = term_w.saturating_sub(2).min(78).max(40);
+        let max_w = term_w.saturating_sub(2).max(40);
         self.render_with_max_width(max_w)
     }
 
@@ -317,6 +317,7 @@ pub(crate) fn quota_brief(quota: Option<&QuotaView>, lang: Lang) -> String {
     String::new()
 }
 
+#[allow(dead_code)]
 pub(crate) fn format_countdown_compact(reset_time_str: &str, lang: Lang) -> String {
     if reset_time_str.is_empty() {
         return String::new();
@@ -336,6 +337,43 @@ pub(crate) fn format_countdown_compact(reset_time_str: &str, lang: Lang) -> Stri
                 format!("{}h", hours)
             } else {
                 format!("{}m", mins.max(1))
+            }
+        }
+    } else {
+        String::new()
+    }
+}
+
+pub(crate) fn format_quota_countdown(reset_time_str: &str, lang: Lang) -> String {
+    if reset_time_str.is_empty() {
+        return String::new();
+    }
+    if let Ok(reset_dt) = chrono::DateTime::parse_from_rfc3339(reset_time_str) {
+        let now = chrono::Utc::now();
+        let diff = reset_dt.signed_duration_since(now.with_timezone(&reset_dt.timezone()));
+        if diff.num_seconds() <= 0 {
+            match lang {
+                Lang::Zh => "已重置".to_string(),
+                Lang::En => "Ready".to_string(),
+            }
+        } else {
+            let hours = diff.num_hours();
+            let mins = diff.num_minutes() % 60;
+            match lang {
+                Lang::Zh => {
+                    if hours > 0 {
+                        format!("{}小时", hours)
+                    } else {
+                        format!("{}分钟", mins.max(1))
+                    }
+                }
+                Lang::En => {
+                    if hours > 0 {
+                        format!("{}h", hours)
+                    } else {
+                        format!("{}m", mins.max(1))
+                    }
+                }
             }
         }
     } else {
@@ -725,25 +763,33 @@ pub fn select_menu_interactive(title: &str, items: &[&str], initial: usize, lang
 
 fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Option<usize>) -> Table {
     let headers = match lang {
-        Lang::Zh => vec!["#", "账号 (备注)", "Gemini", "Claude/GPT", "状态"],
-        Lang::En => vec!["#", "Account (Label)", "Gemini", "Claude/GPT", "Status"],
+        Lang::Zh => vec!["邮箱", "备注", "Gemini", "Claude/GPT", "状态"],
+        Lang::En => vec!["Account / Email", "Label", "Gemini", "Claude/GPT", "Status"],
     };
     let mut table = Table::new(headers);
 
     for (i, acc) in accounts.iter().enumerate() {
         let is_selected = selected_idx == Some(i);
-        let prefix = if is_selected {
-            format!("➤{}", i + 1)
+        let prefix = if accounts.len() >= 10 {
+            if is_selected {
+                format!("➤{:>2}. ", i + 1)
+            } else {
+                format!(" {:>2}. ", i + 1)
+            }
         } else {
-            format!(" {}", i + 1)
+            if is_selected {
+                format!("➤{}. ", i + 1)
+            } else {
+                format!(" {}. ", i + 1)
+            }
         };
 
-        let label = match &acc.custom_label {
-            Some(l) if !l.trim().is_empty() => format!(" ({})", l.trim()),
-            _ => String::new(),
-        };
         let cur = if acc.is_current { " *" } else { "" };
-        let display_name = format!("{}{}{}", acc.email, label, cur);
+        let email_text = format!("{}{}{}", prefix, acc.email, cur);
+        let label_text = match &acc.custom_label {
+            Some(l) if !l.trim().is_empty() => l.trim().to_string(),
+            _ => "-".to_string(),
+        };
 
         let mut gemini_quota = match lang {
             Lang::Zh => "暂无".to_string(),
@@ -793,20 +839,23 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
                     };
 
                     let pct = (chosen_b.remaining_fraction * 100.0).round() as i32;
-                    let cd = format_countdown_compact(&chosen_b.reset_time, lang);
+                    let cd = format_quota_countdown(&chosen_b.reset_time, lang);
                     let tag = if is_weekly {
                         match lang {
-                            Lang::Zh => "周",
-                            Lang::En => "Wk",
+                            Lang::Zh => "周配额",
+                            Lang::En => "Weekly",
                         }
                     } else {
-                        "5h"
+                        match lang {
+                            Lang::Zh => "5小时配额",
+                            Lang::En => "5-Hour",
+                        }
                     };
 
                     let text = if cd.is_empty() || pct >= 100 {
                         format!("{}%", pct)
                     } else {
-                        format!("{}% ({}: {})", pct, tag, cd)
+                        format!("{}% ({} · {})", pct, tag, cd)
                     };
                     if g.display_name.contains("Gemini") {
                         gemini_quota = text;
@@ -847,15 +896,18 @@ fn build_accounts_table(accounts: &[AccountView], lang: Lang, selected_idx: Opti
             }
         };
 
-        let row_display_name = if is_selected {
-            format!("\x1b[1;36m{}\x1b[0m", display_name)
+        let (row_email, row_label) = if is_selected {
+            (
+                format!("\x1b[1;36m{}\x1b[0m", email_text),
+                format!("\x1b[1;36m{}\x1b[0m", label_text),
+            )
         } else {
-            display_name
+            (email_text, label_text)
         };
 
         table.add_row(vec![
-            prefix,
-            row_display_name,
+            row_email,
+            row_label,
             gemini_quota,
             claude_quota,
             status.to_string(),
@@ -1335,11 +1387,17 @@ fn show_quota_details(snapshot: &Snapshot, lang: Lang) {
         let notes = match lang {
             Lang::Zh => [
                 "* 标注为当前生效账号",
-                "说明: 括号内标注重置时间，(周: 98h) 为7天周配额重置倒计时，(5h: 4h) 为5小时滚动窗口倒计时",
+                "说明: 配额显示当前最具约束力的瓶颈余量（周配额为7天总量控制，5小时配额为高频突发限制）：",
+                "      ·「5小时配额」: 近期使用频繁，受 5 小时滚动窗口限制（显示 5 小时内恢复倒计时）",
+                "      ·「周配额」: 5小时配额已满，受每周总额度限制（显示周重置倒计时）",
+                "      · 选择下方对应数字序号，可查看该账号每个具体模型的详细配额与进度条",
             ],
             Lang::En => [
                 "* indicates active account",
-                "Note: In parentheses: (Wk: 98h) = 7-day weekly reset countdown, (5h: 4h) = 5-hour rolling reset",
+                "Note: Quotas display active bottleneck between Weekly (7-day) and 5-Hour rolling limits:",
+                "      · '5-Hour': Constrained by recent burst usage (resets within 5 hours)",
+                "      · 'Weekly': 5-hour pool full, constrained by weekly cap (resets weekly)",
+                "      · Select account number below to inspect granular models and progress bars",
             ],
         };
         for n in notes {
