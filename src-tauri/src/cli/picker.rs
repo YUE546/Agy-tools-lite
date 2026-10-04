@@ -560,8 +560,8 @@ impl RawTerminal {
             let mut raw = orig;
             libc::cfmakeraw(&mut raw);
             raw.c_oflag |= libc::OPOST | libc::ONLCR;
-            raw.c_cc[libc::VMIN] = 1;
-            raw.c_cc[libc::VTIME] = 0;
+            raw.c_cc[libc::VMIN] = 0;
+            raw.c_cc[libc::VTIME] = 1; // 100ms
             if libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw) != 0 {
                 return None;
             }
@@ -596,9 +596,12 @@ fn read_key_action() -> KeyAction {
     let mut byte = [0u8; 1];
     let mut stdin = io::stdin();
 
-    match stdin.read(&mut byte) {
-        Ok(1) => {}
-        _ => return KeyAction::Cancel,
+    loop {
+        match stdin.read(&mut byte) {
+            Ok(1) => break,
+            Ok(0) => continue,
+            _ => return KeyAction::Cancel,
+        }
     }
 
     match byte[0] {
@@ -609,25 +612,18 @@ fn read_key_action() -> KeyAction {
         b'0' => KeyAction::Char('0'),
         b'1'..=b'9' => KeyAction::SelectIndex((byte[0] - b'1') as usize),
         b'\x1b' => {
-            let mut pfd = libc::pollfd {
-                fd: libc::STDIN_FILENO,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            let ret = unsafe { libc::poll(&mut pfd, 1, 50) };
-            if ret > 0 && (pfd.revents & libc::POLLIN != 0) {
-                let mut seq = [0u8; 2];
-                if stdin.read_exact(&mut seq[0..1]).is_ok() && seq[0] == b'[' {
-                    if stdin.read_exact(&mut seq[1..2]).is_ok() {
-                        return match seq[1] {
-                            b'A' => KeyAction::Up,
-                            b'B' => KeyAction::Down,
-                            _ => KeyAction::None,
-                        };
-                    }
-                }
+            let mut seq = [0u8; 2];
+            match stdin.read(&mut seq[0..1]) {
+                Ok(1) if seq[0] == b'[' || seq[0] == b'O' => match stdin.read(&mut seq[1..2]) {
+                    Ok(1) => match seq[1] {
+                        b'A' => KeyAction::Up,
+                        b'B' => KeyAction::Down,
+                        _ => KeyAction::None,
+                    },
+                    _ => KeyAction::Cancel,
+                },
+                _ => KeyAction::Cancel,
             }
-            KeyAction::Cancel
         }
         b => KeyAction::Char(b as char),
     }
@@ -974,7 +970,7 @@ pub fn select_account_interactive<'a>(
                 let mut out = io::stdout();
                 let table_str = build_accounts_table(accounts, lang, Some(sel)).render();
                 let table_lines = table_str.lines().count();
-                let total_lines = table_lines + 2;
+                let total_lines = table_lines + 1;
 
                 if !initial {
                     let _ = write!(out, "\x1b[{}A", total_lines);
