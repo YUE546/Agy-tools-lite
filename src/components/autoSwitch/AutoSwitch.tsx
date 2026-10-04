@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeftRight, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Account } from '../../types/account';
-import { AutoSwitchConfig, AutoSwitchStatus } from '../../types/autoSwitch';
+import { AutoSwitchConfig, AutoSwitchStatus, AutoSwitchTarget } from '../../types/autoSwitch';
 import * as service from '../../services/autoSwitchService';
 import { listAccounts, getCurrentAccount } from '../../services/accountService';
 import { isTauri } from '../../utils/env';
 
 const PRIMARY_BUTTON = 'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-blue-600 bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:border-slate-700 dark:disabled:bg-slate-800 dark:disabled:text-slate-500';
 const SECONDARY_BUTTON = 'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800';
-const FIELD = 'h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100';
+const FIELD = 'h-10 w-full rounded-lg border border-slate-300 bg-white px-3 pr-8 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100';
 
 function useStatus() {
     const [status, setStatus] = useState<AutoSwitchStatus | null>(null);
@@ -119,20 +119,106 @@ export function AutoSwitchSettings() {
                 </label>)}
             </div>
             <div className="my-5 grid gap-4 sm:grid-cols-2">
-                <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.target')}</span><select aria-label={t('auto_switch.target')} className={FIELD} disabled={busy} value={draft.target} onChange={e => patch({ target: e.target.value as 'app' | 'ide' })}><option value="app">{t('auto_switch.target_app')}</option><option value="ide">{t('auto_switch.target_ide')}</option></select></label>
-                <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.model')}</span><select aria-label={t('auto_switch.model')} className={FIELD} disabled={busy} value={draft.monitored_model || 'all'} onChange={e => patch({ monitored_model: e.target.value })}><option value="all">{t('auto_switch.all_models')}</option><option value="gemini">{t('auto_switch.model_gemini')}</option><option value="claude">{t('auto_switch.model_claude')}</option></select></label>
-                <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.reserve')}</span><input aria-label={t('auto_switch.reserve')} className={FIELD} type="number" min={1} max={98} step={1} disabled={busy} value={draft.reserve_percentage} onChange={e => patch({ reserve_percentage: Number(e.target.value) })} /></label>
-                <label className="space-y-2 text-xs text-slate-600 dark:text-slate-300"><span className="block">{t('auto_switch.candidate_min')}</span><input aria-label={t('auto_switch.candidate_min')} className={FIELD} type="number" min={draft.reserve_percentage + 1} max={100} step={1} disabled={busy} value={draft.candidate_min_percentage} onChange={e => patch({ candidate_min_percentage: Number(e.target.value) })} /></label>
+                <div className="space-y-1.5">
+                    <label htmlFor="auto-switch-target" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
+                        {t('auto_switch.target')}
+                    </label>
+                    <select
+                        id="auto-switch-target"
+                        aria-label={t('auto_switch.target')}
+                        className={FIELD}
+                        disabled={busy}
+                        value={draft.target === 'all' ? 'app' : draft.target}
+                        onChange={e => patch({ target: e.target.value as AutoSwitchTarget })}
+                    >
+                        <option value="app">{t('auto_switch.target_all')}</option>
+                        <option value="app_cli">{t('auto_switch.target_app_cli')}</option>
+                        <option value="ide">{t('auto_switch.target_ide')}</option>
+                    </select>
+                    <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+                        {draft.target === 'ide'
+                            ? t('auto_switch.target_hint_ide')
+                            : draft.target === 'app_cli'
+                            ? t('auto_switch.target_hint_app_cli')
+                            : t('auto_switch.target_hint_all')}
+                    </p>
+                </div>
+                <div className="space-y-1.5">
+                    <label htmlFor="auto-switch-model" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
+                        {t('auto_switch.model')}
+                    </label>
+                    <select
+                        id="auto-switch-model"
+                        aria-label={t('auto_switch.model')}
+                        className={FIELD}
+                        disabled={busy}
+                        value={draft.monitored_model || 'all'}
+                        onChange={e => patch({ monitored_model: e.target.value })}
+                    >
+                        <option value="all">{t('auto_switch.all_models')}</option>
+                        <option value="gemini">{t('auto_switch.model_gemini')}</option>
+                        <option value="claude">{t('auto_switch.model_claude')}</option>
+                    </select>
+                    <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+                        {draft.monitored_model === 'gemini'
+                            ? t('auto_switch.model_gemini_hint')
+                            : draft.monitored_model === 'claude'
+                            ? t('auto_switch.model_claude_hint')
+                            : t('auto_switch.model_all_hint')}
+                    </p>
+                </div>
+                <div className="space-y-1.5">
+                    <label htmlFor="auto-switch-reserve" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
+                        {t('auto_switch.reserve')}
+                    </label>
+                    <input
+                        id="auto-switch-reserve"
+                        aria-label={t('auto_switch.reserve')}
+                        className={FIELD}
+                        type="number"
+                        min={1}
+                        max={98}
+                        step={1}
+                        disabled={busy}
+                        value={draft.reserve_percentage}
+                        onChange={e => patch({ reserve_percentage: Number(e.target.value) })}
+                    />
+                    <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+                        {t('auto_switch.reserve_hint')}
+                    </p>
+                </div>
+                <div className="space-y-1.5">
+                    <label htmlFor="auto-switch-candidate-min" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
+                        {t('auto_switch.candidate_min')}
+                    </label>
+                    <input
+                        id="auto-switch-candidate-min"
+                        aria-label={t('auto_switch.candidate_min')}
+                        className={FIELD}
+                        type="number"
+                        min={draft.reserve_percentage + 1}
+                        max={100}
+                        step={1}
+                        disabled={busy}
+                        value={draft.candidate_min_percentage}
+                        onChange={e => patch({ candidate_min_percentage: Number(e.target.value) })}
+                    />
+                    <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+                        {t('auto_switch.candidate_hint')}
+                    </p>
+                </div>
             </div>
         </>}
         </section>
         {draft && <><section className="rounded-2xl border border-gray-200/80 bg-white p-5 sm:p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900/80">
-            <fieldset className="space-y-2"><legend className="mb-2 text-sm font-medium">{t('auto_switch.accounts')}</legend><p className="mb-3 text-xs text-slate-500">{t('auto_switch.accounts_hint')}</p>
-                {!eligibleAccounts.length && <p className="text-xs text-amber-700">{t('auto_switch.no_accounts')}</p>}
-                <div className="grid max-h-52 gap-2 overflow-y-auto sm:grid-cols-2">{eligibleAccounts.map(a => <label key={a.id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700"><input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 rounded accent-blue-600" disabled={busy} checked={draft.candidate_account_ids.includes(a.id)} onChange={e => patch({ candidate_account_ids: e.target.checked ? [...draft.candidate_account_ids, a.id] : draft.candidate_account_ids.filter(id => id !== a.id) })} /><span className="min-w-0 break-all">{a.email}{a.id === currentId && <span className="ml-2 text-xs text-blue-500">{t('auto_switch.current')}</span>}</span></label>)}</div>
+            <fieldset className="space-y-2"><legend className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-200">{t('auto_switch.accounts')}</legend><p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{t('auto_switch.accounts_hint')}</p>
+                {!eligibleAccounts.length && <p className="text-xs text-amber-700 dark:text-amber-400">{t('auto_switch.no_accounts')}</p>}
+                <div className="grid max-h-52 gap-2 overflow-y-auto sm:grid-cols-2">{eligibleAccounts.map(a => <label key={a.id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm transition hover:bg-slate-50/60 dark:border-slate-700 dark:hover:bg-slate-800/40"><input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 rounded accent-blue-600" disabled={busy} checked={draft.candidate_account_ids.includes(a.id)} onChange={e => patch({ candidate_account_ids: e.target.checked ? [...draft.candidate_account_ids, a.id] : draft.candidate_account_ids.filter(id => id !== a.id) })} /><span className="min-w-0 break-all text-xs font-medium text-slate-700 dark:text-slate-200">{a.email}{a.id === currentId && <span className="ml-2 inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">{t('auto_switch.current')}</span>}</span></label>)}</div>
             </fieldset>
         </section>
-            <p className="mt-4 text-xs leading-relaxed text-amber-700 dark:text-amber-300">{t('auto_switch.safety_note')}</p>
+            <div className="mt-4 rounded-xl border border-amber-200/80 bg-amber-50/60 p-3.5 text-xs leading-relaxed text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                <p>{t('auto_switch.safety_note')}</p>
+            </div>
             <div className="my-4 flex items-center gap-3"><button className={PRIMARY_BUTTON} disabled={busy || invalid} onClick={save}>{t(busy ? 'auto_switch.saving' : 'auto_switch.save')}</button>{saved && <span role="status" className="text-xs text-emerald-600">{t('auto_switch.saved')}</span>}</div>
             {statusError && <p role="alert" className="text-xs text-red-600">{t(`auto_switch.${statusError}`)}</p>}
             {status && status.phase !== 'disabled' && <StatusBody status={status} />}

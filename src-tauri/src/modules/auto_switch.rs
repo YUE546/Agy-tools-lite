@@ -23,13 +23,17 @@ pub enum Mode {
 #[serde(rename_all = "snake_case")]
 pub enum Target {
     #[default]
+    #[serde(alias = "all")]
     App,
+    #[serde(alias = "desktop")]
+    AppCli,
     Ide,
 }
 impl Target {
     fn argument(self) -> Option<&'static str> {
         match self {
             Self::App => None,
+            Self::AppCli => Some("app"),
             Self::Ide => Some("ide"),
         }
     }
@@ -423,7 +427,7 @@ fn configured_client_path(path: &std::path::Path, configured: &std::path::Path) 
 /// through the status DTO. Any external sign-in mismatch invalidates the request.
 fn verify_source(source: &Account, target: Target) -> Result<(), &'static str> {
     let actual_refresh_token = match target {
-        Target::App => {
+        Target::App | Target::AppCli => {
             let v = installed_app_version()?;
             if version::compare_version(&v.short_version, "2.0.0") == std::cmp::Ordering::Less {
                 return Err("unsupported_client");
@@ -440,7 +444,7 @@ fn verify_source(source: &Account, target: Target) -> Result<(), &'static str> {
     if actual_refresh_token.is_empty() || actual_refresh_token != source.token.refresh_token {
         return Err("credentials_changed");
     }
-    if target == Target::App {
+    if target == Target::App || target == Target::AppCli {
         let home = dirs::home_dir().ok_or("credentials_changed")?;
         if let Some(path) =
             cli_credentials::session_path(&home).map_err(|_| "credentials_changed")?
@@ -603,16 +607,19 @@ impl Environment for NativeEnvironment {
     }
     fn write_credentials(&self, target: &Account, target_ide: Option<&str>) -> Result<(), String> {
         let is_ide_mode = target_ide == Some("ide");
+        let is_app_cli_mode = target_ide == Some("app");
         if !is_ide_mode {
             integration::write_to_system_keyring(target, false)?;
         }
 
-        if let Some(home) = dirs::home_dir() {
-            let gemini_dir = home.join(".gemini");
-            if gemini_dir.is_dir() {
-                let jetski_file = gemini_dir.join("jetski-standalone-oauth-token");
-                if let Ok(payload) = cli_credentials::payload(&target.token) {
-                    let _ = cli_credentials::write_session(&jetski_file, &payload);
+        if !is_app_cli_mode {
+            if let Some(home) = dirs::home_dir() {
+                let gemini_dir = home.join(".gemini");
+                if gemini_dir.is_dir() {
+                    let jetski_file = gemini_dir.join("jetski-standalone-oauth-token");
+                    if let Ok(payload) = cli_credentials::payload(&target.token) {
+                        let _ = cli_credentials::write_session(&jetski_file, &payload);
+                    }
                 }
             }
         }
@@ -623,7 +630,25 @@ impl Environment for NativeEnvironment {
             }
         }
 
-        let candidate_dbs = db::get_all_candidate_db_paths(target_ide);
+        let candidate_dbs = if is_app_cli_mode {
+            let mut paths = Vec::new();
+            #[cfg(target_os = "macos")]
+            if let Some(home) = dirs::home_dir() {
+                paths.push(home.join("Library/Application Support/Antigravity/User/globalStorage/state.vscdb"));
+            }
+            #[cfg(target_os = "windows")]
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                paths.push(std::path::PathBuf::from(appdata).join("Antigravity\\User\\globalStorage\\state.vscdb"));
+            }
+            #[cfg(target_os = "linux")]
+            if let Some(config_home) = crate::modules::linux_paths::config_home() {
+                paths.push(config_home.join("Antigravity/User/globalStorage/state.vscdb"));
+            }
+            paths
+        } else {
+            db::get_all_candidate_db_paths(target_ide)
+        };
+
         for db_path in candidate_dbs {
             if db_path.exists() {
                 let backup_path = db_path.with_extension("vscdb.backup");
@@ -1191,6 +1216,15 @@ mod tests {
         assert!(c.validate().is_err());
         c.candidate_account_ids = vec!["B".into(), "B".into()];
         assert!(c.validate().is_err());
+
+        assert_eq!(serde_json::from_str::<Target>("\"all\"").unwrap(), Target::App);
+        assert_eq!(serde_json::from_str::<Target>("\"app\"").unwrap(), Target::App);
+        assert_eq!(serde_json::from_str::<Target>("\"app_cli\"").unwrap(), Target::AppCli);
+        assert_eq!(serde_json::from_str::<Target>("\"desktop\"").unwrap(), Target::AppCli);
+        assert_eq!(serde_json::from_str::<Target>("\"ide\"").unwrap(), Target::Ide);
+        assert_eq!(Target::App.argument(), None);
+        assert_eq!(Target::AppCli.argument(), Some("app"));
+        assert_eq!(Target::Ide.argument(), Some("ide"));
     }
     #[test]
     fn considers_both_windows_and_provider_ids_not_labels() {

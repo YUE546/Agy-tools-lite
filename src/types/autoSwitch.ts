@@ -1,4 +1,5 @@
 export type AutoSwitchMode = 'wait' | 'stop';
+export type AutoSwitchTarget = 'app' | 'all' | 'app_cli' | 'ide';
 export interface AutoSwitchConfig {
     enabled: boolean;
     mode: AutoSwitchMode;
@@ -6,7 +7,7 @@ export interface AutoSwitchConfig {
     candidate_min_percentage: number;
     monitored_model: string;
     candidate_account_ids: string[];
-    target: 'app' | 'ide';
+    target: AutoSwitchTarget;
 }
 export interface AutoSwitchStatus {
     phase: 'disabled' | 'monitoring' | 'blocked' | 'pending' | 'canceled' | 'switching' | 'completed';

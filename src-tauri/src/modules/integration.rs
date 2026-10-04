@@ -111,12 +111,17 @@ impl DesktopIntegration {
 
         // 1. 智能检测运行中的进程，并安全关闭对应客户端
         let is_ide_mode = target_ide == Some("ide");
+        let is_app_cli_mode = target_ide == Some("app");
         let app_running = if is_ide_mode { false } else { process::is_antigravity_running(None) };
-        let ide_running = process::is_antigravity_running(Some("ide"));
+        let ide_running = if is_app_cli_mode { false } else { process::is_antigravity_running(Some("ide")) };
 
         if is_ide_mode {
             if ide_running {
                 process::close_antigravity(20, Some("ide"))?;
+            }
+        } else if is_app_cli_mode {
+            if app_running {
+                let _ = process::close_antigravity(20, None);
             }
         } else {
             if app_running {
@@ -134,12 +139,14 @@ impl DesktopIntegration {
         }
 
         // 2.2 写入 VS Code 插件专用凭据文件 (~/.gemini/jetski-standalone-oauth-token)
-        if let Some(home) = dirs::home_dir() {
-            let gemini_dir = home.join(".gemini");
-            if gemini_dir.is_dir() {
-                let jetski_file = gemini_dir.join("jetski-standalone-oauth-token");
-                if let Ok(payload) = cli_credentials::payload(&account.token) {
-                    let _ = cli_credentials::write_session(&jetski_file, &payload);
+        if !is_app_cli_mode {
+            if let Some(home) = dirs::home_dir() {
+                let gemini_dir = home.join(".gemini");
+                if gemini_dir.is_dir() {
+                    let jetski_file = gemini_dir.join("jetski-standalone-oauth-token");
+                    if let Ok(payload) = cli_credentials::payload(&account.token) {
+                        let _ = cli_credentials::write_session(&jetski_file, &payload);
+                    }
                 }
             }
         }
@@ -151,8 +158,25 @@ impl DesktopIntegration {
             }
         }
 
-        // 2.4 注入所有候选 state.vscdb 数据库（包含 Antigravity IDE、Antigravity、VS Code、Cursor）
-        let candidate_dbs = db::get_all_candidate_db_paths(target_ide);
+        // 2.4 注入对应 state.vscdb 数据库
+        let candidate_dbs = if is_app_cli_mode {
+            let mut paths = Vec::new();
+            #[cfg(target_os = "macos")]
+            if let Some(home) = dirs::home_dir() {
+                paths.push(home.join("Library/Application Support/Antigravity/User/globalStorage/state.vscdb"));
+            }
+            #[cfg(target_os = "windows")]
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                paths.push(std::path::PathBuf::from(appdata).join("Antigravity\\User\\globalStorage\\state.vscdb"));
+            }
+            #[cfg(target_os = "linux")]
+            if let Some(config_home) = crate::modules::linux_paths::config_home() {
+                paths.push(config_home.join("Antigravity/User/globalStorage/state.vscdb"));
+            }
+            paths
+        } else {
+            db::get_all_candidate_db_paths(target_ide)
+        };
         for db_path in candidate_dbs {
             if db_path.exists() {
                 let backup_path = db_path.with_extension("vscdb.backup");
@@ -175,6 +199,10 @@ impl DesktopIntegration {
         if is_ide_mode {
             if ide_running {
                 let _ = integration.start_application(Some("ide"));
+            }
+        } else if is_app_cli_mode {
+            if app_running {
+                let _ = integration.start_application(None);
             }
         } else {
             if app_running {
