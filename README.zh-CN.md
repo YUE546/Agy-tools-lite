@@ -50,7 +50,7 @@ agy-switch              # 终端看板
 
 只使用终端时，可以下载 `agy-switch-<版本>-linux-amd64.tar.gz`。[Linux 指南](docs/linux.md)介绍运行库、无显示环境的安装、系统凭据服务及桌面兼容性。
 
-**安装包信任：** 当前 Mac 安装包尚无 Developer ID 签名和公证，Windows 安装包尚无 Authenticode 签名，系统信任检查可能阻止运行。Homebrew 不会绕过这些检查。现有 Mac 分发限制见[公开安装包验收记录](docs/release-notes/4.7.9-public-acceptance.md)；文件完整性验证和系统信任验证是两项独立检查。
+**安装包信任：** 当前 Mac 安装包尚无 Developer ID 签名和公证，Windows 安装包尚无 Authenticode 签名，系统信任检查可能阻止运行。Homebrew 不会绕过这些检查。实际测到的 Mac 启动限制见[4.8.0 公开安装包验收记录](docs/4.8.0-public-acceptance.md)；文件完整性验证和系统信任验证是两项独立检查。
 
 ## 开始使用
 
