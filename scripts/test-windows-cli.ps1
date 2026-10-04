@@ -1,4 +1,4 @@
-# Real GUI-subsystem release executable; no OAuth, switching or live account data.
+# Real Windows release executable; no OAuth, switching or live account data.
 param([Parameter(Mandatory = $true)][string]$Binary, [switch]$Console)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -7,7 +7,7 @@ $bytes = [IO.File]::ReadAllBytes($exe)
 $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
 $subsystem = [BitConverter]::ToUInt16($bytes, $peOffset + 24 + 68)
 if ($subsystem -ne $(if ($Console) { 3 } else { 2 })) {
-    throw 'This check requires the Windows GUI-subsystem release executable, not the console debug build.'
+    throw 'The executable does not match the requested Windows console/GUI subsystem.'
 }
 $root = Join-Path ([IO.Path]::GetTempPath()) ('agy-lite-powershell-' + [guid]::NewGuid())
 [IO.Directory]::CreateDirectory($root) | Out-Null
@@ -71,3 +71,6 @@ try {
     $env:ABV_DATA_DIR = $previousData
     Remove-Item -LiteralPath $root -Recurse -Force
 }
+# The intentional direct-call error check leaves LASTEXITCODE=2. Report harness
+# success only after every assertion and cleanup above completes successfully.
+$global:LASTEXITCODE = 0

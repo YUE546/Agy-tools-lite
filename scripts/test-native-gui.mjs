@@ -51,7 +51,9 @@ function fixture(pricingHome) {
         id: `fixture-${i + 1}`, email: `example-${i + 1}@example.invalid`, name: `Example account ${i + 1} (synthetic)`,
         custom_label: 'Synthetic example data', created_at: now, last_used: now, disabled: false,
         token: { access_token: '', refresh_token: '', expires_in: 0, expiry_timestamp: 0, token_type: 'Bearer' },
-        quota: { models: [{ name: 'gemini-test', display_name: 'Gemini example model', percentage, reset_time: '2030-01-01T00:00:00Z' }], last_updated: now },
+        quota: { models: [{ name: 'gemini-test', display_name: 'Gemini example model', percentage, reset_time: '2030-01-01T00:00:00Z' }], last_updated: now,
+            quota_groups: ['Gemini Models', 'Claude and GPT models'].map((display_name, family) => ({ display_name,
+                buckets: ['5h', 'weekly'].map(window => ({ bucket_id: `${family ? '3p' : 'gemini'}-${window}`, window, remaining_fraction: (percentage + family * 10) / 100, remaining_fraction_known: true, reset_time: '2030-01-01T00:00:00Z' })) })) },
     }));
     json(join(data, 'accounts.json'), { version: '2.0', current_account_id: null, current_target_ide: null, accounts: accounts.map(({ token, quota, ...a }) => a) });
     for (const account of accounts) json(join(data, 'accounts', `${account.id}.json`), account);
@@ -247,6 +249,8 @@ try {
         assert.equal(await execute('return innerWidth'), 424);
         assert.equal(await execute("return ['Today’s usage','Remaining quota','Accounts'].every(t=>document.body.innerText.includes(t)) && !/[\u3400-\u9fff]/.test(document.body.innerText)"), true);
         assert.equal(await execute("return [...document.querySelectorAll('.mb-account-switch')].every(e=>{const r=e.getBoundingClientRect(); const p=e.closest('article').querySelector('.mb-mini:last-child strong').getBoundingClientRect(); return Math.abs(r.right-p.right)<2})"), true);
+        assert.deepEqual(await execute("return [...document.querySelectorAll('.mb-account-row .mb-mini strong')].map(e=>e.textContent)"), ['8%', '18%', '8%', '18%', '80%', '90%', '80%', '90%']);
+        assert.equal(await execute("return [...document.querySelectorAll('.mb-account-window > span')].every(e=>e.getBoundingClientRect().height < 15)"), true, 'Quota window labels must remain on one line');
         await screenshot('quick-dashboard-light', true);
         report.checks.push('Native 424px compact dashboard: all three sections, English copy, account/action right alignment; viewport test, not tray placement');
         for (const [path, original] of originals) assert.equal(readFileSync(join(data, path), 'utf8'), original, `Unchanged ${path}`);

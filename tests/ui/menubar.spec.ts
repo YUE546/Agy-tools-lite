@@ -126,21 +126,21 @@ test('family selection stays in Settings and disabled quotas show zero without a
   await expect(page.locator('.mb-availability')).toHaveText(['可用 1/7']);
   await expect(page.locator('.mb-account-identity').first()).not.toContainText('账号 A');
   const disabled = page.locator('.mb-account-row.disabled');
-  const locateDisabled = async () => {
+  const locateDisabled = async (values: string[]) => {
     // Capacity varies with platform fonts and the enabled overview sections.
     // Find the account again after layout changes rather than assuming its page.
     await expect.poll(async () => {
-      if (await disabled.count()) return true;
+      if (await disabled.count()) return disabled.locator('.mb-mini strong').allTextContents();
       const next = page.getByRole('button', { name: '下一页' });
       if (await next.isEnabled()) await next.click();
       else {
         const previous = page.getByRole('button', { name: '上一页' });
         while (await previous.isEnabled()) await previous.click();
       }
-      return false;
-    }).toBe(true);
+      return [];
+    }).toEqual(values);
   };
-  await locateDisabled();
+  await locateDisabled(['0%']);
   await expect(disabled).toHaveCount(1);
   await expect(disabled.locator('.mb-account-switch')).toBeDisabled();
   await expect(disabled.locator('.mb-account-switch')).toHaveText('禁用');
@@ -151,8 +151,7 @@ test('family selection stays in Settings and disabled quotas show zero without a
   expect(await calls(page, 'switch_account')).toEqual([]);
   await page.evaluate(() => (window as any).__menuFixture.setPreferences({ menu_bar: { display_scope: 'all', show_weekly: true } }));
   await expect(page.locator('.mb-aggregate strong')).toHaveCount(2);
-  await locateDisabled();
-  await expect(disabled.locator('.mb-mini strong')).toHaveText(['0%', '0%', '0%', '0%']);
+  await locateDisabled(['0%', '0%', '0%', '0%']);
   await expect(page.getByRole('button', { name: '关于应用' })).toHaveCount(0); await expect(page.getByRole('button', { name: 'GitHub', exact: true })).toBeVisible();
 });
 
@@ -169,6 +168,22 @@ test('daily usage distinguishes empty records from unknown API pricing', async (
   await expect(usage.locator('.mb-usage-cost strong')).toHaveText('$ 0.00');
   await expect(usage.locator('.mb-usage-ring circle')).toHaveCount(1);
   expect(await calls(page, 'switch_account')).toEqual([]);
+});
+
+test('platform dashboard labels its quota columns and honors icon visibility', async ({ page }) => {
+  await page.evaluate(() => (window as any).__menuFixture.setPreferences({ language: 'en', menu_bar: { show_icons: false } }));
+  await expect(page.locator('.mb-family-heading > span')).toHaveText(['Gemini', 'Claude & GPT']);
+  await expect(page.locator('.mb-brand img')).toHaveCount(0);
+  await expect(page.locator('.mb-footer-actions svg')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'GitHub', exact: true })).toHaveText('GitHub');
+  await expect(page.getByRole('button', { name: 'Quit', exact: true })).toHaveText('Quit');
+  await expect(page.locator('.mb-account-switch svg').first()).toBeVisible();
+  await bounded(page);
+  await page.evaluate(() => (window as any).__menuFixture.setPreferences({ menu_bar: { show_icons: true, display_scope: 'other' } }));
+  await expect(page.locator('.mb-family-heading > span')).toHaveText(['Claude & GPT']);
+  await expect(page.locator('.mb-brand img')).toBeVisible();
+  await expect(page.locator('.mb-footer-actions svg')).toHaveCount(4);
+  await bounded(page);
 });
 
 test('hover reset times stay inside the row without moving percentages and can be disabled', async ({ page }) => {
