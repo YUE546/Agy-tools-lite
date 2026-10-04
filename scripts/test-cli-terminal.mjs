@@ -21,15 +21,17 @@ writeFileSync(join(data, 'gui_config.json'), config);
 const env = {};
 for (const key of ['PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TMP', 'TEMP', 'LANG']) if (process.env[key]) env[key] = process.env[key];
 Object.assign(env, { HOME: root, ABV_DATA_DIR: data, TERM: 'xterm-256color' });
+const watchdog = setTimeout(() => { console.error('Terminal harness exceeded 90 seconds'); process.exit(1); }, 90000);
+watchdog.unref();
 let terminal, output = '', allOutput = '', exited;
 let checks = 0;
 async function until(text) {
-  for (let i = 0; i < 100; i++) { if (output.includes(text)) { checks++; return; } await delay(100); }
+  for (let i = 0; i < 100; i++) { if (output.includes(text)) { checks++; console.log('Terminal reached: ' + text); return; } await delay(100); }
   throw new Error(`Terminal did not reach ${text}; captured ${output.length} bytes`);
 }
 async function send(keys, text) { output = ''; terminal.write(keys); await until(text); }
 try {
-  terminal = pty.spawn(binary, [], { cols: 110, rows: 32, cwd: root, env });
+  terminal = pty.spawn(binary, [], { cols: 110, rows: 32, cwd: root, env, useConptyDll: process.platform === 'win32' });
   const done = new Promise(resolve => terminal.onExit(event => { exited = event; resolve(event); }));
   terminal.onData(chunk => { output += chunk; allOutput += chunk; });
   await until('Select a section:');
@@ -51,6 +53,7 @@ try {
   assert.equal(readFileSync(join(data, 'gui_config.json'), 'utf8'), config); checks++;
   console.log(`${checks} real ${process.platform === 'win32' ? 'ConPTY' : 'PTY'} checks passed: arrows, Enter, Esc, masking, resize and clean exit; no network or account writes`);
 } finally {
+  clearTimeout(watchdog);
   if (terminal && !exited) terminal.kill();
   await delay(200);
   rmSync(root, { recursive: true, force: true });

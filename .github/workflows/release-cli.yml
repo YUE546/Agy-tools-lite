@@ -49,6 +49,7 @@ jobs:
           if [[ "$RUNNER_OS" == Windows ]]; then BINARY="${BINARY}.exe"; fi
           node scripts/test-cli.mjs "$BINARY"
       - name: Test interactive CLI in a real terminal
+        timeout-minutes: 2
         shell: bash
         run: |
           BINARY=src-tauri/target/release/agy-switch

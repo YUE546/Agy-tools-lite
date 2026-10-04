@@ -127,6 +127,7 @@ jobs:
           node scripts/test-cli.mjs "$BINARY"
 
       - name: Test interactive CLI in a real terminal
+        timeout-minutes: 2
         shell: bash
         run: |
           BINARY=src-tauri/target/debug/agy-switch

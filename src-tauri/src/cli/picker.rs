@@ -510,14 +510,7 @@ fn format_cost(usd: Option<f64>, lang: Lang) -> String {
 }
 
 fn open_browser(url: &str) {
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(url).spawn();
-    #[cfg(target_os = "linux")]
-    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
-    #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
-        .spawn();
+    let _ = tauri_plugin_opener::open_url(url, None::<&str>);
 }
 
 struct AlternateScreenGuard;
