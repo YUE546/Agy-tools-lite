@@ -2042,6 +2042,7 @@ fn show_token_statistics(lang: Lang) {
 }
 
 fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
+    print!("\x1b[2J\x1b[H");
     if snapshot.accounts.is_empty() {
         let msg = match lang {
             Lang::Zh => "\n\x1b[33m暂无已保存账号。\x1b[0m",
@@ -2052,9 +2053,15 @@ fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
         return;
     }
 
+    let header = match lang {
+        Lang::Zh => "配额刷新中心",
+        Lang::En => "Quota Refresh Hub",
+    };
+    println!("\x1b[1m{}\x1b[0m\n", header);
+
     let (title, items) = match lang {
         Lang::Zh => (
-            "刷新配额选项:",
+            "选择刷新方式:",
             vec![
                 "1. 刷新当前生效账号配额",
                 "2. 批量刷新全部账号 (并发执行)",
@@ -2063,7 +2070,7 @@ fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
             ],
         ),
         Lang::En => (
-            "Refresh Options:",
+            "Select Refresh Mode:",
             vec![
                 "1. Refresh active account quota",
                 "2. Batch refresh all accounts (concurrent)",
@@ -2086,6 +2093,13 @@ fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
 
     match choice {
         Some(0) => {
+            print!("\x1b[2J\x1b[H");
+            let sub_title = match lang {
+                Lang::Zh => "刷新当前生效账号配额",
+                Lang::En => "Refresh Active Account Quota",
+            };
+            println!("\x1b[1m{}\x1b[0m\n", sub_title);
+
             let curr = match snapshot.current() {
                 Ok(c) => c,
                 Err(_) => {
@@ -2099,8 +2113,8 @@ fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
                 }
             };
             let wait_msg = match lang {
-                Lang::Zh => format!("\n\x1b[2m正在请求 Google API 刷新账号 ({}) 配额...\x1b[0m", curr.email),
-                Lang::En => format!("\n\x1b[2mRefreshing quota for ({}) via Google API...\x1b[0m", curr.email),
+                Lang::Zh => format!("\x1b[2m正在请求 Google API 刷新账号 ({}) 配额...\x1b[0m\n", curr.email),
+                Lang::En => format!("\x1b[2mRefreshing quota for ({}) via Google API...\x1b[0m\n", curr.email),
             };
             println!("{}", wait_msg);
             match runtime.block_on(async {
@@ -2160,9 +2174,16 @@ fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
             wait_for_key(lang);
         }
         Some(1) => {
+            print!("\x1b[2J\x1b[H");
+            let sub_title = match lang {
+                Lang::Zh => "批量刷新全部账号配额",
+                Lang::En => "Batch Refresh All Accounts Quota",
+            };
+            println!("\x1b[1m{}\x1b[0m\n", sub_title);
+
             let wait_msg = match lang {
-                Lang::Zh => "\n\x1b[2m正在并发批量刷新所有账号配额...\x1b[0m",
-                Lang::En => "\n\x1b[2mBatch refreshing all accounts concurrently...\x1b[0m",
+                Lang::Zh => format!("\x1b[2m正在并发批量刷新所有 {} 个账号配额...\x1b[0m\n", snapshot.accounts.len()),
+                Lang::En => format!("\x1b[2mBatch refreshing all {} accounts concurrently...\x1b[0m\n", snapshot.accounts.len()),
             };
             println!("{}", wait_msg);
             match runtime.block_on(crate::modules::account::refresh_all_quotas_logic()) {
@@ -2193,13 +2214,22 @@ fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
             wait_for_key(lang);
         }
         Some(2) => {
+            print!("\x1b[2J\x1b[H");
+            let sub_title = match lang {
+                Lang::Zh => "选择指定账号刷新配额",
+                Lang::En => "Select Account to Refresh Quota",
+            };
+            println!("\x1b[1m{}\x1b[0m\n", sub_title);
+
             let selected = match select_account_interactive(&snapshot.accounts, lang) {
                 Some(acc) => acc,
                 None => return,
             };
+            print!("\x1b[2J\x1b[H");
+            println!("\x1b[1m{}\x1b[0m\n", sub_title);
             let wait_msg = match lang {
-                Lang::Zh => format!("\n\x1b[2m正在刷新账号 ({}) 配额...\x1b[0m", selected.email),
-                Lang::En => format!("\n\x1b[2mRefreshing quota for ({}) ...\x1b[0m", selected.email),
+                Lang::Zh => format!("\x1b[2m正在刷新账号 ({}) 配额...\x1b[0m\n", selected.email),
+                Lang::En => format!("\x1b[2mRefreshing quota for ({}) ...\x1b[0m\n", selected.email),
             };
             println!("{}", wait_msg);
             match runtime.block_on(async {
@@ -2263,9 +2293,16 @@ fn show_refresh_quotas(snapshot: &Snapshot, lang: Lang) {
 }
 
 fn show_add_account(lang: Lang) {
+    print!("\x1b[2J\x1b[H");
+    let header = match lang {
+        Lang::Zh => "添加 Google 账号",
+        Lang::En => "Add Google Account",
+    };
+    println!("\x1b[1m{}\x1b[0m\n", header);
+
     let (title, items) = match lang {
         Lang::Zh => (
-            "添加 Google 账号:",
+            "选择添加方式:",
             vec![
                 "1. 浏览器一键授权 (Google OAuth 自动登录)",
                 "2. 手动输入 Refresh Token",
@@ -2273,7 +2310,7 @@ fn show_add_account(lang: Lang) {
             ],
         ),
         Lang::En => (
-            "Add Google Account:",
+            "Select Method:",
             vec![
                 "1. Browser authorization (Google OAuth auto-login)",
                 "2. Manually enter Refresh Token",
@@ -2295,9 +2332,16 @@ fn show_add_account(lang: Lang) {
 
     match choice {
         Some(0) => {
+            print!("\x1b[2J\x1b[H");
+            let sub_title = match lang {
+                Lang::Zh => "浏览器一键授权 · Google OAuth",
+                Lang::En => "Browser Authorization · Google OAuth",
+            };
+            println!("\x1b[1m{}\x1b[0m\n", sub_title);
+
             let wait_msg = match lang {
-                Lang::Zh => "\n\x1b[2m正在准备 Google OAuth 登录服务...\x1b[0m",
-                Lang::En => "\n\x1b[2mPreparing Google OAuth login service...\x1b[0m",
+                Lang::Zh => "\x1b[2m正在准备 Google OAuth 登录服务...\x1b[0m\n",
+                Lang::En => "\x1b[2mPreparing Google OAuth login service...\x1b[0m\n",
             };
             println!("{}", wait_msg);
 
@@ -2397,9 +2441,16 @@ fn show_add_account(lang: Lang) {
             wait_for_key(lang);
         }
         Some(1) => {
+            print!("\x1b[2J\x1b[H");
+            let sub_title = match lang {
+                Lang::Zh => "手动导入凭据 · Refresh Token",
+                Lang::En => "Manual Import · Refresh Token",
+            };
+            println!("\x1b[1m{}\x1b[0m\n", sub_title);
+
             let prompt_text = match lang {
-                Lang::Zh => "\n请输入 Google Refresh Token: ",
-                Lang::En => "\nEnter Google Refresh Token: ",
+                Lang::Zh => "请输入 Google Refresh Token: ",
+                Lang::En => "Enter Google Refresh Token: ",
             };
             let refresh_token = prompt_line(prompt_text);
             if refresh_token.is_empty() {
