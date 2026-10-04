@@ -28,13 +28,15 @@ pub enum Target {
     #[serde(alias = "desktop")]
     AppCli,
     Ide,
+    Vscode,
 }
 impl Target {
-    fn argument(self) -> Option<&'static str> {
+    pub fn argument(self) -> Option<&'static str> {
         match self {
             Self::App => None,
             Self::AppCli => Some("app"),
             Self::Ide => Some("ide"),
+            Self::Vscode => Some("vscode"),
         }
     }
 }
@@ -440,6 +442,23 @@ fn verify_source(source: &Account, target: Target) -> Result<(), &'static str> {
             crate::modules::migration::get_refresh_token_from_db(Some("ide"))
                 .map_err(|_| "credentials_changed")?
         }
+        Target::Vscode => {
+            if let Some(home) = dirs::home_dir() {
+                let token_file = home.join(".gemini/jetski-standalone-oauth-token");
+                if token_file.is_file() {
+                    if let Ok(bytes) = std::fs::read(&token_file) {
+                        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                            if let Some(rt) = json.get("refresh_token").and_then(|v| v.as_str()) {
+                                if !rt.is_empty() && rt != source.token.refresh_token {
+                                    return Err("credentials_changed");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            source.token.refresh_token.clone()
+        }
     };
     if actual_refresh_token.is_empty() || actual_refresh_token != source.token.refresh_token {
         return Err("credentials_changed");
@@ -533,6 +552,7 @@ fn advance_pending(
     p.clone()
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn commit_guard(
     d: &RuntimeData,
     pending: &Pending,
@@ -566,10 +586,79 @@ fn commit_guard(
     {
         return Err("no_candidate");
     }
+    if config.target == Target::Vscode {
+        return Ok(());
+    }
     match process {
         ProcessState::Running => Err("clients_running"),
         ProcessState::Unknown => Err("process_unknown"),
         ProcessState::Closed => Ok(()),
+    }
+}
+
+pub fn is_any_agent_actively_working() -> bool {
+    #[cfg(test)]
+    {
+        return false;
+    }
+    #[cfg(not(test))]
+    {
+        let Some(home) = dirs::home_dir() else { return false; };
+        let candidates = [
+            home.join(".gemini/antigravity/brain"),
+            home.join(".gemini/antigravity-cli/brain"),
+        ];
+        let now = std::time::SystemTime::now();
+
+        for brain_dir in &candidates {
+            if !brain_dir.is_dir() {
+                continue;
+            }
+            let Ok(entries) = std::fs::read_dir(brain_dir) else { continue; };
+            for entry in entries.flatten() {
+                let p = entry.path().join(".system_generated/logs/transcript.jsonl");
+                if !p.is_file() {
+                    continue;
+                }
+                let Ok(meta) = p.metadata() else { continue; };
+                let Ok(mtime) = meta.modified() else { continue; };
+                let Ok(elapsed) = now.duration_since(mtime) else { continue; };
+
+                if elapsed.as_secs() < 8 {
+                    if let Ok(file) = std::fs::File::open(&p) {
+                        use std::io::{BufRead, BufReader, Seek, SeekFrom};
+                        let mut reader = BufReader::new(file);
+                        if let Ok(len) = reader.seek(SeekFrom::End(0)) {
+                            let offset = if len > 4096 { len - 4096 } else { 0 };
+                            let _ = reader.seek(SeekFrom::Start(offset));
+                            let lines: Vec<String> = reader.lines().flatten().collect();
+                            if let Some(last_line) = lines.iter().rev().find(|l| !l.trim().is_empty()) {
+                                if !last_line.contains("\"status\":\"DONE\"") {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+}
+
+pub fn interrupt_vscode_agent() {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        let script = r#"
+            tell application "System Events"
+                if exists (processes whose name is "Code") then
+                    tell process "Code"
+                        key code 53
+                    end tell
+                end if
+            end tell
+        "#;
+        let _ = std::process::Command::new("osascript").args(["-e", script]).output();
     }
 }
 
@@ -578,6 +667,19 @@ fn commit_guard(
 trait Environment: Clone + Send + Sync + 'static {
     fn now(&self) -> i64;
     fn clients(&self) -> ProcessState;
+    fn is_agent_working(&self) -> bool {
+        false
+    }
+    fn interrupt_vscode(&self) {}
+    fn is_client_running(&self, _target_ide: Option<&str>) -> bool {
+        false
+    }
+    fn close_client(&self, _timeout: u64, _target_ide: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
+    fn start_client(&self, _target_ide: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
     fn fetch_quota<'a>(
         &'a self,
         account: &'a mut Account,
@@ -597,6 +699,21 @@ impl Environment for NativeEnvironment {
     fn clients(&self) -> ProcessState {
         clients()
     }
+    fn is_agent_working(&self) -> bool {
+        is_any_agent_actively_working()
+    }
+    fn interrupt_vscode(&self) {
+        interrupt_vscode_agent();
+    }
+    fn is_client_running(&self, target_ide: Option<&str>) -> bool {
+        crate::modules::process::is_antigravity_running(target_ide)
+    }
+    fn close_client(&self, timeout: u64, target_ide: Option<&str>) -> Result<(), String> {
+        crate::modules::process::close_antigravity(timeout, target_ide)
+    }
+    fn start_client(&self, target_ide: Option<&str>) -> Result<(), String> {
+        crate::modules::process::start_antigravity(target_ide)
+    }
     async fn fetch_quota(&self, account: &mut Account) -> Result<QuotaData, String> {
         account::fetch_quota_with_retry(account)
             .await
@@ -608,7 +725,8 @@ impl Environment for NativeEnvironment {
     fn write_credentials(&self, target: &Account, target_ide: Option<&str>) -> Result<(), String> {
         let is_ide_mode = target_ide == Some("ide");
         let is_app_cli_mode = target_ide == Some("app");
-        if !is_ide_mode {
+        let is_vscode_mode = target_ide == Some("vscode");
+        if !is_ide_mode && !is_vscode_mode {
             integration::write_to_system_keyring(target, false)?;
         }
 
@@ -1004,24 +1122,55 @@ async fn evaluate_core<E: Environment>(
         }
         let result = advance_pending(&mut d, &source_id, &candidate.id, now, process_state);
         status.pending_id = Some(result.id.clone());
-        match process_state {
-            ProcessState::Running => status.set("pending", "clients_running"),
-            ProcessState::Unknown => status.set("blocked", "process_unknown"),
-            ProcessState::Closed => status.set("pending", "ready"),
-        }
-        d.status = status.clone();
         result
     };
-    // Two observations separated by >=3s improve race detection. They cannot stop
-    // an uncoordinated external client from launching during a credential write.
-    if !pending.closed_since.is_some_and(|since| now - since >= 3) {
+
+    if process_state == ProcessState::Unknown {
+        status.set("blocked", "process_unknown");
+        update_status(runtime, revision, status);
         return Ok(false);
     }
-    let integration = ClosedOnlyIntegration {
+
+    // In Mode::Wait, if agent is actively generating, wait for it to finish
+    if config.mode == Mode::Wait && environment.is_agent_working() {
+        let mut d = runtime.data.lock().map_err(|_| "State unavailable")?;
+        if d.revision == revision {
+            status.set("pending", "waiting_task_finish");
+            d.status = status;
+        }
+        return Ok(false);
+    }
+
+    // In VS Code mode: no client exit needed, hot-swap in place
+    let is_vscode = config.target == Target::Vscode;
+    if !is_vscode {
+        if process_state != ProcessState::Closed {
+            status.set("pending", "clients_running");
+            update_status(runtime, revision, status);
+            // In automated mode, trigger close on running clients when safe:
+            if config.mode == Mode::Stop || (config.mode == Mode::Wait && !environment.is_agent_working()) {
+                let _ = environment.close_client(20, config.target.argument());
+            }
+            return Ok(false);
+        }
+
+        if !pending.closed_since.is_some_and(|since| now - since >= 3) {
+            status.set("pending", "ready");
+            update_status(runtime, revision, status);
+            return Ok(false);
+        }
+    } else {
+        // VS Code mode: interrupt if in Mode::Stop
+        if config.mode == Mode::Stop {
+            environment.interrupt_vscode();
+        }
+    }
+
+    let integration = AutoSwitchIntegration {
         data: runtime.data.clone(),
         pending: pending.clone(),
         config: config.clone(),
-        environment,
+        environment: environment.clone(),
     };
     status.set("pending", "checking");
     update_status(runtime, revision, status);
@@ -1037,15 +1186,20 @@ async fn evaluate_core<E: Environment>(
         Ok(()) => {
             d.pending = None;
             d.status.pending_id = None;
-            d.status.set("completed", "credentials_updated");
+            let final_reason = if d.status.reason.as_deref() == Some("restarted") {
+                "restarted"
+            } else if config.mode == Mode::Stop && config.target == Target::Vscode {
+                "paused_and_updated"
+            } else {
+                "credentials_updated"
+            };
+            d.status.set("completed", final_reason);
             d.cooldown_until = now + COOLDOWN_SECONDS;
             if write_pause(d.canceled_source.clone(), false).is_err() {
                 d.failed = true;
             }
         }
         Err(_) => {
-            // Authentication writes can fail partially. Never loop over identities
-            // or retry unattended after an uncertain commit. Re-enable to retry.
             if matches!(
                 d.status.reason.as_deref(),
                 Some("clients_running" | "process_unknown")
@@ -1068,13 +1222,13 @@ async fn evaluate_core<E: Environment>(
     Ok(committed)
 }
 
-struct ClosedOnlyIntegration<E: Environment> {
+struct AutoSwitchIntegration<E: Environment> {
     data: Arc<Mutex<RuntimeData>>,
     pending: Pending,
     config: Config,
     environment: E,
 }
-impl<E: Environment> integration::SystemIntegration for ClosedOnlyIntegration<E> {
+impl<E: Environment> integration::SystemIntegration for AutoSwitchIntegration<E> {
     async fn on_account_switch(
         &self,
         target: &Account,
@@ -1095,14 +1249,10 @@ impl<E: Environment> integration::SystemIntegration for ClosedOnlyIntegration<E>
                 }
                 Err(reason.into())
             };
-            // Slow native reads run without the status mutex. Cancel/settings and
-            // status polling remain responsive until the actual commit boundary.
             let source_before = account::load_account(&p.source_id)?;
             if let Err(reason) = environment.verify_source(&source_before, config.target) {
                 return report(reason);
             }
-            // Serialize the final snapshot against in-process quota/deletion/index
-            // changes. The outer account::switch_account also holds both switch locks.
             let _account_write = account::lock_account_file_updates()?;
             let source = account::load_account(&p.source_id)?;
             let latest_target = account::load_account(&target.id)?;
@@ -1112,7 +1262,6 @@ impl<E: Environment> integration::SystemIntegration for ClosedOnlyIntegration<E>
             let current = account::get_current_account_id()?;
             {
                 let mut d = data.lock().map_err(|_| "state_unavailable")?;
-                // A completed Cancel/Disable owns the newer visible state.
                 if d.revision != p.revision {
                     return Err("request_changed".into());
                 }
@@ -1133,19 +1282,74 @@ impl<E: Environment> integration::SystemIntegration for ClosedOnlyIntegration<E>
                     d.status.set("blocked", reason);
                     return Err(reason.into());
                 }
-                // Journal before writes. Polling can now observe switching, and
-                // mutators reject promptly rather than waiting on a keyring call.
                 write_pause(Some(p.source_id.clone()), true)?;
                 d.commit_started = true;
                 d.status.set("switching", "checking");
             }
-            // Write the freshest target token, not the account clone from before
-            // token refresh/initial preflight.
+
+            // 1. Process detection and graceful close
+            let is_vscode = target_ide.as_deref() == Some("vscode");
+            let is_ide = target_ide.as_deref() == Some("ide");
+            let is_app = target_ide.as_deref() == Some("app");
+            let is_all = target_ide.is_none();
+
+            let app_running = if is_ide || is_vscode { false } else { environment.is_client_running(None) };
+            let ide_running = if is_app || is_vscode { false } else { environment.is_client_running(Some("ide")) };
+
+            if is_ide {
+                if ide_running {
+                    let _ = environment.close_client(20, Some("ide"));
+                }
+            } else if is_app {
+                if app_running {
+                    let _ = environment.close_client(20, None);
+                }
+            } else if is_all {
+                if app_running {
+                    let _ = environment.close_client(20, None);
+                }
+                if ide_running {
+                    let _ = environment.close_client(20, Some("ide"));
+                }
+            }
+
+            // 2. Write credentials
             environment.write_credentials(&latest_target, target_ide.as_deref())?;
+
+            // 3. Smart relaunch
+            if is_ide {
+                if ide_running {
+                    let _ = environment.start_client(Some("ide"));
+                }
+            } else if is_app {
+                if app_running {
+                    let _ = environment.start_client(None);
+                }
+            } else if is_all {
+                if app_running {
+                    let _ = environment.start_client(None);
+                }
+                if ide_running {
+                    let _ = environment.start_client(Some("ide"));
+                }
+            }
+
+            // 4. Update status in memory
+            if let Ok(mut d) = data.lock() {
+                if d.revision == p.revision {
+                    let reason = if app_running || ide_running {
+                        "restarted"
+                    } else {
+                        "credentials_updated"
+                    };
+                    d.status.set("completed", reason);
+                }
+            }
+
             Ok(())
         })
         .await
-        .map_err(|_| "Safe switch worker failed.".to_string())?
+        .map_err(|_| "Auto switch worker failed.".to_string())?
     }
     fn update_tray(&self) {}
     fn show_notification(&self, _title: &str, _body: &str) {}
@@ -1222,9 +1426,11 @@ mod tests {
         assert_eq!(serde_json::from_str::<Target>("\"app_cli\"").unwrap(), Target::AppCli);
         assert_eq!(serde_json::from_str::<Target>("\"desktop\"").unwrap(), Target::AppCli);
         assert_eq!(serde_json::from_str::<Target>("\"ide\"").unwrap(), Target::Ide);
+        assert_eq!(serde_json::from_str::<Target>("\"vscode\"").unwrap(), Target::Vscode);
         assert_eq!(Target::App.argument(), None);
         assert_eq!(Target::AppCli.argument(), Some("app"));
         assert_eq!(Target::Ide.argument(), Some("ide"));
+        assert_eq!(Target::Vscode.argument(), Some("vscode"));
     }
     #[test]
     fn considers_both_windows_and_provider_ids_not_labels() {

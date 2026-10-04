@@ -268,7 +268,7 @@ export function AutoSwitchSettings() {
 
                         <div className="my-5 grid gap-4 sm:grid-cols-2">
                             <div className="space-y-1.5">
-                                <label htmlFor="auto-switch-target" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
+                                <label htmlFor="auto-switch-target" className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
                                     {t('auto_switch.target')}
                                 </label>
                                 <select
@@ -282,18 +282,21 @@ export function AutoSwitchSettings() {
                                     <option value="app">{t('auto_switch.target_all')}</option>
                                     <option value="app_cli">{t('auto_switch.target_app_cli')}</option>
                                     <option value="ide">{t('auto_switch.target_ide')}</option>
+                                    <option value="vscode">{t('auto_switch.target_vscode')}</option>
                                 </select>
                                 <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
                                     {draft.target === 'ide'
                                         ? t('auto_switch.target_hint_ide')
                                         : draft.target === 'app_cli'
                                         ? t('auto_switch.target_hint_app_cli')
+                                        : draft.target === 'vscode'
+                                        ? t('auto_switch.target_hint_vscode')
                                         : t('auto_switch.target_hint_all')}
                                 </p>
                             </div>
 
                             <div className="space-y-1.5">
-                                <label htmlFor="auto-switch-model" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
+                                <label htmlFor="auto-switch-model" className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
                                     {t('auto_switch.model')}
                                 </label>
                                 <select
@@ -318,7 +321,7 @@ export function AutoSwitchSettings() {
                             </div>
 
                             <div className="space-y-1.5">
-                                <label htmlFor="auto-switch-reserve" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
+                                <label htmlFor="auto-switch-reserve" className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
                                     {t('auto_switch.reserve')}
                                 </label>
                                 <input
@@ -340,7 +343,7 @@ export function AutoSwitchSettings() {
                             </div>
 
                             <div className="space-y-1.5">
-                                <label htmlFor="auto-switch-candidate-min" className="block text-xs font-medium text-slate-700 dark:text-slate-200">
+                                <label htmlFor="auto-switch-candidate-min" className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
                                     {t('auto_switch.candidate_min')}
                                 </label>
                                 <input

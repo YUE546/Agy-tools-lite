@@ -10,7 +10,7 @@ import {
   Plus,
   RefreshCw,
   Settings,
-  Zap,
+  ArrowLeftRight,
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
@@ -515,7 +515,7 @@ export default function MenuBarDashboard() {
           onClick={() => openPage("settings")}
           className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors text-left w-full"
         >
-          <Zap size={13} className="text-amber-500 shrink-0" />
+          <ArrowLeftRight size={13} className="text-amber-500 shrink-0" />
           <span>{chinese ? "自动切号状态" : "Auto-Switch Status"}</span>
           {lowQuota.visible && (
             <span className="ml-auto text-[10px] text-amber-500 font-semibold">

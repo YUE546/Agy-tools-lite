@@ -1,5 +1,5 @@
 export type AutoSwitchMode = 'wait' | 'stop';
-export type AutoSwitchTarget = 'app' | 'all' | 'app_cli' | 'ide';
+export type AutoSwitchTarget = 'app' | 'all' | 'app_cli' | 'ide' | 'vscode';
 export interface AutoSwitchConfig {
     enabled: boolean;
     mode: AutoSwitchMode;

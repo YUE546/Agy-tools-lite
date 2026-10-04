@@ -112,10 +112,13 @@ impl DesktopIntegration {
         // 1. 智能检测运行中的进程，并安全关闭对应客户端
         let is_ide_mode = target_ide == Some("ide");
         let is_app_cli_mode = target_ide == Some("app");
-        let app_running = if is_ide_mode { false } else { process::is_antigravity_running(None) };
-        let ide_running = if is_app_cli_mode { false } else { process::is_antigravity_running(Some("ide")) };
+        let is_vscode_mode = target_ide == Some("vscode");
+        let app_running = if is_ide_mode || is_vscode_mode { false } else { process::is_antigravity_running(None) };
+        let ide_running = if is_app_cli_mode || is_vscode_mode { false } else { process::is_antigravity_running(Some("ide")) };
 
-        if is_ide_mode {
+        if is_vscode_mode {
+            // VS Code 插件模式：不退出 VS Code 宿主，直接进行凭据热更新
+        } else if is_ide_mode {
             if ide_running {
                 process::close_antigravity(20, Some("ide"))?;
             }
@@ -134,7 +137,7 @@ impl DesktopIntegration {
 
         // 2. 凭据全域同步写入（Keychain + CLI + VS Code 插件文件 + SQLite 数据库）
         // 2.1 写入系统 Keychain (macOS / Windows / Linux) 与 CLI 会话
-        if !is_ide_mode {
+        if !is_ide_mode && !is_vscode_mode {
             write_to_system_keyring(account, false)?;
         }
 
@@ -195,8 +198,10 @@ impl DesktopIntegration {
             }
         }
 
-        // 3. 智能联动重启：刚才开着哪个，就重新拉起哪个
-        if is_ide_mode {
+        // 3. 智能联动重启：刚才开着哪个，就重新拉起哪个（VS Code 插件免重启）
+        if is_vscode_mode {
+            // 免重启宿主编辑器
+        } else if is_ide_mode {
             if ide_running {
                 let _ = integration.start_application(Some("ide"));
             }
