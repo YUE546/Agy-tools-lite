@@ -123,6 +123,13 @@ test('reviewed release notes disclose native acceptance limits and cannot be sil
   assert.throws(() => releaseNotes({ ...context, tag: 'v999.999.999' }), /ENOENT/);
 });
 
+test('release page links resolve from the reviewed source commit rather than the releases URL', () => {
+  const notes = releaseNotes({ ...context, tag: 'v4.8.0' });
+  assert.ok(notes.includes(`https://github.com/${context.repository}/blob/${context.commit}/docs/screenshots/4.8.0/README.md`));
+  assert.ok(notes.includes('https://github.com/anglee0323/antigravity-tools-lite/actions/runs/37240883985'));
+  assert.doesNotMatch(notes, /\]\(\.\.?\//);
+});
+
 test('missing or changed acceptance notes leave fresh and resumed drafts unpublished', () => fixture(directory => {
   const missing = fakeGithub({ existing: { tag_name: context.tag, draft: true, body: 'Old incomplete notes' } });
   assert.throws(() => publishRelease(directory, context, missing.run), /acceptance disclosure/);

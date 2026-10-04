@@ -12,7 +12,13 @@ const newer = (a, b) => { const aa = a.split('.').map(Number), bb = b.split('.')
 export function releaseNotes({ tag, commit, repository }) {
   const version = releaseVersion(tag);
   // Each version needs reviewed notes; do not carry old acceptance claims forward.
-  const acceptance = readFileSync(new URL(`../docs/release-notes/${version}.md`, import.meta.url), 'utf8').trim();
+  const acceptance = readFileSync(new URL(`../docs/release-notes/${version}.md`, import.meta.url), 'utf8').trim()
+    // GitHub Release bodies do not share the Markdown source file's directory.
+    .replace(/\]\(([^)\s]+)\)/g, (link, target) => {
+      if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(target)) return link;
+      const base = `https://github.com/${repository}/blob/${commit}/`;
+      return `](${new URL(target.startsWith('/') ? target.slice(1) : target, target.startsWith('/') ? base : `${base}docs/release-notes/`).href})`;
+    });
   if (!acceptance) throw new Error('Release acceptance notes are empty');
   return `Antigravity Tools Lite ${version}\n\nSource commit: ${commit}\n\nPackages: macOS Apple Silicon ZIP, Windows x64 NSIS installer, Linux amd64 deb, Windows console ZIP and Linux console tarball. Checksums and source manifest are attached.\n\nThese builds are not Developer ID signed/notarized or Windows Authenticode signed. Homebrew installation becomes available after the generated cask is verified and merged into the repository's Casks directory.\n\n${acceptance}\n\n[Detailed acceptance and screenshot provenance](https://github.com/${repository}/blob/${commit}/docs/native-gui-acceptance.md)\n`;
 }
