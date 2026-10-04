@@ -51,7 +51,7 @@ async function enable(page: any, stop = false) {
     await page.getByLabel('backup@example.invalid', { exact: true }).check();
     if (stop) await page.getByRole('radio').nth(1).check();
     await expect(page.getByText('已自动保存', { exact: true })).toBeVisible();
-    await expect(page.getByText('客户端运行中，等待任务完成').first()).toBeVisible();
+    await expect(page.getByText('客户端运行中，等待关闭').first()).toBeVisible();
 }
 
 test('default off, explicit configuration, real command contract, cancellation', async ({ page }, testInfo) => {
@@ -84,7 +84,7 @@ test('unknown blocks, completion says next launch, narrow layout has no horizont
     await expect(page.getByText('无法确认客户端状态，暂不换号').first()).toBeVisible();
     await page.evaluate(() => (window as any).__fixture.setStatus({ phase: 'completed', reason: 'credentials_updated', process_state: 'closed', pending_id: null }));
     await expect(page.getByText('账号凭据已安全写入').first()).toBeVisible();
-    await expect(page.getByText(/对话中点击/).first()).toBeVisible();
+    await expect(page.getByText(/请在客户端确认账号/).first()).toBeVisible();
     await page.setViewportSize({ width: 760, height: 1000 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('completed-narrow.png'), fullPage: true });

@@ -6,7 +6,7 @@ This repository contains the **macOS Apple Silicon cask** at `Casks/antigravity-
 
 The public ZIP, checksums, generated cask and source manifest were downloaded and compared with GitHub's asset digests. The ZIP's executable is ARM64 and reports bundle version 4.7.8; its path matches the `binary` stanza. The root cask is byte-for-byte identical to the release attachment, with ZIP SHA-256 `8f1d54072d6784fffe4ea82425bd087f0fd2f7c267659be73e1b02505e82f50d`. The Homebrew recipe check loads the DSL and fetches/verifies the archive without installing or launching the app.
 
-**Native installation acceptance is pending.** Installation, upgrade, uninstall/account preservation, custom `--appdir` behavior and Gatekeeper acceptance have not yet been tested on a user's Mac. Recipe and package validation do not establish these results. The installation commands below are provided with that limitation; no security checks are disabled.
+**Native acceptance:** v4.7.8 installed successfully through this tap on Apple Silicon with a custom `--appdir`; the legacy `agy-lite` link points into that app directory. Gatekeeper assessment rejected the public app, and a CLI invocation did not complete within the acceptance timeout. Upgrade and uninstall/account-preservation acceptance remain separate. No system trust checks were disabled.
 
 The cask installs both `Antigravity Tools Lite.app` and the management command `agy-switch`. It uses Homebrew's documented [`app` and `binary` artifacts](https://docs.brew.sh/Cask-Cookbook#stanza-binary). A separate formula would still carry the current desktop-linked executable, so no lightweight CLI-only formula is claimed here. Linux and Intel macOS Homebrew packages are not provided; use the existing Linux packages or build from source.
 

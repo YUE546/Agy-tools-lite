@@ -123,7 +123,7 @@ pub fn run_if_requested() -> Option<i32> {
     let named_cli = args
         .first()
         .and_then(|arg| Path::new(arg).file_stem())
-        .is_some_and(|name| name == "agy-switch");
+        .is_some_and(|name| name == "agy-switch" || name == "agy-lite");
     if !named_cli
         && (args.len() == 1
             || (args.len() == 2

@@ -17,7 +17,7 @@ for (const language of ['zh', 'en']) test(`cost breakdown uses exact prices and 
     await expect(table.getByRole('row').filter({ hasText: 'gemini-2.5-flash-lite' })).toContainText(language === 'zh' ? '未计价' : 'Unpriced');
     await expect(table.getByRole('row').filter({ hasText: 'claude-opus' })).toContainText(language === 'zh' ? '未计价' : 'Unpriced');
     await expect(table.getByRole('row').filter({ hasText: 'gemini-2.5-flash' }).first()).toContainText('$0.30');
-    await page.getByRole('button', { name: language === 'zh' ? '费用饼图' : 'Cost Pie' }).click();
+    await page.getByRole('button', { name: language === 'zh' ? '费用饼图' : 'Cost' }).click();
     await expect(page.getByText(language === 'zh' ? '已计价小计' : 'Priced subtotal', { exact: true })).toBeVisible();
     if (language === 'en') expect(await page.locator('main').innerText()).not.toMatch(/[\u3400-\u9fff]/);
 });

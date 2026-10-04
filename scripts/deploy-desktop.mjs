@@ -67,6 +67,11 @@ export function deployDesktop({ appPath = DEFAULT_APP_PATH, forceRelaunch = fals
   copyFileSync(releaseBin, destBin);
   chmodSync(destBin, 0o755);
 
+  const infoPlist = join(resolvedApp, 'Contents/Info.plist');
+  for (const key of ['CFBundleShortVersionString', 'CFBundleVersion']) {
+    execFileSync('/usr/libexec/PlistBuddy', ['-c', `Set :${key} ${version}`, infoPlist]);
+  }
+
   // Clean extended attributes and detritus
   execFileSync('/usr/bin/xattr', ['-cr', resolvedApp], { stdio: 'inherit' });
 

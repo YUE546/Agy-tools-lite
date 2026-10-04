@@ -31,7 +31,7 @@ Linux 真实 Tauri/WebKitGTK 视口，CI 调试构建 `6896ce61`，英文界面�
 
 当前发布流程没有配置 Developer ID 签名/公证或 Windows Authenticode 签名，系统可能提示或阻止运行下载的安装包。请先核对发布来源和校验值，再通过系统正常的审核流程自行决定是否信任。参见 [Apple 官方说明](https://support.apple.com/en-gb/102445)和 [Microsoft 应用信誉说明](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)。Homebrew 安装不会取消这些系统检查
 
-**macOS 4.7.7 修复提示：** 如果下载的 4.7.7 提示「已损坏」，请在修正版 4.7.8 发布后升级，并保留旧 APP 和账号数据。4.7.8 修复应用包签名与直接发行版权限配置；完整 ad-hoc 签名不等于 Developer ID 签名或 Apple 公证，Gatekeeper 和原生 GUI 验收仍未完成。Homebrew 配方还需单独更新为已核验的新发布资产。
+**macOS 分发状态：** 完整的临时签名修复了包完整性，但不等于通过 Apple 信任检查。v4.7.8 已在 Apple Silicon Mac 上通过 Homebrew 实际安装，公开应用仍被 Gatekeeper 拒绝。正式可信分发仍需开发者签名和公证。
 
 ## 账号管理
 
@@ -71,7 +71,7 @@ Linux 真实 Tauri/WebKitGTK 视口，CI 调试构建 `6896ce61`，英文界面�
 - **统计范围** —— 今天、昨天、近 3 天、近 7 天或近 30 天；单日范围包含按小时的柱状图
 - **图表详情** —— 指向柱状条即显示该时段的输入、输出、缓存 Token 数、请求次数与预估费用
 - **汇总卡片** —— 总 Token、输入 Token、输出 Token、缓存命中率与预估 API 费用
-- **模型用量与模型明细** —— 显示哪些模型在消耗配额，并提供按模型的明细表
+- **模型用量与模型明细** —— 按模型查看 Token 和预估费用明细，支持用量与费用分布图
 
 费用依据 Google 公开的 Gemini 价格页估算，每天同步一次并缓存，同时内置兜底价格表。缺少价格的模型会标记为未计价，而不是按 0 计算
 
@@ -143,7 +143,7 @@ npm run tauri build     # macOS .app 或 Windows 安装包
 
 ## 命令行与 Homebrew
 
-Tools Lite 自带管理命令 `agy-switch`，支持列出账号、查看本地记录的当前账号和缓存配额，以及复用 GUI 安全流程显式切换账号。它与 Google 的 `agy` 命令不同；`current` 是本地记录，`quota` 不会刷新实时数据，详见 [CLI 使用说明](docs/cli.md)。
+Tools Lite 自带管理命令 `agy-switch`，支持账号管理、缓存配额、本机统计和显式切换。Mac 和 Linux 的交互菜单还支持备注、启用或禁用、确认删除，以及通过浏览器授权或隐藏输入的令牌添加账号。它与 Google 的 `agy` 命令不同；`current` 是本地记录，`quota` 不会刷新实时数据，详见 [CLI 使用说明](docs/cli.md)。
 
 [v4.7.7](https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.7.7) 已包含管理 CLI，旧版 v4.7.6 不包含。Apple Silicon Mac 可使用本仓库的 cask 安装 APP，并将包内管理命令链接为 `agy-switch`：
 
@@ -154,4 +154,4 @@ agy-switch --version
 agy-switch --help
 ```
 
-配方固定了正式 ZIP 已核验的 SHA-256；实际 Mac 上的 Homebrew 安装、升级和卸载验收仍待完成，未签名 APP 也尚未通过系统信任验收。已有手动安装时请先保留 APP 备份，自行处理应用目录冲突，不要删除账号数据。此 cask 不会安装 Google 的 `agy`，详见 [Homebrew 验证范围与限制](docs/homebrew.md)。
+配方固定了正式 ZIP 已核验的 SHA-256；v4.7.8 已在真实 Mac 上使用自定义应用目录完成 Homebrew 安装，但公开 APP 被 Gatekeeper 拒绝。升级和卸载另行验收。已有手动安装时请先保留 APP 备份，自行处理应用目录冲突，不要删除账号数据。此 cask 不会安装 Google 的 `agy`，详见 [Homebrew 验证范围与限制](docs/homebrew.md)。

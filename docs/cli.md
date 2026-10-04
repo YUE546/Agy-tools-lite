@@ -1,6 +1,6 @@
 # Tools Lite CLI (`agy-switch`)
 
-`agy-switch` manages the accounts saved by **Antigravity Tools Lite**. It is separate from Google's `agy` executable: it does not replace `agy`, start an AI session, or start an AI session. On macOS and Linux, its interactive menu also supports adding accounts through browser authorization or masked refresh-token input.
+`agy-switch` manages the accounts saved by **Antigravity Tools Lite**. It is separate from Google's `agy` executable: it does not replace `agy` or start an AI session. On macOS and Linux, its interactive menu also supports adding accounts through browser authorization or masked refresh-token input.
 
 ## Run it
 
@@ -11,7 +11,7 @@ With a CLI-enabled macOS app installed, the bundled executable accepts the same 
 "/Applications/Antigravity Tools Lite.app/Contents/MacOS/antigravity-tools" accounts list --json
 ```
 
-The [Homebrew cask](homebrew.md) installs an `agy-switch` symlink to this executable. See the linked installation guide for the public tap command.
+The 4.7.9 [Homebrew cask](homebrew.md) installs `agy-switch` and the legacy `agy-lite` alias to this executable. See the linked installation guide for the public tap command.
 
 For a local Rust build:
 
