@@ -126,6 +126,21 @@ test('family selection stays in Settings and disabled quotas show zero without a
   await expect(page.locator('.mb-availability')).toHaveText(['可用 1/7']);
   await expect(page.locator('.mb-account-identity').first()).not.toContainText('账号 A');
   const disabled = page.locator('.mb-account-row.disabled');
+  const locateDisabled = async () => {
+    // Capacity varies with platform fonts and the enabled overview sections.
+    // Find the account again after layout changes rather than assuming its page.
+    await expect.poll(async () => {
+      if (await disabled.count()) return true;
+      const next = page.getByRole('button', { name: '下一页' });
+      if (await next.isEnabled()) await next.click();
+      else {
+        const previous = page.getByRole('button', { name: '上一页' });
+        while (await previous.isEnabled()) await previous.click();
+      }
+      return false;
+    }).toBe(true);
+  };
+  await locateDisabled();
   await expect(disabled).toHaveCount(1);
   await expect(disabled.locator('.mb-account-switch')).toBeDisabled();
   await expect(disabled.locator('.mb-account-switch')).toHaveText('禁用');
@@ -135,6 +150,8 @@ test('family selection stays in Settings and disabled quotas show zero without a
   await expect(page.getByRole('heading', { name: '剩余额度' })).toBeVisible();
   expect(await calls(page, 'switch_account')).toEqual([]);
   await page.evaluate(() => (window as any).__menuFixture.setPreferences({ menu_bar: { display_scope: 'all', show_weekly: true } }));
+  await expect(page.locator('.mb-aggregate strong')).toHaveCount(2);
+  await locateDisabled();
   await expect(disabled.locator('.mb-mini strong')).toHaveText(['0%', '0%', '0%', '0%']);
   await expect(page.getByRole('button', { name: '关于应用' })).toHaveCount(0); await expect(page.getByRole('button', { name: 'GitHub', exact: true })).toBeVisible();
 });

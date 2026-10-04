@@ -46,6 +46,8 @@ try {
   await send('\x1b', 'Manually enter Refresh Token');
   await send('\x1b', 'Select a section:');
   terminal.resize(72, 24);
+  // Confirm input is still processed after the asynchronous resize event.
+  await send('\x1b[B', 'Select a section:');
   output = ''; terminal.write('\x03');
   await Promise.race([done, delay(10000).then(() => { throw new Error('Ctrl+C did not exit TUI'); })]);
   assert.equal(exited.exitCode, 0); checks++;
@@ -58,3 +60,6 @@ try {
   await delay(200);
   rmSync(root, { recursive: true, force: true });
 }
+// node-pty's Windows collector worker can outlive its already exited child.
+// All exit and fixture-cleanup assertions above must pass before ending this test process.
+process.exit(0);
