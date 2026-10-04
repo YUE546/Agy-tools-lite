@@ -98,6 +98,10 @@ export function AutoSwitchSettings() {
     const [busy, setBusy] = useState(false);
     const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+    const draftRef = useRef<AutoSwitchConfig | null>(null);
+    const draftRevisionRef = useRef(0);
+    const liveRef = useRef(true);
 
     const eligibleAccounts = accounts.filter(a => !a.disabled && !a.validation_blocked && !a.quota?.is_forbidden);
 
@@ -116,6 +120,8 @@ export function AutoSwitchSettings() {
         try {
             const [c, a, current] = await Promise.all([service.getAutoSwitchConfig(), listAccounts(), getCurrentAccount()]);
             setDraft(c);
+            draftRef.current = c;
+            draftRevisionRef.current++;
             setAccounts(a);
             setCurrentId(current?.id || null);
         } catch {
@@ -126,8 +132,10 @@ export function AutoSwitchSettings() {
     };
 
     useEffect(() => {
+        liveRef.current = true;
         void reload();
         return () => {
+            liveRef.current = false;
             if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         };
@@ -140,10 +148,18 @@ export function AutoSwitchSettings() {
 
         if (!isConfigValid(finalConfig)) return;
 
+        const revision = draftRevisionRef.current;
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         setSaveState('saving');
         setError('');
+        // Keep backend writes in edit order; an older response must not replace
+        // newer edits while the settings panels remain mounted.
+        const write = saveQueueRef.current.then(() => service.setAutoSwitchConfig(finalConfig));
+        saveQueueRef.current = write.then(() => {}, () => {});
         try {
-            const savedConfig = await service.setAutoSwitchConfig(finalConfig);
+            const savedConfig = await write;
+            if (!liveRef.current || revision !== draftRevisionRef.current) return;
+            draftRef.current = savedConfig;
             setDraft(savedConfig);
             setSaveState('saved');
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -151,27 +167,35 @@ export function AutoSwitchSettings() {
                 setSaveState('idle');
             }, 2500);
         } catch (e) {
+            if (!liveRef.current || revision !== draftRevisionRef.current) return;
             setError(t('auto_switch.save_failed', { error: String(e) }));
             setSaveState('idle');
         }
     };
 
     const patchAndSave = (patch: Partial<AutoSwitchConfig>) => {
-        if (!draft) return;
-        let next = { ...draft, ...patch };
+        if (!draftRef.current) return;
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        let next = { ...draftRef.current, ...patch };
         if (patch.enabled && (!next.candidate_account_ids || next.candidate_account_ids.length === 0)) {
             next.candidate_account_ids = eligibleAccounts.map(a => a.id);
         }
         setDraft(next);
+        draftRef.current = next;
+        draftRevisionRef.current++;
+        setSaveState('idle');
         if (isConfigValid(next)) {
             void performSave(next);
         }
     };
 
     const handleNumberChange = (field: 'reserve_percentage' | 'candidate_min_percentage', val: number) => {
-        if (!draft) return;
-        const next = { ...draft, [field]: val };
+        if (!draftRef.current) return;
+        const next = { ...draftRef.current, [field]: val };
         setDraft(next);
+        draftRef.current = next;
+        draftRevisionRef.current++;
+        setSaveState('idle');
 
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = setTimeout(() => {
@@ -183,8 +207,8 @@ export function AutoSwitchSettings() {
 
     const handleNumberBlur = () => {
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-        if (draft && isConfigValid(draft)) {
-            void performSave(draft);
+        if (draftRef.current && isConfigValid(draftRef.current)) {
+            void performSave(draftRef.current);
         }
     };
 

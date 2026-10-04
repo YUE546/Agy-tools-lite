@@ -4,7 +4,7 @@ export function setupSettingsFixture(options: { theme?: string; language?: strin
     const w = window as any;
     const callbacks: Record<number, Function> = {}; let callback = 1;
     let general = { language: options.language || 'zh', theme: options.theme || 'light', auto_refresh: false, refresh_interval: 15, auto_sync: false, sync_interval: 5,
-        desktop: { launch_at_login: false, hide_dock_icon: false, start_minimized: false }, app_localization: { enabled: false },
+        desktop: { launch_at_login: false, hide_dock_icon: false, start_minimized: false }, menu_bar: { quota_scope: 'all' },
         quota_protection: { enabled: false, threshold_percentage: 10, monitored_models: [] }, pinned_quota_models: { models: [] } };
     const accounts = ['primary', 'backup', 'studio', 'personal'].map((name, index) => ({ id: `fixture-${index}`, email: `${name}@example.invalid`, created_at: 1, last_used: 1,
         token: { access_token: '', refresh_token: '', expires_in: 0, expiry_timestamp: 0, token_type: 'Bearer' },
@@ -37,7 +37,7 @@ export function setupSettingsFixture(options: { theme?: string; language?: strin
             if (command === 'get_current_account') return copy(accounts[0]);
             if (command === 'get_desktop_settings') return copy(desktop);
             if (command === 'set_desktop_preferences') { desktop = { ...desktop, ...args.patch }; general.desktop = { launch_at_login: desktop.launch_at_login, hide_dock_icon: desktop.hide_dock_icon, start_minimized: desktop.start_minimized }; return copy(desktop); }
-            if (command === 'get_app_localization_status') return { enabled: false, state: 'unsupported_version', installed_version: 'synthetic', dictionary_version: 'fixture', dictionary_entries: 0, supported_versions: [], can_apply: false, active: false, translated: 0, supported: false, detail: null };
+            if (command === 'set_menu_bar_preferences') { general.menu_bar.quota_scope = args.quotaScope; return copy(general.menu_bar); }
             if (command === 'set_window_theme' || command === 'set_window_language') return null;
             if (command === 'plugin:event|listen') return callback++;
             if (command.startsWith('plugin:window|')) {
