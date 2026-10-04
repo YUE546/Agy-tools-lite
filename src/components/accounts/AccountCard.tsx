@@ -7,7 +7,6 @@ import { useConfigStore } from '../../stores/useConfigStore';
 import { QuotaItem } from './QuotaItem';
 import { getDisplayQuotaModels } from '../../config/modelConfig';
 import { getValidationBlockedStatusLabel } from './accountValidationStatus';
-import { formatTimeRemaining } from '../../utils/format';
 
 interface AccountCardProps {
     account: Account;
@@ -214,61 +213,24 @@ function AccountCard({
                         </div>
                     </div>
                 ) : quotaWindow === 'weekly' && weeklyItems.length > 0 ? (
-                    <div className="flex flex-col gap-2 w-full my-auto">
-                        {weeklyItems.map((item) => {
-                            const pct = item.percentage;
-                            const isHigh = pct >= 50;
-                            const isMid = pct >= 20 && pct < 50;
-                            const textColor = isHigh
-                                ? 'text-emerald-600 dark:text-emerald-400'
-                                : isMid
-                                    ? 'text-amber-600 dark:text-amber-400'
-                                    : 'text-rose-600 dark:text-rose-400';
-                            const barBg = isHigh
-                                ? 'bg-emerald-500'
-                                : isMid
-                                    ? 'bg-amber-500'
-                                    : 'bg-rose-500';
-
-                            return (
-                                <div
-                                    key={item.id}
-                                    className="px-2.5 py-2 rounded-xl border border-gray-100 dark:border-white/5 bg-gray-50/60 dark:bg-white/[0.03] flex flex-col gap-1.5 shadow-xs"
-                                >
-                                    {/* Header: Title + Pool Badge + Reset Timer + Percentage */}
-                                    <div className="flex items-center justify-between w-full">
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                            <item.Icon className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
-                                            <span className="font-semibold text-xs text-gray-800 dark:text-gray-200 truncate">
-                                                {item.title}
-                                            </span>
-                                            <span className="px-1.5 py-0.5 rounded text-[8.5px] font-semibold bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/30 shrink-0">
-                                                {item.poolBadge}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center gap-2 shrink-0">
-                                            {item.resetTime && (
-                                                <span className="flex items-center gap-0.5 text-[10px] text-gray-400 dark:text-gray-500 font-mono">
-                                                    <Clock className="w-2.5 h-2.5 shrink-0" />
-                                                    {formatTimeRemaining(item.resetTime)}
-                                                </span>
-                                            )}
-                                            <span className={cn("text-xs font-bold font-mono", textColor)}>
-                                                {pct}%
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* Progress Bar */}
-                                    <div className="h-1.5 w-full bg-gray-200/70 dark:bg-white/10 rounded-full overflow-hidden">
-                                        <div
-                                            className={cn("h-full rounded-full transition-all duration-500", barBg)}
-                                            style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
-                                        />
-                                    </div>
-                                </div>
-                            );
-                        })}
+                    <div className="grid grid-cols-1 gap-2 content-start my-auto">
+                        {weeklyItems.map((item) => (
+                            <QuotaItem
+                                key={item.id}
+                                label={
+                                    <span className="flex items-center gap-1.5 truncate">
+                                        <span>{item.title}</span>
+                                        <span className="px-1 py-0.2 rounded text-[8.5px] font-semibold bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/30 shrink-0">
+                                            {item.poolBadge}
+                                        </span>
+                                    </span>
+                                }
+                                title={`${item.title} (${item.poolBadge})`}
+                                percentage={item.percentage}
+                                resetTime={item.resetTime}
+                                Icon={item.Icon}
+                            />
+                        ))}
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 gap-2 content-start my-auto">
