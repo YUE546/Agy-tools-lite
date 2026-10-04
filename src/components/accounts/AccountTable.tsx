@@ -215,7 +215,7 @@ function SortableAccountRow({
             className={cn(
                 "group transition-colors border-b",
                 isCurrent
-                    ? "bg-blue-100/70 dark:bg-blue-950/60 border-t-2 border-b-2 border-t-blue-500/80 border-b-blue-500/80 dark:border-t-blue-400/80 dark:border-b-blue-400/80"
+                    ? "bg-blue-100/70 dark:bg-blue-950/60 border-t border-t-blue-500/80 border-b-blue-500/80 dark:border-t-blue-400/80 dark:border-b-blue-400/80"
                     : "border-gray-100 dark:border-base-200",
                 isDragging && "bg-blue-100 dark:bg-blue-900/30 shadow-lg",
                 !isDragging && (isCurrent ? "hover:bg-blue-100 dark:hover:bg-blue-900/50" : "hover:bg-gray-50 dark:hover:bg-base-200")
@@ -224,7 +224,7 @@ function SortableAccountRow({
             {/* 拖拽手柄 */}
             <td className={cn(
                 "pl-2 py-1 w-8 align-middle transition-colors",
-                isCurrent && "border-l-[6px] border-l-blue-600 dark:border-l-blue-400"
+                isCurrent && "border-l border-l-blue-500/80 dark:border-l-blue-400/80"
             )}>
                 <div
                     {...(!isDragDisabled ? attributes : {})}
@@ -326,7 +326,7 @@ function AccountRowContent({
                         )}
                         <span className={cn(
                             "text-sm break-all transition-colors leading-tight",
-                            isCurrent ? "font-extrabold text-blue-900 dark:text-blue-200" : "font-medium text-gray-900 dark:text-base-content"
+                            isCurrent ? "font-bold text-blue-800 dark:text-blue-300" : "font-medium text-gray-900 dark:text-base-content"
                         )} title={account.email}>
                             {account.email}
                         </span>
@@ -370,8 +370,8 @@ function AccountRowContent({
 
                         {/* 3. 额外状态标签 (全部后置，不挤占 Pro 对齐位置) */}
                         {isCurrent && (
-                            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-600 dark:bg-blue-500 text-white text-[10px] font-extrabold shadow-sm ring-1 ring-white/30">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
+                            <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[10px] font-bold shadow-sm border border-blue-200/50 dark:border-blue-700/50">
+                                <CheckCircle2 className="w-3 h-3" />
                                 {t('accounts.current_active', '当前生效')}
                             </span>
                         )}
@@ -751,7 +751,7 @@ function AccountTable({
                                 )}>
                                     <td className={cn(
                                         "pl-2 py-1 w-8",
-                                        activeAccount.id === currentAccountId && "border-l-[6px] border-l-blue-600 dark:border-l-blue-400"
+                                        activeAccount.id === currentAccountId && "border-l border-l-blue-500/80 dark:border-l-blue-400/80"
                                     )}>
                                         <div className="flex items-center justify-center w-6 h-6 text-blue-500">
                                             <GripVertical className="w-4 h-4" />

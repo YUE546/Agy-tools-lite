@@ -88,16 +88,11 @@ function AccountCard({
         <div className={cn(
             "h-full w-full flex flex-col p-3 rounded-xl border transition-all hover:shadow-md relative overflow-hidden",
             isCurrent
-                ? "bg-blue-50/90 border-2 border-blue-600 dark:bg-blue-950/50 dark:border-blue-400 shadow-md ring-2 ring-blue-500/20 dark:ring-blue-400/25"
+                ? "bg-blue-50/80 border-blue-500/80 dark:bg-blue-950/40 dark:border-blue-400/80"
                 : "bg-white dark:bg-base-100 border-gray-200 dark:border-base-300",
             (isRefreshing || isDisabled) && "opacity-70",
             isDragging && "shadow-xl ring-2 ring-blue-500/30"
         )}>
-            {/* 顶部醒目高亮彩条 */}
-            {isCurrent && (
-                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500" />
-            )}
-
             {/* Header: Grip Handle (left) + Column (Row 1: Checkbox + Full Email, Row 2: Badges + Date) */}
             <div className="flex-none flex items-start gap-1.5 mb-2.5">
                 {dragHandleProps && (
@@ -125,7 +120,7 @@ function AccountCard({
                         )}
                         <h3 className={cn(
                             "text-sm truncate flex-1 min-w-0",
-                            isCurrent ? "font-extrabold text-blue-900 dark:text-blue-200" : "font-semibold text-gray-900 dark:text-base-content"
+                            isCurrent ? "font-bold text-blue-800 dark:text-blue-300" : "font-semibold text-gray-900 dark:text-base-content"
                         )} title={account.email}>
                             {account.email}
                         </h3>
@@ -171,8 +166,8 @@ function AccountCard({
 
                             {/* 3. 额外状态标签 (全部后置，不挤占 Pro 对齐位置) */}
                             {isCurrent && (
-                                <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-600 dark:bg-blue-500 text-white text-[9px] font-extrabold shadow-sm ring-1 ring-white/30">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
+                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[9px] font-bold shadow-sm border border-blue-200/50 dark:border-blue-700/50">
+                                    <CheckCircle2 className="w-2.5 h-2.5" />
                                     {t('accounts.current_active', '当前生效')}
                                 </span>
                             )}
