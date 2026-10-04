@@ -40,6 +40,7 @@ import {
     ArrowUpDown,
     ArrowUp,
     ArrowDown,
+    CheckCircle2,
 } from 'lucide-react';
 import type { Account } from '../../types/account';
 import { useTranslation } from 'react-i18next';
@@ -212,16 +213,18 @@ function SortableAccountRow({
             ref={setNodeRef}
             style={style as React.CSSProperties}
             className={cn(
-                "group transition-colors border-b border-gray-100 dark:border-base-200",
-                isCurrent && "bg-blue-50/75 dark:bg-blue-950/35",
+                "group transition-colors border-b",
+                isCurrent
+                    ? "bg-blue-100/70 dark:bg-blue-950/60 border-t-2 border-b-2 border-t-blue-500/80 border-b-blue-500/80 dark:border-t-blue-400/80 dark:border-b-blue-400/80"
+                    : "border-gray-100 dark:border-base-200",
                 isDragging && "bg-blue-100 dark:bg-blue-900/30 shadow-lg",
-                !isDragging && (isCurrent ? "hover:bg-blue-100/60 dark:hover:bg-blue-900/40" : "hover:bg-gray-50 dark:hover:bg-base-200")
+                !isDragging && (isCurrent ? "hover:bg-blue-100 dark:hover:bg-blue-900/50" : "hover:bg-gray-50 dark:hover:bg-base-200")
             )}
         >
             {/* 拖拽手柄 */}
             <td className={cn(
                 "pl-2 py-1 w-8 align-middle transition-colors",
-                isCurrent && "border-l-4 border-l-blue-600 dark:border-l-blue-500"
+                isCurrent && "border-l-[6px] border-l-blue-600 dark:border-l-blue-400"
             )}>
                 <div
                     {...(!isDragDisabled ? attributes : {})}
@@ -230,7 +233,9 @@ function SortableAccountRow({
                         "flex items-center justify-center w-6 h-6 rounded transition-colors",
                         isDragDisabled
                             ? "text-gray-200 dark:text-gray-700 cursor-not-allowed opacity-40"
-                            : "cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            : (isCurrent
+                                ? "cursor-grab active:cursor-grabbing text-blue-600 dark:text-blue-400 hover:bg-blue-200/50 dark:hover:bg-blue-900/40"
+                                : "cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700")
                     )}
                     title={isDragDisabled ? t('accounts.drag_disabled_during_sort', '已激活列排序，拖拽排序已暂停') : t('accounts.drag_to_reorder')}
                 >
@@ -315,12 +320,17 @@ function AccountRowContent({
             {/* 邮箱列 */}
             <td className="px-2 py-1 align-middle">
                 <div className="flex flex-col justify-center gap-1">
-                    <span className={cn(
-                        "text-sm break-all transition-colors leading-tight",
-                        isCurrent ? "font-bold text-blue-800 dark:text-blue-300" : "font-medium text-gray-900 dark:text-base-content"
-                    )} title={account.email}>
-                        {account.email}
-                    </span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        {isCurrent && (
+                            <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                        )}
+                        <span className={cn(
+                            "text-sm break-all transition-colors leading-tight",
+                            isCurrent ? "font-extrabold text-blue-900 dark:text-blue-200" : "font-medium text-gray-900 dark:text-base-content"
+                        )} title={account.email}>
+                            {account.email}
+                        </span>
+                    </div>
 
                     <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
                         {/* 1. 订阅类型徽章 (始终置前，上下对齐) */}
@@ -360,9 +370,9 @@ function AccountRowContent({
 
                         {/* 3. 额外状态标签 (全部后置，不挤占 Pro 对齐位置) */}
                         {isCurrent && (
-                            <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-600 dark:bg-blue-500 text-white text-[10px] font-bold shadow-xs">
-                                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                                {t('accounts.current').toUpperCase()}
+                            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-600 dark:bg-blue-500 text-white text-[10px] font-extrabold shadow-sm ring-1 ring-white/30">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
+                                {t('accounts.current_active', '当前生效')}
                             </span>
                         )}
                         {isDisabled && (
@@ -468,7 +478,7 @@ function AccountRowContent({
                 "px-1 py-1 sticky right-0 z-10 shadow-[-12px_0_12px_-12px_rgba(0,0,0,0.1)] dark:shadow-[-12px_0_12px_-12px_rgba(255,255,255,0.05)] text-center align-middle transition-colors",
                 // 动态背景色处理
                 isCurrent
-                    ? "bg-[#eaf2fc] dark:bg-[#152033] group-hover:bg-[#e0ecfa] dark:group-hover:bg-[#1a2942]"
+                    ? "bg-[#dbeafe] dark:bg-[#15243e] group-hover:bg-[#bfdbfe] dark:group-hover:bg-[#1e345b]"
                     : "bg-white dark:bg-base-100 group-hover:bg-gray-50 dark:group-hover:bg-base-200"
             )}>
                 <div className="flex items-center justify-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity max-w-[120px] mx-auto">
@@ -737,11 +747,11 @@ function AccountTable({
                             <tbody>
                                 <tr className={cn(
                                     "border-b border-gray-100 dark:border-base-200",
-                                    activeAccount.id === currentAccountId ? "bg-blue-50/75 dark:bg-blue-950/35" : "bg-blue-50 dark:bg-blue-900/30"
+                                    activeAccount.id === currentAccountId ? "bg-blue-100/70 dark:bg-blue-950/60" : "bg-blue-50 dark:bg-blue-900/30"
                                 )}>
                                     <td className={cn(
                                         "pl-2 py-1 w-8",
-                                        activeAccount.id === currentAccountId && "border-l-4 border-l-blue-600 dark:border-l-blue-500"
+                                        activeAccount.id === currentAccountId && "border-l-[6px] border-l-blue-600 dark:border-l-blue-400"
                                     )}>
                                         <div className="flex items-center justify-center w-6 h-6 text-blue-500">
                                             <GripVertical className="w-4 h-4" />

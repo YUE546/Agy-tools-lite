@@ -134,6 +134,7 @@
     "refresh_selected": "Refresh ({{count}})",
     "delete_selected": "Delete ({{count}})",
     "current": "Current",
+    "current_active": "ACTIVE",
     "disabled": "Disabled",
     "disabled_tooltip": "Account disabled: sign-in expired or revoked. Sign in again to restore it.",
     "forbidden": "403",

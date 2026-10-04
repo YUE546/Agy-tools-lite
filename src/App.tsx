@@ -46,7 +46,9 @@ function App() {
 
   useEffect(() => {
     loadConfig();
-  }, [loadConfig]);
+    fetchCurrentAccount();
+    fetchAccounts();
+  }, [loadConfig, fetchCurrentAccount, fetchAccounts]);
 
   // Sync language from config
   useEffect(() => {

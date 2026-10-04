@@ -134,6 +134,7 @@
     "refresh_selected": "刷新 ({{count}})",
     "delete_selected": "删除 ({{count}})",
     "current": "当前",
+    "current_active": "当前生效",
     "disabled": "已禁用",
     "disabled_tooltip": "账号已停用：授权已失效或被撤销。重新登录后即可恢复。",
     "forbidden": "403",
