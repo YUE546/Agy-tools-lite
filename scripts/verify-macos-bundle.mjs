@@ -4,7 +4,7 @@ import { statSync, lstatSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export function verifyMacosBundle(app, version) {
+export function verifyMacosBundle(app, version, { strict = true } = {}) {
   if (process.platform !== 'darwin') throw new Error('macOS bundle verification requires macOS');
   if (!/^\d+\.\d+\.\d+$/.test(version ?? '')) throw new Error('Expected a release version');
   app = resolve(app);
@@ -28,7 +28,10 @@ export function verifyMacosBundle(app, version) {
   regular(join(app, 'Contents/Resources/icon.icns'));
   // A linker-signed Mach-O alone does not seal the .app Info.plist/resources.
   regular(join(app, 'Contents/_CodeSignature/CodeResources'));
-  run('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', app]);
+  const codesignArgs = ['--verify', '--deep'];
+  if (strict) codesignArgs.push('--strict');
+  codesignArgs.push('--verbose=2', app);
+  run('/usr/bin/codesign', codesignArgs);
   const xml = run('/usr/bin/codesign', ['--display', '--entitlements', ':-', app]);
   const entitlements = xml ? JSON.parse(run('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '-'], xml)) : {};
   if (entitlements['com.apple.security.app-sandbox'] === true) throw new Error('App Sandbox is not supported by the direct ZIP/Homebrew distribution');

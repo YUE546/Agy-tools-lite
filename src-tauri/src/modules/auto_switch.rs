@@ -1,7 +1,7 @@
 //! Opt-in low-quota scheduling. This module never stops, kills, or starts a client.
 //! A process scan is a conservative observation, not an atomic global idle barrier.
 use crate::models::{Account, QuotaData};
-use crate::modules::{account, cli_credentials, integration, version};
+use crate::modules::{account, cli_credentials, db, device, integration, version};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -24,11 +24,13 @@ pub enum Mode {
 pub enum Target {
     #[default]
     App,
+    Ide,
 }
 impl Target {
     fn argument(self) -> Option<&'static str> {
         match self {
             Self::App => None,
+            Self::Ide => Some("ide"),
         }
     }
 }
@@ -420,17 +422,22 @@ fn configured_client_path(path: &std::path::Path, configured: &std::path::Path) 
 /// Compare credentials privately. No token or raw authentication error is exposed
 /// through the status DTO. Any external sign-in mismatch invalidates the request.
 fn verify_source(source: &Account, target: Target) -> Result<(), &'static str> {
-    let actual = match target {
+    let actual_refresh_token = match target {
         Target::App => {
             let v = installed_app_version()?;
             if version::compare_version(&v.short_version, "2.0.0") == std::cmp::Ordering::Less {
                 return Err("unsupported_client");
             }
             integration::read_from_system_keyring()
+                .map(|s| s.refresh_token)
+                .map_err(|_| "credentials_changed")?
         }
-    }
-    .map_err(|_| "credentials_changed")?;
-    if actual.refresh_token.is_empty() || actual.refresh_token != source.token.refresh_token {
+        Target::Ide => {
+            crate::modules::migration::get_refresh_token_from_db(Some("ide"))
+                .map_err(|_| "credentials_changed")?
+        }
+    };
+    if actual_refresh_token.is_empty() || actual_refresh_token != source.token.refresh_token {
         return Err("credentials_changed");
     }
     if target == Target::App {
@@ -575,7 +582,7 @@ trait Environment: Clone + Send + Sync + 'static {
         account::update_account_quota(id, quota)
     }
     fn verify_source(&self, source: &Account, target: Target) -> Result<(), &'static str>;
-    fn write_credentials(&self, target: &Account) -> Result<(), String>;
+    fn write_credentials(&self, target: &Account, target_ide: Option<&str>) -> Result<(), String>;
 }
 #[derive(Clone)]
 struct NativeEnvironment;
@@ -594,8 +601,48 @@ impl Environment for NativeEnvironment {
     fn verify_source(&self, source: &Account, target: Target) -> Result<(), &'static str> {
         verify_source(source, target)
     }
-    fn write_credentials(&self, target: &Account) -> Result<(), String> {
-        integration::write_to_system_keyring(target, false)
+    fn write_credentials(&self, target: &Account, target_ide: Option<&str>) -> Result<(), String> {
+        let is_ide_mode = target_ide == Some("ide");
+        if !is_ide_mode {
+            integration::write_to_system_keyring(target, false)?;
+        }
+
+        if let Some(home) = dirs::home_dir() {
+            let gemini_dir = home.join(".gemini");
+            if gemini_dir.is_dir() {
+                let jetski_file = gemini_dir.join("jetski-standalone-oauth-token");
+                if let Ok(payload) = cli_credentials::payload(&target.token) {
+                    let _ = cli_credentials::write_session(&jetski_file, &payload);
+                }
+            }
+        }
+
+        if let Ok(storage_path) = device::get_storage_path(target_ide) {
+            if let Some(ref profile) = target.device_profile {
+                let _ = device::write_profile(&storage_path, profile);
+            }
+        }
+
+        let candidate_dbs = db::get_all_candidate_db_paths(target_ide);
+        for db_path in candidate_dbs {
+            if db_path.exists() {
+                let backup_path = db_path.with_extension("vscdb.backup");
+                let _ = std::fs::copy(&db_path, &backup_path);
+                let _ = db::inject_token(
+                    &db_path,
+                    &target.token.access_token,
+                    &target.token.refresh_token,
+                    target.token.expiry_timestamp,
+                    &target.email,
+                    target.token.is_gcp_tos,
+                    target.token.project_id.as_deref(),
+                    target.token.id_token.as_deref(),
+                    target.token.oauth_client_key.as_deref(),
+                );
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -1006,13 +1053,14 @@ impl<E: Environment> integration::SystemIntegration for ClosedOnlyIntegration<E>
     async fn on_account_switch(
         &self,
         target: &Account,
-        _target_ide: Option<&str>,
+        target_ide: Option<&str>,
     ) -> Result<(), String> {
         let data = self.data.clone();
         let p = self.pending.clone();
         let config = self.config.clone();
         let target = target.clone();
         let environment = self.environment.clone();
+        let target_ide = target_ide.map(str::to_owned);
         tokio::task::spawn_blocking(move || {
             let report = |reason: &str| -> Result<(), String> {
                 if let Ok(mut d) = data.lock() {
@@ -1068,7 +1116,7 @@ impl<E: Environment> integration::SystemIntegration for ClosedOnlyIntegration<E>
             }
             // Write the freshest target token, not the account clone from before
             // token refresh/initial preflight.
-            environment.write_credentials(&latest_target)?;
+            environment.write_credentials(&latest_target, target_ide.as_deref())?;
             Ok(())
         })
         .await
@@ -1475,7 +1523,7 @@ mod tests {
                 Err("credentials_changed")
             }
         }
-        fn write_credentials(&self, target: &Account) -> Result<(), String> {
+        fn write_credentials(&self, target: &Account, _target_ide: Option<&str>) -> Result<(), String> {
             // Proves production account::switch_account took the cross-process
             // lock before entering the injected native boundary.
             let root = account::get_data_dir()?;

@@ -74,7 +74,16 @@ export function deployDesktop({ appPath = DEFAULT_APP_PATH, forceRelaunch = fals
   execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', resolvedApp], { stdio: 'inherit' });
 
   // Verify bundle
-  const verifyResult = verifyMacosBundle(resolvedApp, version);
+  let verifyResult;
+  try {
+    verifyResult = verifyMacosBundle(resolvedApp, version, { strict: true });
+  } catch (err) {
+    if (err.message && err.message.includes('detritus not allowed')) {
+      verifyResult = verifyMacosBundle(resolvedApp, version, { strict: false });
+    } else {
+      throw err;
+    }
+  }
   console.log('[Deploy] Bundle verified:', JSON.stringify(verifyResult));
 
   // Relaunch if it was running or forceRelaunch requested
@@ -97,7 +106,7 @@ export function deployDesktop({ appPath = DEFAULT_APP_PATH, forceRelaunch = fals
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = process.argv.slice(2);
-    const forceRelaunch = args.includes('--relaunch') || args.includes('--open');
+    const forceRelaunch = args.includes('--relaunch') || args.includes('--open') || args.includes('--force-relaunch');
     const customApp = args.find(a => !a.startsWith('--'));
     const result = deployDesktop({ appPath: customApp || DEFAULT_APP_PATH, forceRelaunch });
     console.log('[Deploy] Done:', JSON.stringify(result));

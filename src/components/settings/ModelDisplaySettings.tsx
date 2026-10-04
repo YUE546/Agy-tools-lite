@@ -299,7 +299,7 @@ export default function ModelDisplaySettings({ onClose, embedded = false }: Mode
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-gray-100 dark:border-slate-800 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                    💡 {t('model_display.hint', '勾选后实时生效。已为您自动合并同系列多档位（如 High/Medium/Low），前台卡片与表格将以最简洁的合并视图监控其实际共享额度。')}
+                    {t('model_display.hint', '勾选后实时生效。已为您自动合并同系列多档位（如 High/Medium/Low），前台卡片与表格将以最简洁的合并视图监控其实际共享额度。')}
                 </div>
             </section>
 

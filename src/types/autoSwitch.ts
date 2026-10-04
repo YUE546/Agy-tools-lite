@@ -6,7 +6,7 @@ export interface AutoSwitchConfig {
     candidate_min_percentage: number;
     monitored_model: string;
     candidate_account_ids: string[];
-    target: 'app';
+    target: 'app' | 'ide';
 }
 export interface AutoSwitchStatus {
     phase: 'disabled' | 'monitoring' | 'blocked' | 'pending' | 'canceled' | 'switching' | 'completed';
