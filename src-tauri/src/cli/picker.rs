@@ -1619,7 +1619,7 @@ fn show_accounts_and_quotas_hub(root: &Path, lang: Lang) {
                         "选择生效目标:",
                         vec![
                             "1. AntiGravity 桌面应用与命令行 (同步生效)",
-                            "2. AntiGravity 独立环境 (专属通道)",
+                            "2. AntiGravity IDE / VS Code 插件 (独立通道)",
                             "0. 取消并返回",
                         ],
                     ),
@@ -1627,7 +1627,7 @@ fn show_accounts_and_quotas_hub(root: &Path, lang: Lang) {
                         "Select Target:",
                         vec![
                             "1. Desktop App and CLI (Default sync)",
-                            "2. Dedicated IDE Channel",
+                            "2. AntiGravity IDE / VS Code Plugin (Independent)",
                             "0. Cancel",
                         ],
                     ),
@@ -2702,8 +2702,8 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
     };
 
     let ide_details = match lang {
-        Lang::Zh => "支持独立通道关联",
-        Lang::En => "Independent IDE channel supported",
+        Lang::Zh => "支持独立 IDE 或 VS Code 插件凭据关联",
+        Lang::En => "Independent IDE or VS Code plugin supported",
     };
 
     let active_info = if let Ok(curr) = snapshot.current() {
@@ -2740,7 +2740,7 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
     let rows = match lang {
         Lang::Zh => vec![
             vec!["AntiGravity 桌面应用".into(), app_status.into(), app_path_str],
-            vec!["AntiGravity 独立环境".into(), ide_status.into(), ide_details.into()],
+            vec!["AntiGravity IDE / VS Code 插件".into(), ide_status.into(), ide_details.into()],
             vec!["本地数据存储".into(), "正常".into(), storage_status],
             vec!["当前生效账号".into(), "生效".into(), active_info],
             vec![
@@ -2751,7 +2751,7 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
         ],
         Lang::En => vec![
             vec!["AntiGravity Desktop App".into(), app_status.into(), app_path_str],
-            vec!["AntiGravity IDE Channel".into(), ide_status.into(), ide_details.into()],
+            vec!["AntiGravity IDE / VS Code Plugin".into(), ide_status.into(), ide_details.into()],
             vec!["Local Data Storage".into(), "Normal".into(), storage_status],
             vec!["Active Account".into(), "Active".into(), active_info],
             vec![
