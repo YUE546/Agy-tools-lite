@@ -1,0 +1,17 @@
+# In-app updates
+
+The app checks the latest stable GitHub release and shows the version of the running executable separately from the available version. Checking for updates never installs anything. Select **Download and install** to download the package, verify its update signature, install it and restart where supported.
+
+The backend chooses the platform package from the project's release feed. The frontend cannot supply a download URL or installation path. A second update cannot run concurrently. A changed release, invalid signature or failed download stops before installation. Account data remains outside the application bundle.
+
+Update signatures use a project key pinned in the application. The encrypted private key and its password are GitHub Actions secrets; neither is checked into the repository. Pull-request builds receive no signing secrets and their updater feed is explicitly an unsigned candidate. Public release verification checks both the package signature and its authenticated comment before publishing.
+
+## Platform behavior
+
+- **macOS:** the downloaded bundle must pass both strict code-signature integrity and Gatekeeper assessment before replacing the running app. Replacement uses a staging directory on the same volume, with restoration of the previous bundle if the replacement fails. No quarantine attributes or system security settings are changed. Current releases have no Developer ID signing or notarization and therefore cannot pass unattended installation on this machine. The app reports this limitation and keeps the installed version.
+- **Windows:** the signed NSIS update package runs in passive mode and relaunches the app. Windows may still display publisher or security prompts because the installer has no Authenticode certificate.
+- **Linux deb:** the updater uses the native package installer. Installing a system package may require authentication; it is not a silent privilege escalation. A standalone CLI installation continues to be updated by replacing its console package.
+
+The updater signature is separate from Apple Developer ID or Windows Authenticode signing. A successful download verification does not imply operating-system trust.
+
+Older versions that only open the release page require a one-time installation of a version containing the new updater. They cannot acquire this behavior merely by checking for updates. Homebrew-managed installations may continue using `brew upgrade --cask antigravity-tools-lite` to keep the Homebrew receipt aligned.

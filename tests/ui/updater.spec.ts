@@ -10,7 +10,12 @@ for (const language of ['zh', 'en']) test(`update prompt and manual check are lo
                 if(w.__updateFixture.fail)throw 'raw backend language should not appear';
                 return {current_version:'4.7.8',latest_version:'v4.7.9',has_update:w.__updateFixture.newer,release_url:'https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.7.9'};
             }
-            if(command==='plugin:opener|open_url')return null;
+            if(command==='get_running_version')return '4.7.8';
+            if(command==='download_and_install_update'){
+                args.progress.onmessage({stage:'downloading',downloaded:50,total:100});
+                await new Promise(resolve=>setTimeout(resolve,300));
+                throw 'update_mac_trust_required';
+            }
             return original(command,args);
         };
     };
@@ -19,6 +24,13 @@ for (const language of ['zh', 'en']) test(`update prompt and manual check are lo
     const check=page.getByRole('button',{name:language==='zh'?'检查更新':'Check for updates',exact:true});
     await check.click(); const dialog=page.getByRole('dialog'); await expect(dialog).toBeVisible();
     if(language==='en')expect(await dialog.innerText()).not.toMatch(/[\u3400-\u9fff]/);
+    expect(await page.evaluate(()=>(window as any).__updateFixture.calls)).not.toContain('download_and_install_update');
+    await dialog.getByRole('button',{name:language==='zh'?'下载并安装':'Download and install'}).click();
+    await expect(dialog.getByRole('status')).toContainText('50%');
+    expect(await page.evaluate(()=>Boolean(document.activeElement?.closest('[role=dialog]')))).toBe(true);
+    await page.keyboard.press('Escape'); await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('alert')).toContainText(language==='zh'?'未通过 macOS':'did not pass macOS');
+    await expect(dialog.getByRole('status')).toHaveCount(0);
     await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
     expect(await page.evaluate(()=>localStorage.getItem('dismissed_release'))).toBe('v4.7.9');
     await page.getByLabel(language==='zh'?'启动时检查更新':'Check for updates on startup').uncheck();
@@ -28,5 +40,5 @@ for (const language of ['zh', 'en']) test(`update prompt and manual check are lo
     await page.evaluate(()=>{(window as any).__updateFixture.fail=true;}); await check.click();
     await expect(page.getByRole('alert')).toContainText(language==='zh'?'暂时无法检查更新':'Could not check for updates');
     expect(await page.locator('main').innerText()).not.toContain('raw backend');
-    expect(await page.evaluate(()=>(window as any).__updateFixture.calls)).not.toContain('download_and_install_update');
+    expect((await page.evaluate(()=>(window as any).__updateFixture.calls)).filter((c:string)=>c==='download_and_install_update')).toHaveLength(1);
 });

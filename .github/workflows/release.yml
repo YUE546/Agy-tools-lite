@@ -7,6 +7,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/release.yml
+      - scripts/update-assets.mjs
       - scripts/release-assets.mjs
       - scripts/publish-release.mjs
       - scripts/test-release.mjs
@@ -120,6 +121,17 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: bash scripts/test-linux-package.sh "artifacts/release/Antigravity-Tools-Lite-${VERSION}-linux-amd64.deb"
+      - name: Sign linux-amd64.deb updater package
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ -n "$TAURI_SIGNING_PRIVATE_KEY" ]]
+          npm run tauri signer sign -- "artifacts/release/Antigravity-Tools-Lite-${VERSION}-linux-amd64.deb" > /dev/null
       - uses: actions/upload-artifact@v4
         with:
           name: release-linux-${{ needs.prepare.outputs.commit }}
@@ -198,6 +210,17 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: ./scripts/test-windows-installer.ps1 -Installer "artifacts/release/Antigravity-Tools-Lite-$env:VERSION-windows-x64-setup.exe"
+      - name: Sign windows-x64-setup.exe updater package
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ -n "$TAURI_SIGNING_PRIVATE_KEY" ]]
+          npm run tauri signer sign -- "artifacts/release/Antigravity-Tools-Lite-${VERSION}-windows-x64-setup.exe" > /dev/null
       - uses: actions/upload-artifact@v4
         with:
           name: release-windows-${{ needs.prepare.outputs.commit }}
@@ -257,10 +280,22 @@ jobs:
           ROUNDTRIP="$(mktemp -d "$RUNNER_TEMP/agy-macos-archive.XXXXXX")"
           ditto -x -k "artifacts/release/$NAME" "$ROUNDTRIP"
           node scripts/verify-macos-bundle.mjs "$ROUNDTRIP/Antigravity Tools Lite.app" "$VERSION"
+          tar -czf "artifacts/release/Antigravity-Tools-Lite-${VERSION}-macos-arm64.app.tar.gz" -C "$(dirname "$APP")" "$(basename "$APP")"
           node scripts/release-assets.mjs checksum "artifacts/release/$NAME"
           node scripts/generate-homebrew.mjs --archive "artifacts/release/$NAME" \
             --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${NAME}" \
             --version "$VERSION" --output artifacts/release/antigravity-tools-lite.rb
+      - name: Sign macos-arm64.app.tar.gz updater package
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ -n "$TAURI_SIGNING_PRIVATE_KEY" ]]
+          npm run tauri signer sign -- "artifacts/release/Antigravity-Tools-Lite-${VERSION}-macos-arm64.app.tar.gz" > /dev/null
       - uses: actions/upload-artifact@v4
         with:
           name: release-macos-${{ needs.prepare.outputs.commit }}
@@ -288,7 +323,10 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
-        run: node scripts/release-assets.mjs verify artifacts/release "$RELEASE_TAG" "$RELEASE_COMMIT" "$GITHUB_REPOSITORY"
+          UPDATE_CANDIDATE: ${{ github.event_name == 'pull_request' }}
+        run: |
+          node scripts/update-assets.mjs artifacts/release "${RELEASE_TAG#v}" "$GITHUB_REPOSITORY" "$([[ "$UPDATE_CANDIDATE" == true ]] && echo candidate || echo signed)"
+          node scripts/release-assets.mjs verify artifacts/release "$RELEASE_TAG" "$RELEASE_COMMIT" "$GITHUB_REPOSITORY"
 
   publish:
     name: Verify draft assets and publish
@@ -314,4 +352,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
-        run: node scripts/publish-release.mjs artifacts/release "$RELEASE_TAG" "$RELEASE_COMMIT" "$GITHUB_REPOSITORY"
+        run: |
+          node scripts/update-assets.mjs artifacts/release "${RELEASE_TAG#v}" "$GITHUB_REPOSITORY"
+          node scripts/publish-release.mjs artifacts/release "$RELEASE_TAG" "$RELEASE_COMMIT" "$GITHUB_REPOSITORY"
