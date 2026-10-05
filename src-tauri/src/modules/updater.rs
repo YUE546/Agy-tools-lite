@@ -102,6 +102,7 @@ pub async fn download_and_install(app: tauri::AppHandle, expected_version: Strin
     if update.version != metadata.latest_version.trim_start_matches('v') || !trusted_download(&update.version, update.download_url.as_str()) {
         return Err("invalid_release".into());
     }
+    if !signed_filename_matches(&update.signature, &update.download_url) { return Err("invalid_release".into()); }
     update.timeout = Some(std::time::Duration::from_secs(300));
     let mut downloaded = 0;
     let bytes = update.download(|chunk, total| {
@@ -172,5 +173,33 @@ mod download_tests {
         assert!(trusted_download("4.8.1", &valid));
         for changed in [valid.replace("anglee0323", "attacker"), valid.replace("v4.8.1", "v4.8.0"), format!("{valid}?redirect=evil"), valid.replace("https:", "http:"), "file:///tmp/update".into()] { assert!(!trusted_download("4.8.1", &changed)); }
         assert!(!trusted_download("4.8.1/path", &valid));
+    }
+}
+
+// The authenticated filename binds the signature to this version and platform even when
+// standalone signer output has no separate signed-version field. Download verifies its signature.
+fn signed_filename_matches(signature: &str, url: &url::Url) -> bool {
+    use base64::Engine;
+    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(signature) else { return false; };
+    let Ok(text) = std::str::from_utf8(&bytes) else { return false; };
+    let Some(comment) = text.lines().nth(2).and_then(|line| line.strip_prefix("trusted comment: ")) else { return false; };
+    let expected = url.path_segments().and_then(|mut segments| segments.next_back());
+    let names = comment.split('\t').filter_map(|field| field.strip_prefix("file:")).collect::<Vec<_>>();
+    names.len() == 1 && Some(names[0]) == expected
+}
+
+#[cfg(test)]
+mod signature_metadata_tests {
+    use super::*;
+    use base64::Engine;
+    #[test]
+    fn signed_filename_cannot_relabel_an_older_or_different_platform_package() {
+        let url = url::Url::parse("https://github.com/anglee0323/antigravity-tools-lite/releases/download/v4.8.1/Antigravity-Tools-Lite-4.8.1-windows-x64-setup.exe").unwrap();
+        let signed_comment = |filename: &str| base64::engine::general_purpose::STANDARD.encode(format!("untrusted comment: fixture\nfixture\ntrusted comment: timestamp:1\tfile:{filename}\nfixture\n"));
+        assert!(signed_filename_matches(&signed_comment("Antigravity-Tools-Lite-4.8.1-windows-x64-setup.exe"), &url));
+        for filename in ["Antigravity-Tools-Lite-4.8.0-windows-x64-setup.exe", "Antigravity-Tools-Lite-4.8.1-linux-amd64.deb", "Antigravity-Tools-Lite-4.8.1-windows-x64-setup.exe\tfile:other"] {
+            assert!(!signed_filename_matches(&signed_comment(filename), &url));
+        }
+        assert!(!signed_filename_matches("invalid-base64", &url));
     }
 }

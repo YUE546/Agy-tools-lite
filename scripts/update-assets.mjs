@@ -42,6 +42,9 @@ export function verifyUpdateFeed(directory, version, repository, candidate = fal
     if (!candidate) {
       if (entry.signature !== readFileSync(join(directory, `${name}.sig`), 'utf8').trim()) throw new Error('Updater signature differs from feed');
       verifyUpdateSignature(readFileSync(join(directory, name)), entry.signature, publicKey);
+      const comment = Buffer.from(entry.signature, 'base64').toString('utf8').split('\n')[2].slice('trusted comment: '.length);
+      const filenames = comment.split('\t').filter(field => field.startsWith('file:'));
+      if (filenames.length !== 1 || filenames[0] !== `file:${name}`) throw new Error('Signed filename does not match the announced release');
     } else if (entry.signature !== 'UNSIGNED-CANDIDATE-NOT-FOR-PUBLICATION') throw new Error('Unexpected candidate signature');
   }
   return [...Object.values(names).filter(name => name.endsWith('.app.tar.gz')), ...(candidate ? [] : Object.values(names).map(name => `${name}.sig`)), 'latest.json'];
