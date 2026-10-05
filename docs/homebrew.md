@@ -2,11 +2,11 @@
 
 ## Status
 
-This repository contains the **macOS Apple Silicon cask** at `Casks/antigravity-tools-lite.rb`, backed by the public [v4.8.0 release](https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.8.0). It uses this repository as an explicit-URL tap; no separate tap repository is required.
+This repository contains the **macOS Apple Silicon cask** at `Casks/antigravity-tools-lite.rb`, backed by the public [v4.8.1 release](https://github.com/anglee0323/antigravity-tools-lite/releases/tag/v4.8.1). It uses this repository as an explicit-URL tap; no separate tap repository is required.
 
-All twelve public assets were downloaded and compared with GitHub's asset digests and the source manifest. The Mac ZIP contains an ARM64 executable and bundle version 4.8.0; its path matches the `binary` stanza. The root cask is byte-for-byte identical to the release attachment, with ZIP SHA-256 `f77dadc3fb004d8f284a6d4134fb004c68ddf5c9dbde9694c808c53364544f53`. The Homebrew recipe check loads the DSL and fetches/verifies the archive without installing or launching the app.
+All seventeen v4.8.1 public assets were downloaded and checked against the source manifest; the three updater signatures also passed cryptographic verification. The Mac ZIP contains an ARM64 executable and bundle version 4.8.1. The root cask is byte-for-byte identical to the release attachment, with ZIP SHA-256 `e36a70b759c2ecbff6d3863dcc7a4a5aa4673295c7e92313b3538f196e141dc0`. See [4.8.1 verification](4.8.1-public-acceptance.md).
 
-**Native acceptance:** Homebrew upgraded v4.7.9 to v4.8.0 in `/Applications`, correctly linked `agy-switch`, and preserved twelve existing account/configuration JSON files byte-for-byte. The installed bundle passed strict signature verification. Gatekeeper rejected the app (exit 3); the quarantined Brew CLI timed out after ten seconds. This is an installation/upgrade pass, **not a launch pass**. The separately downloaded public ZIP passed 14 isolated CLI read checks and 13 real PTY checks through its `agy-switch` entry point. Uninstall and authenticated switching remain separate. No trust checks or quarantine attributes were removed. See [public-package acceptance](4.8.0-public-acceptance.md). The earlier custom-app-directory check remains recorded in [4.7.9 acceptance](release-notes/4.7.9-public-acceptance.md).
+**Historical v4.8.0 native acceptance:** Homebrew upgraded v4.7.9 to v4.8.0 in `/Applications`, correctly linked `agy-switch`, and preserved twelve existing account/configuration JSON files byte-for-byte. The installed bundle passed strict signature verification. Gatekeeper rejected the app (exit 3); the quarantined Brew CLI timed out after ten seconds. This is an installation/upgrade pass, **not a launch pass**. The separately downloaded public ZIP passed 14 isolated CLI read checks and 13 real PTY checks through its `agy-switch` entry point. Uninstall and authenticated switching remain separate. No trust checks or quarantine attributes were removed. See [public-package acceptance](4.8.0-public-acceptance.md). The earlier custom-app-directory check remains recorded in [4.7.9 acceptance](release-notes/4.7.9-public-acceptance.md).
 
 The cask installs both `Antigravity Tools Lite.app` and the management command `agy-switch`. It uses Homebrew's documented [`app` and `binary` artifacts](https://docs.brew.sh/Cask-Cookbook#stanza-binary). A separate formula would still carry the current desktop-linked executable, so no lightweight CLI-only formula is claimed here. Linux and Intel macOS Homebrew packages are not provided; use the existing Linux packages or build from source.
 
@@ -57,7 +57,7 @@ The v4.8.0 release uses complete ad-hoc bundle signing. The public ZIP extracted
 
 ## Publish the cask in this repository
 
-A separate `homebrew-*` repository is optional. Homebrew's [two-argument tap form](https://docs.brew.sh/Taps) supports this existing Git repository. The root `Casks/antigravity-tools-lite.rb` is the exact generated v4.8.0 release attachment, with its immutable archive URL and real SHA-256. A release attachment alone is not a tap entry.
+A separate `homebrew-*` repository is optional. Homebrew's [two-argument tap form](https://docs.brew.sh/Taps) supports this existing Git repository. The root `Casks/antigravity-tools-lite.rb` is the exact generated v4.8.1 release attachment, with its immutable archive URL and real SHA-256. A release attachment alone is not a tap entry.
 
 Install from the repository with:
 
