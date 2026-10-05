@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { verifyUpdateFeed } from './update-assets.mjs';
 import { renderCask } from './generate-homebrew.mjs';
 
 export function releaseVersion(tag) {
@@ -40,11 +41,13 @@ export function writeChecksum(file) {
   writeFileSync(`${file}.sha256`, `${sha256(file)}  ${name}\n`);
 }
 
-export function verifyAssets(directory, { tag, repository }) {
+export function verifyAssets(directory, { tag, repository, candidate = false }) {
   const version = releaseVersion(tag);
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository ?? '')) throw new Error('Invalid repository');
   const packages = packageNames(version);
-  const expected = [...packages, ...packages.map(p => `${p}.sha256`), 'antigravity-tools-lite.rb'].sort();
+  const updaterFiles = readdirSync(directory).includes('latest.json') ? verifyUpdateFeed(directory, version, repository, candidate) : [];
+  if (!candidate && (version.split('.').map(Number)[0] > 4 || (version.split('.').map(Number)[0] === 4 && (version.split('.').map(Number)[1] > 8 || (version.split('.').map(Number)[1] === 8 && version.split('.').map(Number)[2] >= 1)))) && !updaterFiles.length) throw new Error('Signed updater feed is required');
+  const expected = [...updaterFiles, ...packages, ...packages.map(p => `${p}.sha256`), 'antigravity-tools-lite.rb'].sort();
   const actual = readdirSync(directory).filter(name => name !== 'release-manifest.json').sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Release must contain exactly all desktop and CLI packages, their checksums, and the generated cask');
   for (const name of packages) {
@@ -73,7 +76,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (command === 'source' && args.length === 1) console.log(validateSource(process.cwd(), args[0]));
     else if (command === 'checksum' && args.length === 1) writeChecksum(args[0]);
     else if (command === 'verify' && args.length === 4) {
-      writeManifest(args[0], { tag: args[1], commit: args[2], repository: args[3] });
+      writeManifest(args[0], { tag: args[1], commit: args[2], repository: args[3], candidate: process.env.UPDATE_CANDIDATE === 'true' });
       console.log('Verified all desktop and CLI packages, checksums, generated cask and source manifest; no publication performed');
     } else throw new Error('Usage: release-assets.mjs source TAG | checksum FILE | verify DIRECTORY TAG COMMIT OWNER/REPOSITORY');
   } catch (error) { console.error(error.message); process.exitCode = 1; }

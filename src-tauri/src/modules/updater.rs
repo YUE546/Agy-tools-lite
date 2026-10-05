@@ -66,3 +66,111 @@ mod tests {
         for prerelease in [true, false] { let mut r = release("v4.7.9"); r.draft = !prerelease; r.prerelease = prerelease; assert!(evaluate("4.7.8", r).is_err()); }
     }
 }
+
+#[derive(Default)]
+pub struct UpdateRuntime(pub tokio::sync::Mutex<()>);
+
+#[derive(Clone, Serialize)]
+pub struct UpdateProgress {
+    pub stage: &'static str,
+    pub downloaded: u64,
+    pub total: Option<u64>,
+}
+
+fn trusted_download(version: &str, url: &str) -> bool {
+    if self::version(version).is_none() { return false; }
+    let platform = if cfg!(target_os = "macos") { "macos-arm64.app.tar.gz" }
+        else if cfg!(target_os = "windows") { "windows-x64-setup.exe" }
+        else { "linux-amd64.deb" };
+    url == format!("https://github.com/anglee0323/antigravity-tools-lite/releases/download/v{version}/Antigravity-Tools-Lite-{version}-{platform}")
+}
+
+/// Only a user-triggered command can download and install. The caller supplies no URL or path.
+pub async fn download_and_install(app: tauri::AppHandle, expected_version: String,
+    progress: tauri::ipc::Channel<UpdateProgress>) -> Result<(), String> {
+    use tauri::Manager;
+    use tauri_plugin_updater::UpdaterExt;
+    let runtime = app.state::<UpdateRuntime>();
+    let _guard = runtime.0.try_lock().map_err(|_| "update_busy")?;
+    let metadata = check_for_updates().await?;
+    if !metadata.has_update || metadata.latest_version.trim_start_matches('v') != expected_version.trim_start_matches('v') {
+        return Err("update_changed".into());
+    }
+    let updater = app.updater_builder().timeout(std::time::Duration::from_secs(180))
+        .build().map_err(|_| "update_unavailable")?;
+    let mut update = updater.check().await.map_err(|_| "update_unavailable")?.ok_or("update_changed")?;
+    if update.version != metadata.latest_version.trim_start_matches('v') || !trusted_download(&update.version, update.download_url.as_str()) {
+        return Err("invalid_release".into());
+    }
+    update.timeout = Some(std::time::Duration::from_secs(300));
+    let mut downloaded = 0;
+    let bytes = update.download(|chunk, total| {
+        downloaded += chunk as u64;
+        let _ = progress.send(UpdateProgress { stage: "downloading", downloaded, total });
+    }, || {}).await.map_err(|_| "update_download_failed")?;
+    let _ = progress.send(UpdateProgress { stage: "installing", downloaded, total: Some(downloaded) });
+    #[cfg(target_os = "macos")]
+    install_macos(&bytes, &update.version)?;
+    #[cfg(not(target_os = "macos"))]
+    update.install(&bytes).map_err(|_| "update_install_failed")?;
+    #[cfg(not(target_os = "windows"))]
+    app.restart();
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+/// Keep the existing app in place unless the signed update also passes macOS trust checks.
+/// No quarantine removal, administrator shell or security-policy changes are performed.
+#[cfg(target_os = "macos")]
+fn install_macos(bytes: &[u8], expected_version: &str) -> Result<(), String> {
+    use std::process::Command;
+    let exe = std::env::current_exe().map_err(|_| "update_install_failed")?;
+    let app_path = exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent()).ok_or("update_install_failed")?;
+    if app_path.extension().and_then(|e| e.to_str()) != Some("app") { return Err("update_install_failed".into()); }
+    let parent = app_path.parent().ok_or("update_install_failed")?;
+    // Same volume makes replacement and rollback atomic; lack of write access leaves the app untouched.
+    let staging = tempfile::Builder::new().prefix(".agy-update-").tempdir_in(parent).map_err(|_| "update_install_failed")?;
+    let archive = staging.path().join("update.tar.gz");
+    std::fs::write(&archive, bytes).map_err(|_| "update_install_failed")?;
+    let extracted = staging.path().join("payload");
+    std::fs::create_dir(&extracted).map_err(|_| "update_install_failed")?;
+    let status = Command::new("/usr/bin/tar").args(["-xzf"]).arg(&archive).arg("-C").arg(&extracted).status().map_err(|_| "update_install_failed")?;
+    if !status.success() { return Err("update_install_failed".into()); }
+    let candidate = extracted.join("Antigravity Tools Lite.app");
+    let info: plist::Value = plist::from_file(candidate.join("Contents/Info.plist")).map_err(|_| "invalid_release")?;
+    let info = info.as_dictionary().ok_or("invalid_release")?;
+    if info.get("CFBundleIdentifier").and_then(plist::Value::as_string) != Some("com.lbjlaq.antigravity-tools-lite")
+        || info.get("CFBundleShortVersionString").and_then(plist::Value::as_string) != Some(expected_version) {
+        return Err("invalid_release".into());
+    }
+    for (program, args) in [("/usr/bin/codesign", vec!["--verify", "--deep", "--strict"]),
+        ("/usr/sbin/spctl", vec!["--assess", "--type", "execute"])] {
+        if !Command::new(program).args(args).arg(&candidate).output().map_err(|_| "update_install_failed")?.status.success() {
+            return Err("update_mac_trust_required".into());
+        }
+    }
+    let backup = staging.path().join("previous.app");
+    std::fs::rename(app_path, &backup).map_err(|_| "update_install_failed")?;
+    if std::fs::rename(&candidate, app_path).is_err() {
+        if std::fs::rename(&backup, app_path).is_err() {
+            // Preserve the recoverable original bundle instead of deleting it with the temporary directory.
+            let _ = staging.keep();
+            return Err("update_restore_failed".into());
+        }
+        return Err("update_install_failed".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod download_tests {
+    use super::*;
+    #[test]
+    fn updater_payload_is_pinned_to_repository_version_and_platform() {
+        let suffix = if cfg!(target_os = "macos") { "macos-arm64.app.tar.gz" } else if cfg!(target_os = "windows") { "windows-x64-setup.exe" } else { "linux-amd64.deb" };
+        let valid = format!("https://github.com/anglee0323/antigravity-tools-lite/releases/download/v4.8.1/Antigravity-Tools-Lite-4.8.1-{suffix}");
+        assert!(trusted_download("4.8.1", &valid));
+        for changed in [valid.replace("anglee0323", "attacker"), valid.replace("v4.8.1", "v4.8.0"), format!("{valid}?redirect=evil"), valid.replace("https:", "http:"), "file:///tmp/update".into()] { assert!(!trusted_download("4.8.1", &changed)); }
+        assert!(!trusted_download("4.8.1/path", &valid));
+    }
+}

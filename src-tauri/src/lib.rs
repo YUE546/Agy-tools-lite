@@ -231,6 +231,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(modules::updater::UpdateRuntime::default())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .arg("--autostart")
@@ -327,6 +329,8 @@ pub fn run() {
             commands::get_menu_bar_usage,
             commands::get_api_pricing,
             commands::check_for_updates,
+            commands::download_and_install_update,
+            commands::get_running_version,
         ])
         .build(context)
         .expect("error while building tauri application")

@@ -403,7 +403,7 @@
   },
   "updater": {
     "title": "Software updates",
-    "desc": "Check GitHub Releases for a newer version.",
+    "desc": "Check for newer versions and download updates in the app.",
     "startup": "Check for updates on startup",
     "check_now": "Check for updates",
     "checking": "Checking",
@@ -414,7 +414,13 @@
     "open_release": "View release",
     "dismiss": "Later",
     "dialog_title": "Update available",
-    "dialog_desc": "Version {{version}} is ready. Download the package for your platform from the release page, or run brew upgrade if you installed with Homebrew.",
-    "open_failed": "Could not open the release page."
+    "dialog_desc": "Version {{version}} is available. The app will download and verify the update, then attempt to install it and restart.",
+    "open_failed": "Could not open the release page.",
+    "install_now": "Download and install",
+    "updating": "Updating",
+    "downloading": "Downloading",
+    "installing": "Installing",
+    "install_failed": "The update did not complete. Your current app is still available. Try again later.",
+    "mac_trust_required": "The update was downloaded and verified, but did not pass macOS app trust checks. Your current version is unchanged. This release cannot be installed automatically yet."
   }
 }

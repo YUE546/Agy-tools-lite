@@ -403,7 +403,7 @@
   },
   "updater": {
     "title": "软件更新",
-    "desc": "检查 GitHub 发布的新版本。",
+    "desc": "检查新版本并在应用内下载更新。",
     "startup": "启动时检查更新",
     "check_now": "检查更新",
     "checking": "正在检查",
@@ -414,7 +414,13 @@
     "open_release": "查看新版",
     "dismiss": "稍后",
     "dialog_title": "发现新版本",
-    "dialog_desc": "版本 {{version}} 已发布。请在发布页下载对应平台的安装包；通过 Homebrew 安装的用户也可运行 brew upgrade。",
-    "open_failed": "无法打开发布页。"
+    "dialog_desc": "版本 {{version}} 已发布。下载并校验更新包后，应用会尝试安装并重新启动。",
+    "open_failed": "无法打开发布页。",
+    "install_now": "下载并安装",
+    "updating": "正在更新",
+    "downloading": "正在下载",
+    "installing": "正在安装",
+    "install_failed": "更新未完成，当前应用保持可用。请稍后重试。",
+    "mac_trust_required": "更新包已下载并校验，但未通过 macOS 的应用信任检查。当前版本保持不变；此版本暂时无法自动安装。"
   }
 }

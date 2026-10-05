@@ -576,3 +576,11 @@ pub async fn get_api_pricing() -> Result<crate::modules::api_pricing::ApiPricing
 pub async fn check_for_updates() -> Result<crate::modules::updater::UpdateInfo, String> {
     crate::modules::updater::check_for_updates().await
 }
+
+#[tauri::command]
+pub fn get_running_version() -> String { env!("CARGO_PKG_VERSION").into() }
+
+#[tauri::command]
+pub async fn download_and_install_update(app: tauri::AppHandle, expected_version: String, progress: tauri::ipc::Channel<crate::modules::updater::UpdateProgress>) -> Result<(), String> {
+    crate::modules::updater::download_and_install(app, expected_version, progress).await
+}
