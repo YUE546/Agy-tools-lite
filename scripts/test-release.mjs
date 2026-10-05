@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { packageNames, validateSource, verifyAssets, writeChecksum, writeManifest } from './release-assets.mjs';
+import { writeUpdateFeed } from './update-assets.mjs';
 import { renderCask } from './generate-homebrew.mjs';
 import { publishRelease, releaseNotes } from './publish-release.mjs';
 
@@ -171,4 +172,14 @@ test('matching partial drafts resume without overwriting assets; conflicting dra
   const conflicting = fakeGithub({ existing: { tag_name: context.tag, draft: true, files: [[name, Buffer.from('different')]] } });
   assert.throws(() => publishRelease(directory, context, conflicting.run));
   assert.ok(!conflicting.calls.some(a => ['upload', 'edit'].includes(a[1])));
+}));
+
+
+test('unsigned updater candidates validate for CI but cannot be published', () => fixture(directory => {
+  writeFileSync(join(directory, 'Antigravity-Tools-Lite-4.7.7-macos-arm64.app.tar.gz'), 'synthetic updater');
+  writeUpdateFeed(directory, '4.7.7', context.repository, true);
+  assert.equal(verifyAssets(directory, { ...context, candidate: true }).length, 13);
+  const api = fakeGithub();
+  assert.throws(() => publishRelease(directory, { ...context, candidate: true }, api.run));
+  assert.equal(api.calls.length, 0);
 }));

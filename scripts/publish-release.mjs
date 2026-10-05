@@ -26,7 +26,7 @@ export function releaseNotes({ tag, commit, repository }) {
 export function publishRelease(directory, context, runGh = gh) {
   const { tag, repository, commit } = context;
   const version = releaseVersion(tag);
-  const expected = writeManifest(directory, context).sort();
+  const expected = writeManifest(directory, { ...context, candidate: false }).sort();
   const expectedNotes = releaseNotes(context);
   const assertNotes = release => { if (release.body !== expectedNotes) throw new Error('Release notes differ from the reviewed acceptance disclosure; review the draft before resuming'); };
   const json = args => JSON.parse(runGh(args));
