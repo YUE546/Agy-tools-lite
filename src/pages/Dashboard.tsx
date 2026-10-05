@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, BarChart3, CalendarDays, Cpu, Database, DollarSign, Info, LayoutDashboard, MessageSquare, PieChart, RefreshCw } from 'lucide-react';
+import { Activity, BarChart3, CalendarDays, Cpu, Database, DollarSign, LayoutDashboard, MessageSquare, PieChart, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { request as invoke } from '../utils/request';
 import { showToast } from '../components/common/ToastContainer';
@@ -124,16 +124,16 @@ export interface ModelCostBreakdown extends LocalTokenModel {
 }
 
 const MODEL_COLORS = [
-    '#8b5cf6', // violet-500
-    '#3b82f6', // blue-500
-    '#10b981', // emerald-500
-    '#f59e0b', // amber-500
-    '#ec4899', // pink-500
-    '#06b6d4', // cyan-500
-    '#f97316', // orange-500
-    '#6366f1', // indigo-500
-    '#14b8a6', // teal-500
-    '#a855f7', // purple-500
+    '#5b9fd6', // sky blue
+    '#65b99f', // mint
+    '#d6b45f', // soft gold
+    '#8cacca', // slate blue
+    '#87bec5', // sea glass
+    '#bf969d', // muted rose
+    '#a6b57d', // sage
+    '#7893ad', // blue gray
+    '#a9a1be', // muted lavender
+    '#bea98b', // sand
 ];
 
 type TokenChartPoint = LocalTokenTotals & {
@@ -249,7 +249,6 @@ function TokenCard({
     displayValue,
     detail,
     locale,
-    tooltipContent,
 }: {
     label: string;
     value: number;
@@ -258,9 +257,7 @@ function TokenCard({
     displayValue?: string;
     detail?: string;
     locale: string;
-    tooltipContent?: React.ReactNode;
 }) {
-    const { t } = useTranslation();
     return (
         <div className="relative group rounded-2xl border border-gray-100 bg-white p-3 shadow-sm transition-all hover:border-gray-200 hover:shadow-md dark:border-base-200 dark:bg-base-100 hover:z-30">
             <div className="mb-2 flex items-center justify-between">
@@ -270,12 +267,6 @@ function TokenCard({
                     </span>
                     {label}
                 </div>
-                {tooltipContent && (
-                    <span className="flex items-center gap-0.5 cursor-pointer rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-600 transition-colors group-hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300">
-                        <Info className="h-2.5 w-2.5" />
-                        <span>{t('local_dashboard.cost_details')}</span>
-                    </span>
-                )}
             </div>
             <div className="text-xl font-bold tracking-tight text-gray-900 dark:text-base-content" title={displayValue || formatTokens(value, locale)}>
                 {displayValue || compactTokens(value, locale)}
@@ -286,12 +277,6 @@ function TokenCard({
             >
                 {detail || `${formatTokens(value, locale)} Token`}
             </div>
-
-            {tooltipContent && (
-                <div className="pointer-events-none absolute right-0 top-full z-50 mt-1.5 hidden w-72 rounded-2xl border border-gray-100 bg-white/95 p-3.5 shadow-2xl backdrop-blur-md transition-all group-hover:pointer-events-auto group-hover:block dark:border-base-300 dark:bg-base-100/95">
-                    {tooltipContent}
-                </div>
-            )}
         </div>
     );
 }
@@ -584,49 +569,6 @@ function Dashboard() {
                         color="bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-300"
                         icon={DollarSign}
                         locale={locale}
-                        tooltipContent={
-                            <div className="space-y-2">
-                                <div className="flex items-center justify-between border-b border-gray-100 pb-1.5 dark:border-base-200">
-                                    <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">
-                                        {t('local_dashboard.model_cost_breakdown')}
-                                    </span>
-                                    <span className="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
-                                        {apiCost.unpricedModels && !apiCost.pricedModels ? t('local_dashboard.unpriced') : formatUsd(apiCost.usd)}
-                                    </span>
-                                </div>
-                                <div className="max-h-52 space-y-1.5 overflow-y-auto text-xs pr-1">
-                                    {modelCostList.map((m) => (
-                                        <div key={m.model} className="space-y-0.5">
-                                            <div className="flex items-center justify-between text-[11px]">
-                                                <div className="flex items-center gap-1.5 truncate pr-2">
-                                                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: m.color }} />
-                                                    <span className="truncate font-medium text-gray-700 dark:text-gray-300" title={m.model}>
-                                                        {m.model}
-                                                    </span>
-                                                </div>
-                                                <div className="shrink-0 font-mono">
-                                                    <span className="font-medium text-gray-800 dark:text-gray-200">{m.isPriced ? formatUsd(m.costUsd) : t('local_dashboard.unpriced')}</span>
-                                                    <span className="ml-1 text-[10px] text-gray-400">{m.isPriced && apiCost.usd > 0 ? `(${m.costPercent.toFixed(1)}%)` : ''}</span>
-                                                </div>
-                                            </div>
-                                            <div className="h-1 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-base-200">
-                                                <div className="h-full rounded-full transition-all" style={{ width: `${m.costPercent}%`, backgroundColor: m.color }} />
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {!modelCostList.filter((m) => m.costUsd > 0).length && (
-                                        <div className="py-2 text-center text-[11px] text-gray-400">
-                                            {t(apiCost.unpricedModels ? 'local_dashboard.pricing_pending' : 'local_dashboard.no_cost_in_range')}
-                                        </div>
-                                    )}
-                                </div>
-                                {apiCost.unpricedModels > 0 && (
-                                    <div className="border-t border-gray-100 pt-1 text-[10px] text-gray-400 dark:border-base-200">
-                                        {t('local_dashboard.unpriced_models_hint', { count: apiCost.unpricedModels })}
-                                    </div>
-                                )}
-                            </div>
-                        }
                     />
                 </div>
 
@@ -717,14 +659,8 @@ function Dashboard() {
                         <div className="mb-1.5 flex items-center justify-between">
                             <div>
                                 <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-base-content">
-                                    {modelViewMode === 'cost' ? (
-                                        <PieChart className="h-4 w-4 text-amber-500" />
-                                    ) : (
-                                        <Cpu className="h-4 w-4 text-purple-500" />
-                                    )}
-                                    {modelViewMode === 'cost'
-                                        ? t('local_dashboard.cost_share', '费用占比')
-                                        : t('local_dashboard.model_usage', '模型用量')}
+                                    <PieChart className="h-4 w-4 text-blue-500" />
+                                    {t('local_dashboard.model_breakdown')}
                                 </h2>
                                 <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
                                     {modelViewMode === 'cost' && apiCost.unpricedModels ? t('local_dashboard.unpriced_models_hint', { count: apiCost.unpricedModels }) : t('local_dashboard.local_records', { range: rangeLabels[range] })}
@@ -736,23 +672,23 @@ function Dashboard() {
                                     onClick={() => setModelViewMode('tokens')}
                                     className={`px-2 py-0.5 text-[10px] font-medium rounded-md transition-all ${
                                         modelViewMode === 'tokens'
-                                            ? 'bg-white text-purple-600 shadow-sm dark:bg-base-100 dark:text-purple-400'
+                                            ? 'bg-white text-blue-600 shadow-sm dark:bg-base-100 dark:text-blue-400'
                                             : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'
                                     }`}
                                 >
-                                    {t('local_dashboard.view_tokens', 'Token 占比')}
+                                    {t('local_dashboard.view_tokens')}
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setModelViewMode('cost')}
                                     className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-md transition-all ${
                                         modelViewMode === 'cost'
-                                            ? 'bg-white text-amber-600 shadow-sm dark:bg-base-100 dark:text-amber-400'
+                                            ? 'bg-white text-emerald-600 shadow-sm dark:bg-base-100 dark:text-emerald-400'
                                             : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'
                                     }`}
                                 >
                                     <PieChart className="h-3 w-3" />
-                                    <span>{t('local_dashboard.view_cost_pie', '费用饼图')}</span>
+                                    <span>{t('local_dashboard.view_estimated_cost')}</span>
                                 </button>
                             </div>
                         </div>
