@@ -16,7 +16,7 @@ The desktop app and CLI share the same accounts. Linux supports desktop use as w
 
 ## Install
 
-Download the package for your platform from **[GitHub Releases](https://github.com/anglee0323/antigravity-tools-lite/releases/latest)**. Each download has a SHA-256 checksum, and `release-manifest.json` identifies its source commit.
+Download the package for your platform from **[GitHub Releases](https://github.com/anglee0323/antigravity-tools-lite/releases/latest)**. Desktop and CLI downloads include SHA-256 checksum files. Updater packages have cryptographic signatures, and `release-manifest.json` records every asset and its source commit.
 
 ### macOS
 
@@ -68,7 +68,7 @@ For terminal use alone, use `agy-switch-<version>-linux-amd64.tar.gz`. The [Linu
 | Usage | Daily and recent usage, input/output/cache breakdown, per-model cost estimates and distribution chart |
 | Quick dashboard | Today’s usage, aggregate remaining quotas, per-account quotas and explicit switch buttons |
 | Smart switching | Priority or round robin, draggable candidate order, quota thresholds and activity checks; off by default |
-| Updates | Startup or manual version checks, update notice and official release link |
+| Updates | Version checks, signed downloads, installation progress and restart where supported. [Platform limits](docs/software-updates.md) |
 | Appearance | Simplified Chinese/English, light/dark themes, model selection and quick-dashboard preferences |
 
 The quick dashboard uses the same three sections across platforms. Mac uses a native system menu; Windows and Linux use an opaque compact window. Choose Gemini, Claude/GPT or both in Settings, along with account naming, unavailable-account visibility and reset countdowns on hover, always or hidden. Quota bars use green above 60%, yellow from 20–60% and red below 20% by default. Percentages remain readable in the normal text color.

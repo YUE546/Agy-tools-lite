@@ -16,7 +16,7 @@
 
 ## 安装
 
-从 **[GitHub Releases](https://github.com/anglee0323/antigravity-tools-lite/releases/latest)** 下载对应平台的文件。每个下载包都有 SHA-256 校验文件，`release-manifest.json` 记录对应源码提交。
+从 **[GitHub Releases](https://github.com/anglee0323/antigravity-tools-lite/releases/latest)** 下载对应平台的文件。桌面和命令行下载包附有 SHA-256 校验文件，更新专用包附有签名；`release-manifest.json` 记录全部附件及对应源码提交。
 
 ### macOS
 
@@ -68,7 +68,7 @@ agy-switch              # 终端看板
 | 用量 | 每日和近期用量、输入输出与缓存构成、各模型费用估算及分布图 |
 | 快捷看板 | 今日用量、整体剩余额度、各账号额度及明确的切换按钮 |
 | 智能切换 | 优先级或轮询、拖动候选账号排序、额度阈值及活动检查，默认关闭 |
-| 更新 | 启动或手动检查版本、更新提示及官方发布页入口 |
+| 更新 | 检查版本、签名校验下载、安装进度及支持平台上的重启。[平台限制](docs/software-updates.md) |
 | 外观 | 简体中文和英文、浅色和深色主题、模型选择及快捷看板偏好 |
 
 三端快捷看板采用相同的三个信息区块。Mac 使用系统原生菜单，Windows 和 Linux 使用不透明的紧凑窗口。在设置中选择显示 Gemini、Claude/GPT 或两组系列，并调整账号名称、不可用账号的显示方式，以及重置时间的悬浮显示、始终显示或隐藏。额度条默认在大于 60% 时为绿色、20% 至 60% 时为黄色、低于 20% 时为红色；百分比使用正常文字颜色。
