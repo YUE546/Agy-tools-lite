@@ -131,3 +131,11 @@ test('candidate order supports keyboard dragging and survives saved navigation',
   await page.locator('#settings-tab-general').click(); await page.locator('#settings-tab-autoSwitch').click();
   await expect(page.locator('[data-candidate-id]').first()).toHaveAttribute('data-candidate-id', 'fixture-1');
 });
+
+test('language-change confirmation uses the selected language', async ({ page }) => {
+    await page.addInitScript({ content: `(${setupSettingsFixture.toString()})(${JSON.stringify({ language: 'zh' })});` });
+    await page.goto('/settings');
+    await page.getByRole('button', { name: 'English', exact: true }).click();
+    await expect(page.getByText('Settings saved', { exact: true })).toBeVisible();
+    await expect(page.getByText('设置已保存', { exact: true })).toHaveCount(0);
+});

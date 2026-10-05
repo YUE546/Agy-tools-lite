@@ -46,7 +46,7 @@ function Settings() {
         if (!config) return;
         try {
             await saveConfig({ ...config, ...patch }, true);
-            showToast(t('local_settings.saved'), 'success');
+            showToast(t('local_settings.saved', { lng: patch.language || config.language }), 'success');
         } catch (error) {
             showToast(t('local_settings.save_failed', { error: String(error) }), 'error');
         }
