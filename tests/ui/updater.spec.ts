@@ -27,8 +27,10 @@ for (const language of ['zh', 'en']) test(`update prompt and manual check are lo
     expect(await page.evaluate(()=>(window as any).__updateFixture.calls)).not.toContain('download_and_install_update');
     await dialog.getByRole('button',{name:language==='zh'?'下载并安装':'Download and install'}).click();
     await expect(dialog.getByRole('status')).toContainText('50%');
+    expect(await page.evaluate(()=>Boolean(document.activeElement?.closest('[role=dialog]')))).toBe(true);
     await page.keyboard.press('Escape'); await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('alert')).toContainText(language==='zh'?'未通过 macOS':'did not pass macOS');
+    await expect(dialog.getByRole('status')).toHaveCount(0);
     await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
     expect(await page.evaluate(()=>localStorage.getItem('dismissed_release'))).toBe('v4.7.9');
     await page.getByLabel(language==='zh'?'启动时检查更新':'Check for updates on startup').uncheck();

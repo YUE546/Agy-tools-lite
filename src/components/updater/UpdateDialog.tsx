@@ -10,19 +10,20 @@ export default function UpdateDialog() {
     const [busy, setBusy] = useState(false);
     const [progress, setProgress] = useState<UpdateProgress | null>(null);
     const installing = useRef(false);
+    const panel = useRef<HTMLElement>(null);
     const dismiss = () => { if (!installing.current) setDialogOpen(false); };
     const install = async () => {
         if (installing.current) return;
         installing.current = true; setBusy(true); setError(null); setProgress(null);
         try { await downloadAndInstallUpdate(updateInfo!.latest_version, setProgress); }
-        catch (failure) { setError(String(failure).includes('update_mac_trust_required') ? 'updater.mac_trust_required' : 'updater.install_failed'); }
+        catch (failure) { setProgress(null); setError(String(failure).includes('update_mac_trust_required') ? 'updater.mac_trust_required' : String(failure).includes('update_restore_failed') ? 'updater.restore_failed' : 'updater.install_failed'); }
         finally { installing.current = false; setBusy(false); }
     };
     useEffect(() => { if (!isDialogOpen) return; const previous = document.activeElement as HTMLElement; setError(null); close.current?.focus(); return () => previous?.focus(); }, [isDialogOpen]);
-    useEffect(() => { if (isDialogOpen && !busy) close.current?.focus(); }, [busy, isDialogOpen]);
+    useEffect(() => { if (isDialogOpen) (busy ? panel.current : close.current)?.focus(); }, [busy, isDialogOpen]);
     if (!isDialogOpen || !updateInfo) return null;
     return <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" onClick={dismiss}>
-        <section role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900" onClick={e => e.stopPropagation()} onKeyDown={e => {
+        <section ref={panel} tabIndex={-1} aria-busy={busy} role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900" onClick={e => e.stopPropagation()} onKeyDown={e => {
             if (e.key === 'Escape') dismiss();
             if (e.key === 'Tab') { e.preventDefault(); (document.activeElement === close.current ? view.current : close.current)?.focus(); }
         }}>
